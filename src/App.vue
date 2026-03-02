@@ -4,8 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
 import SQLHelper from "./components/SQLHelper.vue";
 import SettingsTab from "./components/SettingsTab.vue";
+
+const appVersion = ref("");
 
 const currentTab = ref("SQL-Helper");
 const currentTheme = ref("dark");
@@ -74,10 +77,16 @@ const checkForUpdates = async () => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   loadInitialSettings();
   checkForUpdates();
   window.addEventListener("keydown", handleKeyDown);
+  
+  try {
+    appVersion.value = await getVersion();
+  } catch (e) {
+    console.error("Failed to get app version", e);
+  }
 });
 </script>
 
@@ -122,6 +131,7 @@ onMounted(() => {
         </div>
         <div class="modal-body settings-modal-body">
           <SettingsTab ref="settingsRef" @theme-changed="handleThemeChanged" />
+          <div class="app-version-label" v-if="appVersion">v{{ appVersion }}</div>
         </div>
       </div>
     </div>
@@ -323,6 +333,17 @@ html, body {
 .settings-modal-body {
   padding: 0;
   overflow: hidden;
+  position: relative; /* For version label positioning */
+}
+
+.app-version-label {
+  position: absolute;
+  bottom: 10px;
+  right: 15px;
+  font-size: 0.75rem;
+  opacity: 0.5;
+  pointer-events: none;
+  font-family: monospace;
 }
 
 

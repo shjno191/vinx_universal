@@ -3,9 +3,9 @@ import { ref, computed, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
-const props = defineProps<{
-  theme: string
-}>();
+// defineProps<{
+//   theme: string
+// }>();
 
 const logPath = ref('');
 const logContent = ref('');
@@ -204,7 +204,7 @@ const highlightedLog = computed(() => {
 
   // Highlight id=xxxxxxxx (8 hex chars or similar)
   // We'll catch "id=" followed by word characters
-  return escaped.replace(/(id\s*=\s*)([a-zA-Z0-9_-]{4,})/gi, (match, prefix, id) => {
+  return escaped.replace(/(id\s*=\s*)([a-zA-Z0-9_-]{4,})/gi, (_, prefix, id) => {
     const isExisting = existingIds.has(id.toLowerCase());
     const extraClass = isExisting ? ' existing-id' : '';
     return `${prefix}<span class="clickable-id${extraClass}" data-id="${id}">${id}</span>`;

@@ -1,8 +1,9 @@
+<script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/api/process";
+import { relaunch } from "@tauri-apps/plugin-process";
 import SQLHelper from "./components/SQLHelper.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 

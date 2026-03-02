@@ -57,20 +57,26 @@ const checkForUpdates = async () => {
     }
 
     // 2. Check for update
+    console.log("Checking for updates...");
     const update = await check();
     if (update) {
+      console.log("Update found:", update.version);
       const yes = await ask(
         `A new version (${update.version}) is available. Release notes: ${update.body}\n\nDo you want to update now?`,
         { title: "Update Available", kind: "info" }
       );
 
       if (yes) {
+        console.log("Installing update...");
         await update.downloadAndInstall();
         await relaunch();
       } else {
+        console.log("Update declined by user.");
         // User declined, save the date to avoid prompting again today
         localStorage.setItem("last_update_check_date", today);
       }
+    } else {
+      console.log("No updates available.");
     }
   } catch (e) {
     console.error("Failed to check for updates:", e);

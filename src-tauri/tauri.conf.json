@@ -22,6 +22,16 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/shjno191/vinx_universal/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhGRUJBRkY3NDE4RUVDRDkKUldUWjdJNUI5Ni9yajZNalg5aW9SZGJvSHR2WHpHeHBIUEwwVlEwVTNkY2hJcVZyaEhIMDk3SWEK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

@@ -1,6 +1,8 @@
-<script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { check } from "@tauri-apps/plugin-updater";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/api/process";
 import SQLHelper from "./components/SQLHelper.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 
@@ -39,8 +41,41 @@ const handleThemeChanged = (newTheme: string) => {
   applyTheme(newTheme);
 };
 
+const checkForUpdates = async () => {
+  try {
+    // 1. Check daily cooldown
+    const lastCheck = localStorage.getItem("last_update_check_date");
+    const today = new Date().toDateString();
+    
+    if (lastCheck === today) {
+      console.log("Update check skipped: already checked today.");
+      return;
+    }
+
+    // 2. Check for update
+    const update = await check();
+    if (update) {
+      const yes = await ask(
+        `A new version (${update.version}) is available. Release notes: ${update.body}\n\nDo you want to update now?`,
+        { title: "Update Available", kind: "info" }
+      );
+
+      if (yes) {
+        await update.downloadAndInstall();
+        await relaunch();
+      } else {
+        // User declined, save the date to avoid prompting again today
+        localStorage.setItem("last_update_check_date", today);
+      }
+    }
+  } catch (e) {
+    console.error("Failed to check for updates:", e);
+  }
+};
+
 onMounted(() => {
   loadInitialSettings();
+  checkForUpdates();
   window.addEventListener("keydown", handleKeyDown);
 });
 </script>

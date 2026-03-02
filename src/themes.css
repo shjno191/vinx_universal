@@ -1,0 +1,86 @@
+:root {
+  /* Dark Theme */
+  --bg-color: #0d1117;
+  --text-color: #c9d1d9;
+  --accent-color: #818cf8;
+  /* Soothing Indigo */
+  --container-bg: #161b22;
+  --border-style: 1px solid #30363d;
+  --button-bg: #21262d;
+  --button-hover: #30363d;
+  --input-bg: #0d1117;
+  --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --border-radius: 8px;
+}
+
+:root.theme-light {
+  /* Light Theme - Softer & Calmer */
+  --bg-color: #f8fafc;
+  --text-color: #1e293b;
+  --accent-color: #6366f1;
+  /* Soft Indigo/Purple */
+  --container-bg: #ffffff;
+  --border-style: 1px solid #e2e8f0;
+  --button-bg: #f1f5f9;
+  --button-hover: #e2e8f0;
+  --input-bg: #ffffff;
+  --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --border-radius: 8px;
+}
+
+:root.theme-95 {
+  /* Windows 95 Theme */
+  --bg-color: #008080;
+  /* Teal background */
+  --text-color: #000000;
+  --accent-color: #000080;
+  /* Navy */
+  --container-bg: #c0c0c0;
+  /* Silver */
+  --border-style: 2px solid;
+  --border-top-left: #ffffff;
+  --border-bottom-right: #808080;
+  --button-bg: #c0c0c0;
+  --button-hover: #d0d0d0;
+  --input-bg: #ffffff;
+  --font-family: 'MS Sans Serif', 'Tahoma', sans-serif;
+  --border-radius: 0;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: var(--font-family);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* Common UI Utilities */
+.win95-border {
+  border: var(--border-style);
+  border-top-color: var(--border-top-left);
+  border-left-color: var(--border-top-left);
+  border-bottom-color: var(--border-bottom-right);
+  border-right-color: var(--border-bottom-right);
+  box-shadow: inset 1px 1px #fff, inset -1px -1px #808080;
+}
+
+.win95-button {
+  background: var(--button-bg);
+  border: 2px solid;
+  border-top-color: #fff;
+  border-left-color: #fff;
+  border-right-color: #808080;
+  border-bottom-color: #808080;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.win95-button:active {
+  border-top-color: #808080;
+  border-left-color: #808080;
+  border-right-color: #fff;
+  border-bottom-color: #fff;
+  padding: 5px 9px 3px 11px;
+}

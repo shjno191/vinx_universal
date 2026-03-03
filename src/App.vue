@@ -5,6 +5,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import SQLHelper from "./components/SQLHelper.vue";
+import TranslateTab from "./components/TranslateTab.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 
 const currentTab = ref("SQL-Helper");
@@ -94,9 +95,15 @@ onMounted(() => {
         >
           SQL-Helper
         </button>
+        <button 
+          @click="currentTab = 'Translate'" 
+          :class="{ 'active': currentTab === 'Translate', 'win95-button': currentTheme === '95' }"
+        >
+          Translate
+        </button>
       </div>
       <div class="nav-actions">
-        <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">⚙️</button>
+        <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
       </div>
     </nav>
 
@@ -105,6 +112,9 @@ onMounted(() => {
       <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' }">
         <div v-if="currentTab === 'SQL-Helper'" class="full-height-vif">
           <SQLHelper :theme="currentTheme" />
+        </div>
+        <div v-if="currentTab === 'Translate'" class="full-height-vif">
+          <TranslateTab />
         </div>
       </div>
     </main>
@@ -115,8 +125,8 @@ onMounted(() => {
         <div class="modal-header">
           <span>Settings</span>
           <div class="header-tools">
-            <button @click="settingsRef?.refreshSettings()" class="tool-btn" title="Refresh Settings">🔄</button>
-            <button @click="settingsRef?.openSettingsFile()" class="tool-btn" title="Open Config File">📂</button>
+            <button @click="settingsRef?.refreshSettings()" class="tool-btn" title="Refresh Settings">&#128260;</button>
+            <button @click="settingsRef?.openSettingsFile()" class="tool-btn" title="Open Config File">&#128194;</button>
             <button @click="showSettingsModal = false" class="close-btn">&times;</button>
           </div>
         </div>

@@ -5,13 +5,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
     pub theme: String,
-    // Add more settings keys here in the future
+    pub dictionary_path: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: "dark".to_string(),
+            dictionary_path: "".to_string(),
         }
     }
 }
@@ -96,6 +97,22 @@ fn read_file_content(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("File does not exist".to_string());
+    }
+    
+    fs::read(p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_file_binary(path: String, data: Vec<u8>) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    fs::write(p, data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn open_file_path(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
     if !p.exists() {
@@ -129,6 +146,8 @@ pub fn run() {
             save_settings,
             open_settings_file,
             read_file_content,
+            read_file_binary,
+            write_file_binary,
             open_file_path
         ])
         .run(tauri::generate_context!())

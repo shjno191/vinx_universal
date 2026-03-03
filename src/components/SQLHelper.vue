@@ -265,11 +265,11 @@ const isValidId = (id: string) => {
     <!-- Top Control Bar -->
     <div class="control-bar">
       <div class="file-picker-group">
-        <button @click="chooseFile" class="theme-button choose-btn">📂 Open Log File</button>
+        <button @click="chooseFile" class="theme-button choose-btn">&#128194; Open Log File</button>
         <span v-if="logPath" class="file-path-display-full" :title="logPath">{{ logPath }}</span>
         <span v-else class="file-path-placeholder"></span>
       </div>
-      <button @click="addExtraction" class="theme-button add-query-btn">➕ Add Query ID</button>
+      <button @click="addExtraction" class="theme-button add-query-btn">&#10133; Add Query ID</button>
     </div>
 
     <div class="split-workspace">
@@ -277,7 +277,7 @@ const isValidId = (id: string) => {
       <div class="log-viewer-pane">
         <div class="pane-header">
           <span>Log Content</span>
-          <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Refresh Log Content">🔄</button>
+          <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Refresh Log Content">&#128260;</button>
         </div>
         <div 
           ref="logDisplayRef"
@@ -291,7 +291,7 @@ const isValidId = (id: string) => {
       <div class="extraction-pane">
         <div class="pane-header">
           <span>GET SQL</span>
-          <button @click="clearAllExtractions" class="clear-all-btn" title="Clear All Queries">🗑️ Clear All</button>
+          <button @click="clearAllExtractions" class="clear-all-btn" title="Clear All Queries">&#128465; Clear All</button>
         </div>
         <div class="extraction-list">
           <div 

@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import * as XLSX from 'xlsx';
 
 const emit = defineEmits(['theme-changed']);
 
 const categories = [
-  { id: 'general', name: 'General', icon: 'âš™ï¸' }
+  { id: 'general', name: 'General', icon: '\u2699\uFE0F' },
+  { id: 'translate', name: 'Translate', icon: '\u{1F310}' }
 ];
 
 const currentCategory = ref('general');
 const settings = ref({
-  theme: 'dark'
+  theme: 'dark',
+  dictionary_path: ''
 });
 
 const loadSettings = async () => {
@@ -19,6 +23,25 @@ const loadSettings = async () => {
     settings.value = s as any;
   } catch (e) {
     console.error('Failed to load settings', e);
+  }
+};
+
+const chooseDictionaryFile = async () => {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{
+        name: 'Excel Files',
+        extensions: ['xlsx', 'xls']
+      }]
+    });
+    
+    if (selected && typeof selected === 'string') {
+      settings.value.dictionary_path = selected;
+      await saveSettings();
+    }
+  } catch (e) {
+    console.error('Failed to open file dialog', e);
   }
 };
 
@@ -44,9 +67,45 @@ const refreshSettings = async () => {
   emit('theme-changed', settings.value.theme);
 };
 
+const downloadTemplate = async () => {
+  try {
+    const chosenPath = await save({
+      filters: [{
+        name: 'Excel',
+        extensions: ['xlsx']
+      }],
+      defaultPath: 'Dictionary_Template.xlsx'
+    });
+
+    if (chosenPath) {
+      const data = [
+        ['Japanese (JP)', 'English (EN)', 'Vietnamese (VI)'],
+        ['‚±‚ñ‚É‚¿‚Í', 'Hello', 'Xin ch?o'],
+        ['‚ ‚è‚ª‚Æ‚¤', 'Thank you', 'C?m ?n']
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Dictionary');
+      
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const uint8 = new Uint8Array(wbout);
+      
+      await invoke('write_file_binary', { 
+        path: chosenPath, 
+        data: Array.from(uint8) 
+      });
+      alert('Template saved successfully to: ' + chosenPath);
+    }
+  } catch (e) {
+    console.error('Failed to save template:', e);
+    alert('Failed to save template: ' + e);
+  }
+};
+
 defineExpose({
   refreshSettings,
-  openSettingsFile
+  openSettingsFile,
+  downloadTemplate
 });
 
 onMounted(() => {
@@ -78,6 +137,19 @@ onMounted(() => {
             <option value="light">Light</option>
             <option value="95">Windows 95</option>
           </select>
+        </div>
+      </div>
+
+      <div v-if="currentCategory === 'translate'" class="settings-section">
+        <div class="setting-item-vertical">
+          <label>Dictionary Excel File (JP, EN, VI)</label>
+          <div class="path-picker">
+            <input v-model="settings.dictionary_path" placeholder="Path to excel file..." class="theme-input path-input" readonly />
+            <button @click="chooseDictionaryFile" class="theme-button">Browse...</button>
+          </div>
+          <div class="helper-actions">
+            <button @click="downloadTemplate" class="text-link-btn">Download Excel Template</button>
+          </div>
         </div>
       </div>
     </main>
@@ -159,6 +231,55 @@ onMounted(() => {
   border: var(--border-style);
   border-radius: var(--border-radius);
   min-width: 150px;
+}
+
+.setting-item-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+}
+
+.setting-item-vertical label {
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.path-picker {
+  display: flex;
+  gap: 10px;
+}
+
+.path-input {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+.theme-input {
+  padding: 6px 12px;
+  background-color: var(--input-bg);
+  color: var(--text-color);
+  border: var(--border-style);
+  border-radius: var(--border-radius);
+}
+
+.helper-actions {
+  margin-top: 5px;
+}
+
+.text-link-btn {
+  background: none;
+  border: none;
+  color: var(--accent-color);
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
+.text-link-btn:hover {
+  opacity: 0.8;
 }
 
 .setting-actions {

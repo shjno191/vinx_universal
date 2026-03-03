@@ -1,26 +1,101 @@
-<script setup lang="ts">
-import { ref, onMounted } from 'vue';
+﻿<script setup lang="ts">
+import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
+import { globalShortcuts, showSettingsTrigger } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
 const categories = [
   { id: 'general', name: 'General', icon: '\u2699\uFE0F' },
-  { id: 'translate', name: 'Translate', icon: '\u{1F310}' }
+  { id: 'translate', name: 'Translate', icon: '\u{1F310}' },
+  { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' }
 ];
 
 const currentCategory = ref('general');
 const settings = ref({
   theme: 'dark',
-  dictionary_path: ''
+  dictionary_path: '',
+  shortcuts: {
+    focus_search: 'ctrl+f',
+    open_settings: 'ctrl+shift+s'
+  }
 });
+
+const isRecording = ref<string | null>(null);
+const shortcutInputRef = ref<HTMLInputElement | null>(null);
+
+const startRecording = (key: string) => {
+  isRecording.value = key;
+  nextTick(() => {
+    if (shortcutInputRef.value) {
+      shortcutInputRef.value.focus();
+    }
+  });
+};
+
+const formatShortcut = (str: string) => {
+  if (!str) return 'NOT SET';
+  return str.split('+').map(part => {
+    const p = part.trim().toUpperCase();
+    if (p === 'CTRL') return 'CTRL';
+    if (p === 'SHIFT') return 'SHIFT';
+    if (p === 'ALT') return 'ALT';
+    return p;
+  }).join(' + ');
+};
+
+const handleShortcutKey = (key: string, e: KeyboardEvent) => {
+  if (!isRecording.value) return;
+  e.preventDefault();
+  e.stopPropagation();
+  
+  const k = e.key.toLowerCase();
+  if (k === 'escape') {
+    isRecording.value = null;
+    return;
+  }
+
+  // Define modifier keys to ignore as standalone keys, but track them as modifiers
+  const modifiers = ['control', 'shift', 'alt', 'meta'];
+  if (modifiers.includes(k)) return; // Wait for a non-modifier key
+  
+  const forbidden = ['capslock', 'tab', 'enter', 'backspace', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+  if (forbidden.includes(k)) return;
+
+  const parts = [];
+  if (e.ctrlKey) parts.push('ctrl');
+  if (e.shiftKey) parts.push('shift');
+  if (e.altKey) parts.push('alt');
+  if (e.metaKey) parts.push('meta');
+  
+  parts.push(k);
+  const newShortcut = parts.join('+');
+  
+  if (!settings.value.shortcuts) {
+    settings.value.shortcuts = { focus_search: 'ctrl+f', open_settings: 'ctrl+shift+s' };
+  }
+  
+  // 1. Update component state
+  (settings.value.shortcuts as any)[key] = newShortcut;
+  
+  // 2. Sync to global store immediately for real-time app update
+  (globalShortcuts.value as any)[key] = newShortcut;
+  
+  // 3. Save to persistent storage
+  saveSettings();
+  
+  isRecording.value = null;
+};
 
 const loadSettings = async () => {
   try {
-    const s = await invoke('get_settings');
-    settings.value = s as any;
+    const s = await invoke('get_settings') as any;
+    settings.value = s;
+    if (s.shortcuts) {
+      globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
+    }
   } catch (e) {
     console.error('Failed to load settings', e);
   }
@@ -80,8 +155,8 @@ const downloadTemplate = async () => {
     if (chosenPath) {
       const data = [
         ['Japanese (JP)', 'English (EN)', 'Vietnamese (VI)'],
-        ['����ɂ���', 'Hello', 'Xin ch?o'],
-        ['���肪�Ƃ�', 'Thank you', 'C?m ?n']
+        ['‚±‚ñ‚É‚¿‚Í', 'Hello', 'Xin ch?o'],
+        ['‚ ‚è‚ª‚Æ‚¤', 'Thank you', 'C?m ?n']
       ];
       const ws = XLSX.utils.aoa_to_sheet(data);
       const wb = XLSX.utils.book_new();
@@ -106,6 +181,12 @@ defineExpose({
   refreshSettings,
   openSettingsFile,
   downloadTemplate
+});
+
+watch(showSettingsTrigger, (val) => {
+  if (val && val.category) {
+    currentCategory.value = val.category;
+  }
 });
 
 onMounted(() => {
@@ -152,6 +233,29 @@ onMounted(() => {
           </div>
         </div>
       </div>
+
+      <div v-if="currentCategory === 'shortcut'" class="settings-section">
+        <div class="setting-item-vertical">
+          <label>Global Shortcuts (Click to change)</label>
+          <div class="shortcut-list">
+            <div class="shortcut-row" @click="startRecording('focus_search')">
+              <span class="shortcut-desc">Focus Dictionary Search</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'focus_search' }">
+                {{ isRecording === 'focus_search' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.focus_search) }}
+              </span>
+              <input v-if="isRecording === 'focus_search'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('focus_search', $event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('open_settings')">
+              <span class="shortcut-desc">Open Settings</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_settings' }">
+                {{ isRecording === 'open_settings' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.open_settings) }}
+              </span>
+              <input v-if="isRecording === 'open_settings'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('open_settings', $event)" @blur="isRecording = null" />
+            </div>
+          </div>
+          <p class="shortcut-hint">Tip: Press Escape to cancel recording.</p>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -159,7 +263,7 @@ onMounted(() => {
 <style scoped>
 .settings-layout {
   display: flex;
-  height: 350px;
+  height: 500px;
   background-color: var(--container-bg);
   color: var(--text-color);
 }
@@ -209,40 +313,118 @@ onMounted(() => {
   gap: 20px;
 }
 
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(128, 128, 128, 0.05);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.1);
+}
+
+.shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.2s;
+  border: 1px solid transparent;
+}
+
+.shortcut-row:hover {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: rgba(99, 102, 241, 0.1);
+}
+
+.shortcut-desc {
+  font-size: 0.9rem;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.shortcut-key {
+  background: var(--button-bg);
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: var(--border-style);
+  font-family: 'Consolas', monospace;
+  font-weight: bold;
+  font-size: 0.85rem;
+  color: var(--accent-color);
+  min-width: 100px;
+  text-align: center;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.shortcut-key.recording {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #f59e0b;
+  animation: pulse 1.5s infinite;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.02); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.hidden-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.shortcut-hint {
+  font-size: 0.75rem;
+  opacity: 0.5;
+  margin-top: 10px;
+  font-style: italic;
+  text-align: center;
+}
+
 .setting-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding-bottom: 15px;
+  padding-bottom: 20px;
   border-bottom: 1px solid rgba(128, 128, 128, 0.1);
 }
 
 .setting-item label {
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.95rem;
   flex-shrink: 0;
 }
 
 .theme-select {
-  padding: 6px 12px;
+  padding: 8px 12px;
   background-color: var(--input-bg);
   color: var(--text-color);
   border: var(--border-style);
   border-radius: var(--border-radius);
-  min-width: 150px;
+  min-width: 180px;
+  outline: none;
 }
 
 .setting-item-vertical {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-bottom: 15px;
+  gap: 12px;
+  padding-bottom: 20px;
   border-bottom: 1px solid rgba(128, 128, 128, 0.1);
 }
 
 .setting-item-vertical label {
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.95rem;
 }
 
@@ -254,14 +436,16 @@ onMounted(() => {
 .path-input {
   flex: 1;
   font-size: 0.85rem;
+  opacity: 0.8;
 }
 
 .theme-input {
-  padding: 6px 12px;
+  padding: 8px 12px;
   background-color: var(--input-bg);
   color: var(--text-color);
   border: var(--border-style);
   border-radius: var(--border-radius);
+  outline: none;
 }
 
 .helper-actions {
@@ -280,32 +464,6 @@ onMounted(() => {
 
 .text-link-btn:hover {
   opacity: 0.8;
-}
-
-.setting-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.action-item p {
-  margin: 0 0 8px 0;
-  font-size: 0.85rem;
-  opacity: 0.8;
-}
-
-.theme-button {
-  background-color: var(--button-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  padding: 8px 16px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.theme-button:hover {
-  background-color: var(--button-hover);
 }
 
 /* Win95 Variations */

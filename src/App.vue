@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
+import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -14,16 +15,58 @@ const currentTheme = ref("dark");
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
 
+const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
+  if (!shortcutStr) return false;
+  const parts = shortcutStr.toLowerCase().split('+');
+  const key = parts.pop();
+  const ctrl = parts.includes('ctrl');
+  const shift = parts.includes('shift');
+  const alt = parts.includes('alt');
+  const meta = parts.includes('meta');
+  
+  return e.key.toLowerCase() === key &&
+         e.ctrlKey === ctrl &&
+         e.shiftKey === shift &&
+         e.altKey === alt &&
+         e.metaKey === meta;
+};
+
 const handleKeyDown = (e: KeyboardEvent) => {
   if (e.key === "Escape") {
     showSettingsModal.value = false;
   }
+  
+  if (matchShortcut(e, globalShortcuts.value.focus_search)) {
+    e.preventDefault();
+    triggerDictionaryFocus.value++;
+  }
+
+  if (matchShortcut(e, globalShortcuts.value.open_settings)) {
+    e.preventDefault();
+    // Context aware category
+    let cat = 'general';
+    if (currentTab.value === 'Translate') cat = 'translate';
+    
+    showSettingsModal.value = true;
+    // We'll let SettingsTab handle the category via a prop or we can sets it here if we can access it
+    // But since it's a ref in SettingsTab, we'll use a shared state or just wait for it to mount
+    showSettingsTrigger.value = { category: cat };
+  }
 };
+
+watch(showSettingsTrigger, (val) => {
+  if (val && val.category) {
+    showSettingsModal.value = true;
+  }
+});
 
 const loadInitialSettings = async () => {
   try {
     const s = await invoke("get_settings") as any;
     currentTheme.value = s.theme;
+    if (s.shortcuts) {
+      globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
+    }
     applyTheme(s.theme);
   } catch (e) {
     console.error("Failed to load initial settings", e);
@@ -244,7 +287,7 @@ html, body {
 .content-scroll-area {
   flex: 1;
   overflow-y: auto; 
-  padding: 20px;
+  padding: 5px;
   background-color: var(--container-bg);
   border: var(--border-style);
   border-radius: var(--border-radius);
@@ -287,8 +330,8 @@ html, body {
 }
 
 .settings-modal-content {
-  width: 700px;
-  max-width: 90%;
+  width: 850px;
+  max-width: 95%;
   max-height: 90vh;
 }
 

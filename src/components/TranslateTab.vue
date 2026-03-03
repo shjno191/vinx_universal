@@ -3,7 +3,7 @@ import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { sharedInput, sharedOutput, sharedTargetLang } from '../store';
+import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus } from '../store';
 
 const subTab = ref('dictionary'); // dictionary | quick-translate
 const dictionaryData = ref<any[]>([]);
@@ -11,6 +11,7 @@ const searchQuery = ref('');
 const isStrict = ref(false);
 const isLoading = ref(false);
 const dictionaryPath = ref('');
+const dictionarySearchInput = ref<HTMLInputElement | null>(null);
 
 // Copy feedback
 const showCopyToast = ref(false);
@@ -67,11 +68,13 @@ const loadDictionary = async () => {
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
     
     if (jsonData.length > 0) {
-      const rows = jsonData.slice(1).map(row => ({
-        jp: (row[0] || '').toString(),
-        en: (row[1] || '').toString(),
-        vi: (row[2] || '').toString()
-      }));
+      const rows = jsonData.slice(1)
+        .map(row => ({
+          jp: (row[0] || '').toString().trim(),
+          en: (row[1] || '').toString().trim(),
+          vi: (row[2] || '').toString().trim()
+        }))
+        .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
       dictionaryData.value = rows;
     }
   } catch (e) {
@@ -321,6 +324,14 @@ watch(subTab, async () => {
 // Watch input to trigger translate
 watch(sharedInput, handleQuickTranslate);
 watch(sharedTargetLang, handleQuickTranslate);
+
+watch(triggerDictionaryFocus, async () => {
+  await nextTick();
+  if (dictionarySearchInput.value) {
+    dictionarySearchInput.value.focus();
+    dictionarySearchInput.value.select();
+  }
+});
 </script>
 
 <template>
@@ -331,14 +342,27 @@ watch(sharedTargetLang, handleQuickTranslate);
         <button @click="subTab = 'quick-translate'" :class="{ active: subTab === 'quick-translate' }" class="tab-pill-btn">QUICK TRANSLATE</button>
       </div>
 
-      <div v-if="subTab === 'dictionary'" class="search-container">
+      <div class="search-container">
         <div class="search-box">
           <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input v-model="searchQuery" placeholder="Search keywords..." class="header-search-input" />
+          <input v-model="searchQuery" ref="dictionarySearchInput" placeholder="Search keywords..." class="header-search-input" />
         </div>
         <div class="strict-mode">
           <input type="checkbox" id="strict-check" v-model="isStrict" />
           <label for="strict-check">STRICT</label>
+        </div>
+
+        <!-- Quick Search Popup (Only when not in dictionary tab) -->
+        <div v-if="subTab !== 'dictionary' && searchQuery && filteredDictionary.length > 0" class="quick-search-popup glass-modal">
+          <div class="popup-header">DICTIONARY RESULTS ({{ filteredDictionary.length }})</div>
+          <div class="popup-list">
+            <div v-for="(item, idx) in filteredDictionary.slice(0, 10)" :key="idx" class="popup-row" @click="copyToClipboard(item.jp, $event)">
+              <div class="popup-col jp">{{ item.jp }}</div>
+              <div class="popup-col en">{{ item.en }}</div>
+              <div class="popup-col vi">{{ item.vi }}</div>
+            </div>
+            <div v-if="filteredDictionary.length > 10" class="popup-footer" @click="subTab = 'dictionary'">And {{ filteredDictionary.length - 10 }} more... Click to view all.</div>
+          </div>
         </div>
       </div>
 
@@ -460,8 +484,37 @@ watch(sharedTargetLang, handleQuickTranslate);
 .tabs-pill { display: flex; background: rgba(128, 128, 128, 0.1); padding: 4px; border-radius: 50px; }
 .tab-pill-btn { padding: 8px 18px; border: none; background: transparent; color: var(--text-color); font-weight: 800; font-size: 0.65rem; border-radius: 40px; cursor: pointer; opacity: 0.6; transition: 0.3s; }
 .tab-pill-btn.active { background: #fff; color: #6366f1; box-shadow: 0 4px 15px rgba(0,0,0,0.1); opacity: 1; }
-.search-container { flex: 1; display: flex; align-items: center; gap: 10px; max-width: 500px; }
+.search-container { flex: 1; display: flex; align-items: center; gap: 10px; max-width: 500px; position: relative; }
 .search-box { flex: 1; display: flex; align-items: center; background: rgba(128,128,128,0.08); border-radius: 50px; padding: 0 15px; height: 36px; border: 1px solid rgba(128,128,128,0.15); }
+
+/* Quick Search Popup */
+.quick-search-popup {
+  position: absolute;
+  top: 110%;
+  left: 0;
+  width: 100%;
+  max-height: 400px;
+  background: var(--container-bg);
+  border: 1px solid var(--accent-color);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideIn 0.2s ease-out;
+}
+@keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+.popup-header { padding: 8px 15px; background: var(--accent-color); color: #fff; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.05em; }
+.popup-list { overflow-y: auto; }
+.popup-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 10px 15px; border-bottom: 1px solid rgba(128,128,128,0.08); cursor: pointer; transition: 0.2s; }
+.popup-row:hover { background: rgba(99, 102, 241, 0.05); }
+.popup-col { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.popup-col.jp { font-weight: bold; color: var(--accent-color); }
+.popup-footer { padding: 8px 15px; font-size: 0.65rem; text-align: center; opacity: 0.6; cursor: pointer; background: rgba(128,128,128,0.03); }
+.popup-footer:hover { opacity: 1; color: var(--accent-color); }
+
 .search-icon { opacity: 0.5; margin-right: 10px; color: var(--text-color); }
 .header-search-input { flex: 1; background: transparent; border: none; color: #6366f1; font-weight: 800; font-size: 0.8rem; outline: none; }
 .strict-mode { display: flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 900; opacity: 0.5; color: var(--text-color); }
@@ -494,13 +547,16 @@ watch(sharedTargetLang, handleQuickTranslate);
 .dict-table-wrapper { flex: 1; overflow-y: auto; border-radius: 12px; }
 .dict-table { width: 100%; border-collapse: collapse; }
 .dict-table th { position: sticky; top: 0; background: #6366f1; color: #fff; padding: 12px 15px; text-align: left; font-size: 0.65rem; font-weight: 800; z-index: 5; }
+.dict-table tbody tr { transition: background 0.2s; }
+.dict-table tbody tr:hover { background-color: rgba(99, 102, 241, 0.04); }
 .dict-table td { padding: 10px 15px; font-size: 0.8rem; border-bottom: 1px solid rgba(128,128,128,0.08); color: var(--text-color); }
 .clickable-cell { cursor: pointer; transition: background 0.2s; }
-.clickable-cell:hover { background: rgba(99, 102, 241, 0.05); }
+.clickable-cell:hover { background: rgba(99, 102, 241, 0.06); }
 .clickable-cell:active { background: rgba(99, 102, 241, 0.1); }
 .col-index { text-align: center; opacity: 0.4; }
 .col-actions { text-align: center; width: 80px; }
-.action-icons { display: flex; justify-content: center; gap: 5px; }
+.action-icons { display: flex; justify-content: center; gap: 5px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+.dict-table tbody tr:hover .action-icons { opacity: 1; pointer-events: auto; }
 .icon-action-btn { width: 28px; height: 28px; border: 1px solid rgba(128,128,128,0.15); background: var(--container-bg); color: var(--text-color); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
 .icon-action-btn:hover { background: var(--button-hover); }
 .icon-action-btn.edit { color: #6366f1; }
@@ -527,8 +583,8 @@ watch(sharedTargetLang, handleQuickTranslate);
   white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
   color: transparent; pointer-events: none; z-index: 2;
 }
-:deep(mark.hl-source) { background: rgba(99, 102, 241, 0.15); color: transparent; border-radius: 2px; cursor: pointer; pointer-events: auto; }
-:deep(mark.hl-target) { background: rgba(16, 185, 129, 0.2); color: transparent; border-radius: 2px; cursor: pointer; pointer-events: auto; }
+:deep(mark.hl-source) { background: transparent; color: var(--accent-color); font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; }
+:deep(mark.hl-target) { background: transparent; color: #10b981; font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; }
 
 textarea {
   flex: 1; background: transparent; border: none; padding: 15px;

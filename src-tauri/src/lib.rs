@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
@@ -6,13 +7,19 @@ use serde::{Deserialize, Serialize};
 pub struct Settings {
     pub theme: String,
     pub dictionary_path: String,
+    pub shortcuts: HashMap<String, String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
+        let mut shortcuts = HashMap::new();
+        shortcuts.insert("focus_search".to_string(), "ctrl+f".to_string());
+        shortcuts.insert("open_settings".to_string(), "ctrl+shift+s".to_string());
+        
         Self {
             theme: "dark".to_string(),
             dictionary_path: "".to_string(),
+            shortcuts,
         }
     }
 }

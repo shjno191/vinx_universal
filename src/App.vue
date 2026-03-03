@@ -6,6 +6,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import SQLHelper from "./components/SQLHelper.vue";
 import TranslateTab from "./components/TranslateTab.vue";
+import CompareTab from "./components/CompareTab.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 
 const currentTab = ref("SQL-Helper");
@@ -101,6 +102,12 @@ onMounted(() => {
         >
           Translate
         </button>
+        <button 
+          @click="currentTab = 'Compare'" 
+          :class="{ 'active': currentTab === 'Compare', 'win95-button': currentTheme === '95' }"
+        >
+          Compare
+        </button>
       </div>
       <div class="nav-actions">
         <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
@@ -115,6 +122,9 @@ onMounted(() => {
         </div>
         <div v-if="currentTab === 'Translate'" class="full-height-vif">
           <TranslateTab />
+        </div>
+        <div v-if="currentTab === 'Compare'" class="full-height-vif">
+          <CompareTab />
         </div>
       </div>
     </main>

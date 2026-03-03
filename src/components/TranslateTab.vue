@@ -1,18 +1,50 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
+import { sharedInput, sharedOutput, sharedTargetLang } from '../store';
 
 const subTab = ref('dictionary'); // dictionary | quick-translate
 const dictionaryData = ref<any[]>([]);
 const searchQuery = ref('');
+const isStrict = ref(false);
 const isLoading = ref(false);
 const dictionaryPath = ref('');
 
-// Quick Translate states
-const quickInput = ref('');
-const quickOutput = ref('');
+// Copy feedback
+const showCopyToast = ref(false);
+const copyPos = ref({ x: 0, y: 0 });
+
+// Modal state
+const showDictModal = ref(false);
+const modalMode = ref<'add' | 'edit'>('add');
+const editingIdx = ref<number | null>(null);
+const editBuffer = ref({ jp: '', en: '', vi: '' });
+
+// References for syncing scroll
+const inputTextarea = ref<HTMLTextAreaElement | null>(null);
+const resultTextarea = ref<HTMLTextAreaElement | null>(null);
+const inputLineNumbers = ref<HTMLDivElement | null>(null);
+const resultLineNumbers = ref<HTMLDivElement | null>(null);
+
+const inputLines = computed(() => {
+  const lines = sharedInput.value.split('\n').length;
+  return lines > 0 ? lines : 1;
+});
+
+const outputLines = computed(() => {
+  const lines = sharedOutput.value.split('\n').length;
+  return lines > 0 ? lines : 1;
+});
+
+const syncScroll = (side: 'input' | 'result') => {
+  if (side === 'input' && inputTextarea.value && inputLineNumbers.value) {
+    inputLineNumbers.value.scrollTop = inputTextarea.value.scrollTop;
+  } else if (side === 'result' && resultTextarea.value && resultLineNumbers.value) {
+    resultLineNumbers.value.scrollTop = resultTextarea.value.scrollTop;
+  }
+};
 
 const loadDictionary = async () => {
   try {
@@ -30,24 +62,18 @@ const loadDictionary = async () => {
     const data = new Uint8Array(bytes);
     const workbook = XLSX.read(data, { type: 'array' });
     
-    // Assume the first sheet contains the data
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
-    
-    // Convert to JSON with JP, EN, VI columns
-    // We expect the excel to have these headers or at least 3 columns
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
     
     if (jsonData.length > 0) {
-      // Find headers or assume 0:JP, 1:EN, 2:VI
       const rows = jsonData.slice(1).map(row => ({
-        jp: row[0] || '',
-        en: row[1] || '',
-        vi: row[2] || ''
+        jp: (row[0] || '').toString(),
+        en: (row[1] || '').toString(),
+        vi: (row[2] || '').toString()
       }));
       dictionaryData.value = rows;
     }
-
   } catch (e) {
     console.error('Failed to load dictionary:', e);
   } finally {
@@ -58,139 +84,370 @@ const loadDictionary = async () => {
 const filteredDictionary = computed(() => {
   if (!searchQuery.value) return dictionaryData.value;
   const q = searchQuery.value.toLowerCase();
-  return dictionaryData.value.filter(item => 
-    item.jp.toLowerCase().includes(q) || 
-    item.en.toLowerCase().includes(q) || 
-    item.vi.toLowerCase().includes(q)
-  );
+  
+  return dictionaryData.value.filter(item => {
+    if (isStrict.value) {
+      return item.jp.toLowerCase() === q || 
+             item.en.toLowerCase() === q || 
+             item.vi.toLowerCase() === q;
+    }
+    return item.jp.toLowerCase().includes(q) || 
+           item.en.toLowerCase().includes(q) || 
+           item.vi.toLowerCase().includes(q);
+  });
 });
 
 const handleQuickTranslate = () => {
-  // Simple "reverse" or placeholder logic for now
-  // In a real app, this might call an API
-  quickOutput.value = quickInput.value.split('').reverse().join('');
+  if (!sharedInput.value) {
+    sharedOutput.value = '';
+    return;
+  }
+
+  if (dictionaryData.value.length === 0) {
+    sharedOutput.value = sharedInput.value;
+    return;
+  }
+
+  const matchPairs: { source: string, target: string }[] = [];
+  const targetKey = sharedTargetLang.value;
+
+  dictionaryData.value.forEach(entry => {
+    const targetVal = (entry[targetKey] || '').toString().trim();
+    if (!targetVal) return;
+
+    ['jp', 'en', 'vi'].forEach(lang => {
+      if (lang === targetKey) return;
+      const sourceVal = (entry[lang as 'jp'|'en'|'vi'] || '').toString().trim();
+      if (sourceVal && sourceVal !== targetVal) {
+        matchPairs.push({ source: sourceVal, target: targetVal });
+      }
+    });
+  });
+
+  const uniquePairs = Array.from(new Map(matchPairs.map(p => [p.source, p])).values());
+  const sortedPairs = uniquePairs.sort((a, b) => b.source.length - a.source.length);
+
+  let result = '';
+  let i = 0;
+  const text = sharedInput.value;
+
+  while (i < text.length) {
+    let matchFound = false;
+
+    for (const pair of sortedPairs) {
+      if (text.startsWith(pair.source, i)) {
+        result += pair.target;
+        i += pair.source.length;
+        matchFound = true;
+        break;
+      }
+    }
+
+    if (!matchFound) {
+      result += text[i];
+      i++;
+    }
+  }
+
+  sharedOutput.value = result;
 };
 
-const downloadTemplate = async () => {
-  try {
-    const chosenPath = await save({
-      filters: [{
-        name: 'Excel',
-        extensions: ['xlsx']
-      }],
-      defaultPath: 'Dictionary_Template.xlsx'
-    });
+const clearAll = () => {
+  sharedInput.value = '';
+  sharedOutput.value = '';
+};
 
-    if (chosenPath) {
-      const data = [
-        ['Japanese (JP)', 'English (EN)', 'Vietnamese (VI)'],
-        ['‚±‚ñ‚É‚¿‚Í', 'Hello', 'Xin ch?o'],
-        ['‚ ‚è‚ª‚Æ‚¤', 'Thank you', 'C?m ?n']
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Dictionary');
-      
-      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      const uint8 = new Uint8Array(wbout);
-      
-      await invoke('write_file_binary', { 
-        path: chosenPath, 
-        data: Array.from(uint8) 
-      });
-      alert('Template saved successfully to: ' + chosenPath);
-    }
+const copyResult = async () => {
+  if (!sharedOutput.value) return;
+  try {
+    await navigator.clipboard.writeText(sharedOutput.value);
+    alert('Result copied to clipboard!');
   } catch (e) {
-    console.error('Failed to save template:', e);
-    alert('Failed to save template: ' + e);
+    console.error('Copy failed:', e);
   }
 };
 
-onMounted(() => {
-  loadDictionary();
+const openExcel = async () => {
+  if (dictionaryPath.value) {
+    try {
+      await invoke('open_file_path', { path: dictionaryPath.value });
+    } catch (e) {
+      alert('Failed to open Excel file: ' + e);
+    }
+  } else {
+    alert('Please configure dictionary path in Settings first.');
+  }
+};
+
+const syncAndClean = async () => {
+  await loadDictionary();
+  alert('Dictionary synchronized.');
+};
+
+const copyToClipboard = async (text: string, event: MouseEvent) => {
+  const cleanText = text ? text.replace(/<[^>]*>/g, '').trim() : '';
+  if (!cleanText) return;
+  try {
+    await navigator.clipboard.writeText(cleanText);
+    
+    // Position and show bubble
+    copyPos.value = { x: event.clientX, y: event.clientY };
+    showCopyToast.value = true;
+    setTimeout(() => { showCopyToast.value = false; }, 1200);
+  } catch (e) {
+    console.error('Copy failed:', e);
+  }
+};
+
+const handleHighlighterClick = (event: MouseEvent) => {
+  const target = event.target as HTMLElement;
+  if (target.tagName === 'MARK') {
+    copyToClipboard(target.innerText, event);
+  }
+};
+
+const highlightMatch = (text: string) => {
+  if (!searchQuery.value || isStrict.value) return text;
+  const q = searchQuery.value;
+  const regex = new RegExp(`(${q})`, 'gi');
+  return text.replace(regex, '<mark>$1</mark>');
+};
+
+// --- CRUD ---
+const openAddModal = () => {
+  modalMode.value = 'add';
+  editBuffer.value = { jp: '', en: '', vi: '' };
+  showDictModal.value = true;
+};
+
+const openEditModal = (item: any) => {
+  modalMode.value = 'edit';
+  editingIdx.value = dictionaryData.value.indexOf(item);
+  editBuffer.value = { ...item };
+  showDictModal.value = true;
+};
+
+const saveModalData = () => {
+  if (modalMode.value === 'add') {
+    dictionaryData.value.unshift({ ...editBuffer.value });
+  } else if (editingIdx.value !== null) {
+    dictionaryData.value[editingIdx.value] = { ...editBuffer.value };
+  }
+  showDictModal.value = false;
+  editingIdx.value = null;
+};
+
+const deleteRow = async (item: any) => {
+  const c = await ask('Are you sure you want to delete this row?', { title: 'Confirm', kind: 'warning' });
+  if (c) {
+    const idx = dictionaryData.value.indexOf(item);
+    if (idx !== -1) dictionaryData.value.splice(idx, 1);
+  }
+};
+
+// Highlighting Logic
+const dictionaryWords = computed(() => {
+  const sourceWords = new Set<string>();
+  const targetWords = new Set<string>();
+  dictionaryData.value.forEach(d => {
+    const targetVal = (d[sharedTargetLang.value] || '').trim();
+    if (targetVal) targetWords.add(targetVal);
+    ['jp', 'en', 'vi'].forEach(l => {
+      if (l !== sharedTargetLang.value) {
+        const val = (d[l as 'jp'|'en'|'vi'] || '').trim();
+        if (val) sourceWords.add(val);
+      }
+    });
+  });
+  return {
+    source: Array.from(sourceWords).filter(w => w.length > 1).sort((a, b) => b.length - a.length),
+    target: Array.from(targetWords).filter(w => w.length > 1).sort((a, b) => b.length - a.length)
+  };
 });
+
+const renderHighlighted = (text: string, mode: 'source' | 'target') => {
+  if (!text) return '';
+  let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const words = mode === 'source' ? dictionaryWords.value.source : dictionaryWords.value.target;
+  if (words.length === 0) return escaped;
+
+  let result = escaped;
+  const map = new Map();
+  words.forEach((word, idx) => {
+    const placeholder = `\x01${idx}\x01`;
+    const regex = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    if (regex.test(result)) {
+      result = result.replace(regex, placeholder);
+      map.set(placeholder, `<mark class="hl-${mode}">${word}</mark>`);
+    }
+  });
+  map.forEach((val, key) => { result = result.replace(new RegExp(key, 'g'), val); });
+  return result + '\n'; // Add extra newline to match textarea scroll behavior
+};
+
+const highlightedInput = computed(() => renderHighlighted(sharedInput.value, 'source'));
+const highlightedOutput = computed(() => renderHighlighted(sharedOutput.value, 'target'));
+
+const handleScroll = (side: 'input' | 'result') => {
+  syncScroll(side);
+  const ta = side === 'input' ? inputTextarea.value : resultTextarea.value;
+  const hl = side === 'input' ? inputHighlighter.value : resultHighlighter.value;
+  if (ta && hl) {
+    hl.scrollTop = ta.scrollTop;
+    hl.scrollLeft = ta.scrollLeft;
+  }
+};
+
+const inputHighlighter = ref<HTMLDivElement | null>(null);
+const resultHighlighter = ref<HTMLDivElement | null>(null);
+
+onMounted(loadDictionary);
+
+watch(sharedInput, async () => {
+  await nextTick();
+  if (subTab.value === 'quick-translate') syncScroll('input');
+});
+watch(sharedOutput, async () => {
+  await nextTick();
+  if (subTab.value === 'quick-translate') syncScroll('result');
+});
+watch(subTab, async () => {
+  await nextTick();
+  if (subTab.value === 'quick-translate') {
+    syncScroll('input'); syncScroll('result');
+  }
+});
+
+// Watch input to trigger translate
+watch(sharedInput, handleQuickTranslate);
+watch(sharedTargetLang, handleQuickTranslate);
 </script>
 
 <template>
-  <div class="translate-container">
-    <div class="sub-tabs">
-      <button 
-        @click="subTab = 'dictionary'" 
-        :class="{ active: subTab === 'dictionary' }"
-      >
-        Dictionary
-      </button>
-      <button 
-        @click="subTab = 'quick-translate'" 
-        :class="{ active: subTab === 'quick-translate' }"
-      >
-        Quick Translate
-      </button>
-    </div>
+  <div class="premium-translate">
+    <header class="main-header">
+      <div class="tabs-pill">
+        <button @click="subTab = 'dictionary'" :class="{ active: subTab === 'dictionary' }" class="tab-pill-btn">DICTIONARY</button>
+        <button @click="subTab = 'quick-translate'" :class="{ active: subTab === 'quick-translate' }" class="tab-pill-btn">QUICK TRANSLATE</button>
+      </div>
 
-    <div class="tab-content">
-      <!-- Dictionary Tab -->
-      <div v-if="subTab === 'dictionary'" class="dictionary-view">
-        <div class="search-bar">
-          <input 
-            v-model="searchQuery" 
-            placeholder="Search keywords (JP, EN, VI)..." 
-            class="theme-input search-input" 
-          />
-          <button @click="loadDictionary" class="theme-button refresh-btn" title="Reload from File">&#128260;</button>
+      <div v-if="subTab === 'dictionary'" class="search-container">
+        <div class="search-box">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input v-model="searchQuery" placeholder="Search keywords..." class="header-search-input" />
         </div>
-
-        <div v-if="!dictionaryPath" class="empty-state">
-          <div class="no-path-alert">
-            Please configure the Dictionary Excel Path in Settings &#9881;&#65039;
-          </div>
-          <p class="empty-hint">
-            You can download the dictionary template here: 
-            <button @click="downloadTemplate" class="text-link-btn">Dictionary_Template.xlsx</button>
-          </p>
+        <div class="strict-mode">
+          <input type="checkbox" id="strict-check" v-model="isStrict" />
+          <label for="strict-check">STRICT</label>
         </div>
+      </div>
 
-        <div v-else class="table-container">
-          <table class="dictionary-table">
+      <div class="global-actions">
+        <button @click="openExcel" class="action-btn-mint">OPEN EXCEL</button>
+      </div>
+    </header>
+
+    <div class="tab-body">
+      <!-- Dictionary View -->
+      <div v-if="subTab === 'dictionary'" class="dictionary-container">
+        <div class="dict-table-wrapper glass">
+          <table class="dict-table">
             <thead>
               <tr>
-                <th>Japanese (JP)</th>
-                <th>English (EN)</th>
-                <th>Vietnamese (VI)</th>
+                <th class="col-index">#</th>
+                <th>JAPANESE</th>
+                <th>ENGLISH</th>
+                <th>VIETNAMESE</th>
+                <th class="col-actions">ACTIONS</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(item, idx) in filteredDictionary" :key="idx">
-                <td>{{ item.jp }}</td>
-                <td>{{ item.en }}</td>
-                <td>{{ item.vi }}</td>
-              </tr>
-              <tr v-if="filteredDictionary.length === 0">
-                <td colspan="3" class="no-results">No matches found.</td>
+                <td class="col-index">{{ idx + 1 }}</td>
+                <td @click="copyToClipboard(item.jp, $event)" class="clickable-cell"><span v-html="highlightMatch(item.jp)"></span></td>
+                <td @click="copyToClipboard(item.en, $event)" class="clickable-cell code-text"><span v-html="highlightMatch(item.en)"></span></td>
+                <td @click="copyToClipboard(item.vi, $event)" class="clickable-cell"><span class="lang-tag" v-html="highlightMatch(item.vi)"></span></td>
+                <td class="col-actions">
+                  <div class="action-icons">
+                    <button @click="openEditModal(item)" class="icon-action-btn edit" title="Edit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </button>
+                    <button @click="deleteRow(item)" class="icon-action-btn delete" title="Delete">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                    </button>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        
-        <div class="status-bar" v-if="dictionaryPath">
-          Total items: {{ dictionaryData.length }} | Showing: {{ filteredDictionary.length }}
-        </div>
+
+        <!-- Floating Add Button -->
+        <button @click="openAddModal" class="fab-add-btn" title="Add Entry">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
       </div>
 
-      <!-- Quick Translate Tab -->
-      <div v-if="subTab === 'quick-translate'" class="quick-translate-view">
-        <div class="translate-grid">
-          <div class="input-pane">
-            <label>Input Text</label>
-            <textarea v-model="quickInput" placeholder="Enter text to translate..." class="theme-textarea"></textarea>
+      <!-- Quick Translate View -->
+      <div v-if="subTab === 'quick-translate'" class="quick-translate-container">
+        <div class="split-panes">
+          <div class="pane-group">
+            <div class="pane-header"><span class="pane-label">INPUT SOURCE</span><button @click="clearAll" class="clear-btn">CLEAR ALL</button></div>
+            <div class="pane-editor glass">
+              <div class="line-numbers" ref="inputLineNumbers"><div v-for="n in inputLines" :key="n" class="line-num">{{ n }}</div></div>
+              <div class="editor-sub-container">
+                <textarea v-model="sharedInput" ref="inputTextarea" @scroll="handleScroll('input')" placeholder="Paste text here..."></textarea>
+                <div class="highlighter" v-html="highlightedInput" ref="inputHighlighter" @click="handleHighlighterClick"></div>
+              </div>
+            </div>
           </div>
-          <div class="actions-pane">
-            <button @click="handleQuickTranslate" class="theme-button translate-btn">Translate &#10144;</button>
+          <div class="pane-group">
+            <div class="pane-header">
+              <div class="header-left"><span class="pane-label">RESULT TO:</span>
+                <div class="lang-segmented">
+                  <button @click="sharedTargetLang = 'en'" :class="{ active: sharedTargetLang === 'en' }">EN</button>
+                  <button @click="sharedTargetLang = 'jp'" :class="{ active: sharedTargetLang === 'jp' }">JP</button>
+                  <button @click="sharedTargetLang = 'vi'" :class="{ active: sharedTargetLang === 'vi' }">VI</button>
+                </div>
+              </div>
+              <div class="header-right"><button @click="copyResult" class="ghost-btn">COPY RESULT</button></div>
+            </div>
+            <div class="pane-editor glass">
+              <div class="line-numbers" ref="resultLineNumbers"><div v-for="n in outputLines" :key="n" class="line-num">{{ n }}</div></div>
+              <div class="editor-sub-container">
+                <textarea v-model="sharedOutput" readonly ref="resultTextarea" @scroll="handleScroll('result')" placeholder="Translation..." class="clickable-result"></textarea>
+                <div class="highlighter" v-html="highlightedOutput" ref="resultHighlighter" @click="handleHighlighterClick"></div>
+              </div>
+            </div>
           </div>
-          <div class="output-pane">
-            <label>Result</label>
-            <textarea v-model="quickOutput" readonly placeholder="Result will appear here..." class="theme-textarea readonly"></textarea>
-          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Copy Bubble -->
+    <transition name="bubble">
+      <div v-if="showCopyToast" class="copy-bubble" :style="{ left: copyPos.x + 'px', top: (copyPos.y - 30) + 'px' }">
+        Copied!
+      </div>
+    </transition>
+
+    <!-- Modal (Light Themed) -->
+    <div v-if="showDictModal" class="modal-overlay">
+      <div class="modal-content glass-modal">
+        <div class="modal-header-modern">
+          <h3>{{ modalMode === 'add' ? 'ADD NEW ENTRY' : 'EDIT ENTRY' }}</h3>
+          <button @click="showDictModal = false" class="close-modal-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-field"><label>JAPANESE</label><input v-model="editBuffer.jp" placeholder="JP word..." /></div>
+          <div class="modal-field"><label>ENGLISH</label><input v-model="editBuffer.en" placeholder="EN word..." /></div>
+          <div class="modal-field"><label>VIETNAMESE</label><input v-model="editBuffer.vi" placeholder="VI word..." /></div>
+        </div>
+        <div class="modal-footer">
+          <button @click="showDictModal = false" class="ghost-btn">CANCEL</button>
+          <button @click="saveModalData" class="action-btn-purple">SAVE CHANGES</button>
         </div>
       </div>
     </div>
@@ -198,242 +455,119 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.translate-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background-color: var(--container-bg);
-}
-
-.sub-tabs {
-  display: flex;
-  gap: 10px;
-  padding: 10px 20px;
-  border-bottom: var(--border-style);
-}
-
-.sub-tabs button {
-  padding: 8px 16px;
-  background: transparent;
-  color: var(--text-color);
+.premium-translate { display: flex; flex-direction: column; height: 100%; padding: 10px 15px; background: var(--container-bg); gap: 15px; box-sizing: border-box; overflow: hidden; }
+.main-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-shrink: 0; }
+.tabs-pill { display: flex; background: rgba(128, 128, 128, 0.1); padding: 4px; border-radius: 50px; }
+.tab-pill-btn { padding: 8px 18px; border: none; background: transparent; color: var(--text-color); font-weight: 800; font-size: 0.65rem; border-radius: 40px; cursor: pointer; opacity: 0.6; transition: 0.3s; }
+.tab-pill-btn.active { background: #fff; color: #6366f1; box-shadow: 0 4px 15px rgba(0,0,0,0.1); opacity: 1; }
+.search-container { flex: 1; display: flex; align-items: center; gap: 10px; max-width: 500px; }
+.search-box { flex: 1; display: flex; align-items: center; background: rgba(128,128,128,0.08); border-radius: 50px; padding: 0 15px; height: 36px; border: 1px solid rgba(128,128,128,0.15); }
+.search-icon { opacity: 0.5; margin-right: 10px; color: var(--text-color); }
+.header-search-input { flex: 1; background: transparent; border: none; color: #6366f1; font-weight: 800; font-size: 0.8rem; outline: none; }
+.strict-mode { display: flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 900; opacity: 0.5; color: var(--text-color); }
+.fab-add-btn {
+  position: absolute;
+  bottom: 25px;
+  right: 25px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
   border: none;
-  border-bottom: 2px solid transparent;
+  background: #6366f1;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.sub-tabs button.active {
-  border-bottom-color: var(--accent-color);
-  color: var(--accent-color);
-}
-
-.tab-content {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Dictionary Styles */
-.dictionary-view {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 20px;
-  overflow: hidden;
-}
-
-.search-bar {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.search-input {
-  flex: 1;
-}
-
-.table-container {
-  flex: 1;
-  overflow-y: auto;
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  background-color: var(--input-bg);
-}
-
-.dictionary-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.dictionary-table th {
-  position: sticky;
-  top: 0;
-  background-color: var(--button-bg);
-  padding: 10px;
-  text-align: left;
-  border-bottom: var(--border-style);
+  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
 }
-
-.dictionary-table td {
-  padding: 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+.fab-add-btn:hover {
+  transform: scale(1.1) rotate(90deg);
+  box-shadow: 0 15px 30px rgba(99, 102, 241, 0.5);
 }
+.global-actions { display: flex; gap: 10px; }
+.action-btn-mint { padding: 8px 15px; background: #ecfdf5; color: #10b981; border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; }
+.action-btn-purple { padding: 8px 15px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; }
+.dictionary-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.dict-table-wrapper { flex: 1; overflow-y: auto; border-radius: 12px; }
+.dict-table { width: 100%; border-collapse: collapse; }
+.dict-table th { position: sticky; top: 0; background: #6366f1; color: #fff; padding: 12px 15px; text-align: left; font-size: 0.65rem; font-weight: 800; z-index: 5; }
+.dict-table td { padding: 10px 15px; font-size: 0.8rem; border-bottom: 1px solid rgba(128,128,128,0.08); color: var(--text-color); }
+.clickable-cell { cursor: pointer; transition: background 0.2s; }
+.clickable-cell:hover { background: rgba(99, 102, 241, 0.05); }
+.clickable-cell:active { background: rgba(99, 102, 241, 0.1); }
+.col-index { text-align: center; opacity: 0.4; }
+.col-actions { text-align: center; width: 80px; }
+.action-icons { display: flex; justify-content: center; gap: 5px; }
+.icon-action-btn { width: 28px; height: 28px; border: 1px solid rgba(128,128,128,0.15); background: var(--container-bg); color: var(--text-color); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+.icon-action-btn:hover { background: var(--button-hover); }
+.icon-action-btn.edit { color: #6366f1; }
+.icon-action-btn.delete { color: #f43f5e; }
+.quick-translate-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.split-panes { display: flex; gap: 15px; height: 100%; }
+.pane-group { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.pane-header { display: flex; justify-content: space-between; align-items: center; height: 30px; }
+.pane-label { font-size: 0.6rem; font-weight: 950; opacity: 0.4; letter-spacing: 0.05em; color: var(--text-color); }
+.clear-btn { background: rgba(239,68,68,0.1); color: #f43f5e; border: none; padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; }
+.ghost-btn { background: rgba(128,128,128,0.05); border: 1px solid rgba(128,128,128,0.1); padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; color: var(--text-color); }
+.lang-segmented { display: flex; background: rgba(128, 128, 128, 0.06); padding: 2px; border-radius: 8px; }
+.lang-segmented button { padding: 4px 10px; font-size: 0.6rem; border: none; background: transparent; font-weight: 950; border-radius: 6px; cursor: pointer; opacity: 0.4; color: var(--text-color); }
+.lang-segmented button.active { background: #3b82f6; color: #fff; opacity: 1; }
+.pane-editor { flex: 1; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid rgba(128,128,128,0.12); }
+.line-numbers { width: 34px; background: rgba(0,0,0,0.02); padding: 15px 0; overflow: hidden; }
+.line-num { font-size: 0.7rem; line-height: 1.6; text-align: center; opacity: 0.2; font-family: monospace; color: var(--text-color); }
 
-.dictionary-table tr:hover {
-  background-color: rgba(128, 128, 128, 0.05);
+.editor-sub-container { position: relative; flex: 1; display: flex; overflow: hidden; }
+.highlighter {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  padding: 15px; box-sizing: border-box;
+  font-family: 'Consolas', monospace; font-size: 0.85rem; line-height: 1.6;
+  white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
+  color: transparent; pointer-events: none; z-index: 2;
 }
+:deep(mark.hl-source) { background: rgba(99, 102, 241, 0.15); color: transparent; border-radius: 2px; cursor: pointer; pointer-events: auto; }
+:deep(mark.hl-target) { background: rgba(16, 185, 129, 0.2); color: transparent; border-radius: 2px; cursor: pointer; pointer-events: auto; }
 
-.no-results {
-  text-align: center;
-  padding: 40px;
-  opacity: 0.5;
-  font-style: italic;
+textarea {
+  flex: 1; background: transparent; border: none; padding: 15px;
+  color: var(--text-color); font-family: 'Consolas', monospace; font-size: 0.85rem; line-height: 1.6;
+  resize: none; outline: none; position: relative; z-index: 1;
 }
+.clickable-result { transition: background 0.2s; }
+.clickable-result:hover { background: rgba(99, 102, 241, 0.01); }
+.glass { background: var(--input-bg); }
+.tab-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-}
+/* Modal Design Fix */
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.glass-modal { background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 16px; width: 420px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.15); color: var(--text-color); }
+.modal-header-modern { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.modal-header-modern h3 { font-size: 0.85rem; font-weight: 950; color: #6366f1; letter-spacing: 0.05em; }
+.close-modal-btn { background: transparent; border: none; color: var(--text-color); cursor: pointer; opacity: 0.5; transition: 0.2s; }
+.close-modal-btn:hover { opacity: 1; transform: scale(1.1); }
+.modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 15px; }
+.modal-field label { font-size: 0.6rem; font-weight: 950; opacity: 0.6; }
+.modal-field input { background: var(--bg-color); border: 1px solid rgba(128,128,128,0.2); border-radius: 10px; padding: 12px; color: var(--text-color); font-size: 0.85rem; outline: none; transition: 0.2s; }
+.modal-field input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+.modal-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px; }
 
-.no-path-alert {
-  padding: 40px;
-  text-align: center;
-  border: 1px dashed var(--accent-color);
-  border-radius: 8px;
-  color: var(--accent-color);
-  max-width: 400px;
-}
-
-.empty-hint {
-  font-size: 0.9rem;
-  opacity: 0.8;
-}
-
-.text-link-btn {
-  background: none;
-  border: none;
-  color: var(--accent-color);
-  padding: 0;
-  cursor: pointer;
-  font-size: inherit;
-  font-weight: bold;
-  text-decoration: underline;
-}
-
-.text-link-btn:hover {
-  opacity: 0.8;
-}
-
-.status-bar {
-  padding-top: 10px;
-  font-size: 0.8rem;
-  opacity: 0.6;
-}
-
-/* Quick Translate Styles */
-.quick-translate-view {
-  flex: 1;
-  padding: 20px;
-}
-
-.translate-grid {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 20px;
-  height: 100%;
-}
-
-.input-pane, .output-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.actions-pane {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.theme-textarea {
-  flex: 1;
-  background-color: var(--input-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  padding: 15px;
-  resize: none;
-  font-family: inherit;
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-
-.theme-textarea.readonly {
-  opacity: 0.7;
-}
-
-.translate-btn {
-  padding: 12px 24px;
-  background-color: var(--accent-color);
+/* Bubble styles */
+.copy-bubble {
+  position: fixed;
+  background: #10b981;
   color: #fff;
-  border: none;
-  font-weight: bold;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 900;
+  box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3);
+  z-index: 3000;
+  pointer-events: none;
+  transform: translateX(-50%);
 }
-
-.theme-input {
-  padding: 8px 15px;
-  background-color: var(--input-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-}
-
-.theme-button {
-  padding: 8px 16px;
-  background-color: var(--button-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.theme-button:hover {
-  background-color: var(--button-hover);
-}
-
-/* Win95 Variations */
-:root.theme-95 .sub-tabs button.active {
-  background: #000080;
-  color: #fff;
-  border-bottom: none;
-}
-
-:root.theme-95 .dictionary-table th {
-  background: #c0c0c0;
-  border: 2px solid;
-  border-top-color: #fff;
-  border-left-color: #fff;
-  border-right-color: #808080;
-  border-bottom-color: #808080;
-  color: #000;
-}
-
-:root.theme-95 .theme-textarea {
-  background: #fff;
-  color: #000;
-  border: 2px solid;
-  border-top-color: #808080;
-  border-left-color: #808080;
-  border-right-color: #fff;
-  border-bottom-color: #fff;
-}
+.bubble-enter-active, .bubble-leave-active { transition: all 0.2s ease; }
+.bubble-enter-from { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
+.bubble-leave-to { opacity: 0; transform: translate(-50%, -10px) scale(0.8); }
 </style>

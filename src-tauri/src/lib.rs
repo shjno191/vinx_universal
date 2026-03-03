@@ -121,7 +121,7 @@ fn open_file_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("notepad.exe")
+        std::process::Command::new("explorer")
             .arg(p)
             .spawn()
             .map_err(|e| e.to_string())?;

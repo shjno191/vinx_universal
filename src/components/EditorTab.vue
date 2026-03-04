@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { globalShortcuts, editorSettings, cursorHistory, cursorHistoryIndex, theme as globalTheme } from '../store';
+import { globalShortcuts, editorSettings, cursorHistory, cursorHistoryIndex, theme as globalTheme, currentFlowCode, triggerFlowChart } from '../store';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface Tab {
@@ -321,6 +321,16 @@ const handleTabBarDbClick = (e: MouseEvent) => {
     addTab();
   }
 };
+
+// „Ÿ„Ÿ Flow Chart Trigger „Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ
+const generateFlowChart = () => {
+  // Get content from the focused pane's active tab
+  const code = focusedPane.value === 'left'
+    ? activeTabLeft.value.content
+    : activeTabRight.value.content;
+  currentFlowCode.value = code || '';
+  triggerFlowChart.value = true;
+};
 </script>
 
 <template>
@@ -362,6 +372,20 @@ const handleTabBarDbClick = (e: MouseEvent) => {
           </svg>
           <svg v-else width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M1 2a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2zm1 0v12h5V2H2zm6 0v12h6V2H8z"/>
+          </svg>
+        </button>
+        <!-- Flow Chart button -->
+        <button
+          class="action-btn flow-btn"
+          @click="generateFlowChart"
+          title="Generate Flow Chart from this code (AI)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="6" height="4" rx="1"/>
+            <rect x="9" y="10" width="6" height="4" rx="1"/>
+            <rect x="16" y="17" width="6" height="4" rx="1"/>
+            <line x1="5" y1="7" x2="12" y2="10"/>
+            <line x1="15" y1="14" x2="19" y2="17"/>
           </svg>
         </button>
       </div>
@@ -558,6 +582,17 @@ const handleTabBarDbClick = (e: MouseEvent) => {
 .action-btn.active {
   color: var(--accent-color);
   opacity: 1;
+}
+
+.flow-btn {
+  color: #a78bfa;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.flow-btn:hover {
+  background: rgba(167, 139, 250, 0.15) !important;
+  opacity: 1 !important;
+  color: #c4b5fd;
 }
 
 .editor-view-area {

@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -11,7 +11,8 @@ const categories = [
   { id: 'general', name: 'General', icon: '\u2699\uFE0F' },
   { id: 'translate', name: 'Translate', icon: '\u{1F310}' },
   { id: 'editor', name: 'Editor', icon: '\u{1F4DD}' },
-  { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' }
+  { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' },
+  { id: 'ai', name: 'AI', icon: '\u{1F916}' },
 ];
 
 const currentCategory = ref('general');
@@ -154,6 +155,34 @@ const saveSettings = async () => {
   }
 };
 
+// ── AI Settings ────────────────────────────────────────────────────────────────
+const aiSaveStatus = ref<'idle' | 'saving' | 'saved'>('idle');
+
+const saveAISettings = () => {
+  aiSaveStatus.value = 'saving';
+  // Persist to localStorage for simplicity (keys should not go to server-side settings)
+  try {
+    localStorage.setItem('ai_settings', JSON.stringify(aiSettings.value));
+    aiSaveStatus.value = 'saved';
+    setTimeout(() => { aiSaveStatus.value = 'idle'; }, 2000);
+  } catch (e) {
+    console.error('Failed to save AI settings', e);
+    aiSaveStatus.value = 'idle';
+  }
+};
+
+const loadAISettings = () => {
+  try {
+    const stored = localStorage.getItem('ai_settings');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      aiSettings.value = { ...aiSettings.value, ...parsed };
+    }
+  } catch (e) {
+    console.error('Failed to load AI settings', e);
+  }
+};
+
 const openSettingsFile = async () => {
   try {
     await invoke('open_settings_file');
@@ -216,6 +245,7 @@ watch(showSettingsTrigger, (val) => {
 
 onMounted(() => {
   loadSettings();
+  loadAISettings();
 });
 </script>
 
@@ -322,6 +352,93 @@ onMounted(() => {
             </div>
           </div>
           <p class="shortcut-hint">Tip: Press Escape to cancel recording.</p>
+        </div>
+      </div>
+
+      <!-- AI Provider Settings -->
+      <div v-if="currentCategory === 'ai'" class="settings-section">
+        <div class="ai-settings-header">
+          <h3 style="margin:0;font-size:1rem;">AI Provider Settings</h3>
+          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Used by the Flow Chart feature to generate diagrams from code.</p>
+        </div>
+
+        <div class="setting-item">
+          <label>Default Provider</label>
+          <select v-model="aiSettings.provider" class="theme-select">
+            <option value="gemini">Gemini (Google)</option>
+            <option value="openai">ChatGPT (OpenAI)</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="ollama">Ollama (Local)</option>
+          </select>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Gemini API Key</label>
+          <input
+            v-model="aiSettings.geminiKey"
+            type="password"
+            class="text-input"
+            placeholder="AIza..."
+            autocomplete="off"
+          />
+          <span class="hint-text">Get your key at <a href="https://ai.google.dev" target="_blank">ai.google.dev</a></span>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>OpenAI API Key</label>
+          <input
+            v-model="aiSettings.openaiKey"
+            type="password"
+            class="text-input"
+            placeholder="sk-..."
+            autocomplete="off"
+          />
+          <span class="hint-text">Uses model: gpt-4o-mini</span>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Claude API Key</label>
+          <input
+            v-model="aiSettings.claudeKey"
+            type="password"
+            class="text-input"
+            placeholder="sk-ant-..."
+            autocomplete="off"
+          />
+          <span class="hint-text">Uses model: claude-3-haiku</span>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Ollama URL</label>
+          <input
+            v-model="aiSettings.ollamaUrl"
+            type="text"
+            class="text-input"
+            placeholder="http://localhost:11434/api/generate"
+          />
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Ollama Model</label>
+          <input
+            v-model="aiSettings.ollamaModel"
+            type="text"
+            class="text-input"
+            placeholder="llama3"
+          />
+          <span class="hint-text">e.g.: llama3, mistral, codellama</span>
+        </div>
+
+        <div class="setting-item">
+          <button
+            class="save-all-btn"
+            @click="saveAISettings"
+            :disabled="aiSaveStatus === 'saving'"
+          >
+            <span v-if="aiSaveStatus === 'saved'">✓ Saved!</span>
+            <span v-else>Save AI Settings</span>
+          </button>
+          <span class="hint-text" style="margin-left:10px;">Stored locally in browser (not synced to server).</span>
         </div>
       </div>
     </main>
@@ -639,5 +756,62 @@ onMounted(() => {
   border-left-color: #808080;
   border-right-color: #fff;
   border-bottom-color: #fff;
+}
+
+/* AI Settings */
+.ai-settings-header {
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+}
+
+.text-input {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--input-bg);
+  color: var(--text-color);
+  border: var(--border-style);
+  border-radius: var(--border-radius);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.text-input:focus {
+  border-color: var(--accent-color);
+}
+
+.hint-text {
+  font-size: 0.72rem;
+  opacity: 0.5;
+  font-style: italic;
+}
+
+.hint-text a {
+  color: var(--accent-color);
+  text-decoration: underline;
+}
+
+.save-all-btn {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+}
+
+.save-all-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.save-all-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

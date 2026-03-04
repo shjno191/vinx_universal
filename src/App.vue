@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
-import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus } from "./store";
+import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -10,6 +10,7 @@ import TranslateTab from "./components/TranslateTab.vue";
 import CompareTab from "./components/CompareTab.vue";
 import EditorTab from "./components/EditorTab.vue";
 import SettingsTab from "./components/SettingsTab.vue";
+import FlowChartTab from "./components/FlowChartTab.vue";
 
 const currentTab = ref("SQL-Helper");
 const currentTheme = ref("dark");
@@ -58,6 +59,14 @@ const handleKeyDown = (e: KeyboardEvent) => {
 watch(showSettingsTrigger, (val) => {
   if (val && val.category) {
     showSettingsModal.value = true;
+  }
+});
+
+// Watch for Flow Chart trigger from EditorTab
+watch(triggerFlowChart, (val) => {
+  if (val) {
+    currentTab.value = 'FlowChart';
+    triggerFlowChart.value = false; // reset
   }
 });
 
@@ -158,6 +167,12 @@ onMounted(() => {
         >
           Editor
         </button>
+        <button 
+          @click="currentTab = 'FlowChart'" 
+          :class="{ 'active': currentTab === 'FlowChart', 'win95-button': currentTheme === '95', 'flow-tab': true }"
+        >
+          Flow Chart
+        </button>
       </div>
       <div class="nav-actions">
         <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
@@ -165,8 +180,8 @@ onMounted(() => {
     </nav>
 
     <!-- Main Content Area (Scrollable) -->
-    <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' }">
-      <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' }">
+    <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' }">
+      <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' }">
         <div v-if="currentTab === 'SQL-Helper'" class="full-height-vif">
           <SQLHelper :theme="currentTheme" />
         </div>
@@ -178,6 +193,9 @@ onMounted(() => {
         </div>
         <div v-if="currentTab === 'Editor'" class="full-height-vif">
           <EditorTab />
+        </div>
+        <div v-if="currentTab === 'FlowChart'" class="full-height-vif">
+          <FlowChartTab />
         </div>
       </div>
     </main>
@@ -280,6 +298,15 @@ html, body {
 .tabs-nav button.active {
   border-bottom: 2px solid var(--accent-color);
   color: var(--accent-color);
+}
+
+.tabs-nav .flow-tab {
+  color: #a78bfa;
+}
+
+.tabs-nav .flow-tab.active {
+  border-bottom-color: #a78bfa;
+  color: #a78bfa;
 }
 
 .content-wrapper {

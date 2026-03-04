@@ -372,76 +372,91 @@ onMounted(() => {
           </select>
         </div>
 
-        <div class="setting-item-vertical">
-          <label>Gemini API Key</label>
-          <input
-            v-model="aiSettings.geminiKey"
-            type="password"
-            class="text-input"
-            placeholder="AIza..."
-            autocomplete="off"
-          />
-          <span class="hint-text">Get your key at <a href="https://ai.google.dev" target="_blank">ai.google.dev</a></span>
+        <!-- Gemini -->
+        <div class="provider-block" :class="{ active: aiSettings.provider === 'gemini' }">
+          <div class="provider-label">
+            <span class="provider-dot gemini"></span> Gemini (Google)
+          </div>
+          <div class="setting-item-vertical">
+            <label>API Key</label>
+            <input v-model="aiSettings.geminiKey" type="password" class="text-input" placeholder="AIza..." autocomplete="off" />
+            <span class="hint-text">Get your key at <a href="https://ai.google.dev" target="_blank">ai.google.dev</a></span>
+          </div>
+          <div class="setting-item-vertical">
+            <label>Model</label>
+            <select v-model="aiSettings.geminiModel" class="theme-select">
+              <option value="gemini-1.5-flash">gemini-1.5-flash (Free, Fast)</option>
+              <option value="gemini-1.5-pro">gemini-1.5-pro (Better quality)</option>
+              <option value="gemini-2.0-flash">gemini-2.0-flash (Latest, Paid)</option>
+              <option value="gemini-2.0-pro">gemini-2.0-pro (Best quality)</option>
+            </select>
+          </div>
         </div>
 
-        <div class="setting-item-vertical">
-          <label>OpenAI API Key</label>
-          <input
-            v-model="aiSettings.openaiKey"
-            type="password"
-            class="text-input"
-            placeholder="sk-..."
-            autocomplete="off"
-          />
-          <span class="hint-text">Uses model: gpt-4o-mini</span>
+        <!-- OpenAI -->
+        <div class="provider-block" :class="{ active: aiSettings.provider === 'openai' }">
+          <div class="provider-label">
+            <span class="provider-dot openai"></span> ChatGPT (OpenAI)
+          </div>
+          <div class="setting-item-vertical">
+            <label>API Key</label>
+            <input v-model="aiSettings.openaiKey" type="password" class="text-input" placeholder="sk-..." autocomplete="off" />
+          </div>
+          <div class="setting-item-vertical">
+            <label>Model</label>
+            <select v-model="aiSettings.openaiModel" class="theme-select">
+              <option value="gpt-4o-mini">gpt-4o-mini (Cheap, Fast)</option>
+              <option value="gpt-4o">gpt-4o (Best)</option>
+              <option value="gpt-3.5-turbo">gpt-3.5-turbo (Legacy)</option>
+            </select>
+          </div>
         </div>
 
-        <div class="setting-item-vertical">
-          <label>Claude API Key</label>
-          <input
-            v-model="aiSettings.claudeKey"
-            type="password"
-            class="text-input"
-            placeholder="sk-ant-..."
-            autocomplete="off"
-          />
-          <span class="hint-text">Uses model: claude-3-haiku</span>
+        <!-- Claude -->
+        <div class="provider-block" :class="{ active: aiSettings.provider === 'claude' }">
+          <div class="provider-label">
+            <span class="provider-dot claude"></span> Claude (Anthropic)
+          </div>
+          <div class="setting-item-vertical">
+            <label>API Key</label>
+            <input v-model="aiSettings.claudeKey" type="password" class="text-input" placeholder="sk-ant-..." autocomplete="off" />
+          </div>
+          <div class="setting-item-vertical">
+            <label>Model</label>
+            <select v-model="aiSettings.claudeModel" class="theme-select">
+              <option value="claude-3-haiku-20240307">claude-3-haiku (Fast, Cheap)</option>
+              <option value="claude-3-5-sonnet-20241022">claude-3.5-sonnet (Best)</option>
+              <option value="claude-3-opus-20240229">claude-3-opus (Powerful)</option>
+            </select>
+          </div>
         </div>
 
-        <div class="setting-item-vertical">
-          <label>Ollama URL</label>
-          <input
-            v-model="aiSettings.ollamaUrl"
-            type="text"
-            class="text-input"
-            placeholder="http://localhost:11434/api/generate"
-          />
-        </div>
-
-        <div class="setting-item-vertical">
-          <label>Ollama Model</label>
-          <input
-            v-model="aiSettings.ollamaModel"
-            type="text"
-            class="text-input"
-            placeholder="llama3"
-          />
-          <span class="hint-text">e.g.: llama3, mistral, codellama</span>
+        <!-- Ollama -->
+        <div class="provider-block" :class="{ active: aiSettings.provider === 'ollama' }">
+          <div class="provider-label">
+            <span class="provider-dot ollama"></span> Ollama (Local)
+          </div>
+          <div class="setting-item-vertical">
+            <label>Server URL</label>
+            <input v-model="aiSettings.ollamaUrl" type="text" class="text-input" placeholder="http://localhost:11434/api/generate" />
+          </div>
+          <div class="setting-item-vertical">
+            <label>Model Name</label>
+            <input v-model="aiSettings.ollamaModel" type="text" class="text-input" placeholder="llama3" />
+            <span class="hint-text">e.g.: llama3, mistral, codellama, deepseek-coder</span>
+          </div>
         </div>
 
         <div class="setting-item">
-          <button
-            class="save-all-btn"
-            @click="saveAISettings"
-            :disabled="aiSaveStatus === 'saving'"
-          >
-            <span v-if="aiSaveStatus === 'saved'">✓ Saved!</span>
+          <button class="save-all-btn" @click="saveAISettings" :disabled="aiSaveStatus === 'saving'">
+            <span v-if="aiSaveStatus === 'saved'">Saved!</span>
             <span v-else>Save AI Settings</span>
           </button>
-          <span class="hint-text" style="margin-left:10px;">Stored locally in browser (not synced to server).</span>
+          <span class="hint-text" style="margin-left:10px;">Stored locally in browser.</span>
         </div>
       </div>
     </main>
+  </div>
   </div>
 </template>
 
@@ -814,4 +829,44 @@ onMounted(() => {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* AI Provider blocks */
+.provider-block {
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  background: rgba(128, 128, 128, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  opacity: 0.6;
+  transition: opacity 0.2s, border-color 0.2s;
+}
+
+.provider-block.active {
+  opacity: 1;
+  border-color: var(--accent-color);
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.provider-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.provider-dot.gemini { background: #4285f4; }
+.provider-dot.openai { background: #10a37f; }
+.provider-dot.claude { background: #d97706; }
+.provider-dot.ollama { background: #a78bfa; }
 </style>

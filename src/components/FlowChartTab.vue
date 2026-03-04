@@ -57,7 +57,7 @@ const extractMermaidCode = (text: string): string => {
 const callGemini = async (prompt: string): Promise<string> => {
   const key = aiSettings.value.geminiKey.trim();
   if (!key) throw new Error('Gemini API Key is not configured. Go to Settings → AI.');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${aiSettings.value.geminiModel}:generateContent?key=${key}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -75,7 +75,7 @@ const callOpenAI = async (prompt: string): Promise<string> => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: aiSettings.value.openaiModel,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
     }),
@@ -96,7 +96,7 @@ const callClaude = async (prompt: string): Promise<string> => {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: aiSettings.value.claudeModel,
       max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -525,4 +525,5 @@ onMounted(async () => {
 .diagram-panel::-webkit-scrollbar-thumb,
 .raw-code::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 </style>
+
 

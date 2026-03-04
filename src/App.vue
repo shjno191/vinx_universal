@@ -8,6 +8,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import SQLHelper from "./components/SQLHelper.vue";
 import TranslateTab from "./components/TranslateTab.vue";
 import CompareTab from "./components/CompareTab.vue";
+import EditorTab from "./components/EditorTab.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 
 const currentTab = ref("SQL-Helper");
@@ -151,6 +152,12 @@ onMounted(() => {
         >
           Compare
         </button>
+        <button 
+          @click="currentTab = 'Editor'" 
+          :class="{ 'active': currentTab === 'Editor', 'win95-button': currentTheme === '95' }"
+        >
+          Editor
+        </button>
       </div>
       <div class="nav-actions">
         <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
@@ -158,8 +165,8 @@ onMounted(() => {
     </nav>
 
     <!-- Main Content Area (Scrollable) -->
-    <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' }">
-      <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' }">
+    <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' }">
+      <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' }">
         <div v-if="currentTab === 'SQL-Helper'" class="full-height-vif">
           <SQLHelper :theme="currentTheme" />
         </div>
@@ -168,6 +175,9 @@ onMounted(() => {
         </div>
         <div v-if="currentTab === 'Compare'" class="full-height-vif">
           <CompareTab />
+        </div>
+        <div v-if="currentTab === 'Editor'" class="full-height-vif">
+          <EditorTab />
         </div>
       </div>
     </main>

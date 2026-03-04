@@ -15,6 +15,7 @@ impl Default for Settings {
         let mut shortcuts = HashMap::new();
         shortcuts.insert("focus_search".to_string(), "ctrl+f".to_string());
         shortcuts.insert("open_settings".to_string(), "ctrl+shift+s".to_string());
+        shortcuts.insert("open_file".to_string(), "ctrl+o".to_string());
         
         Self {
             theme: "dark".to_string(),
@@ -128,14 +129,17 @@ fn open_file_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        let mut arg = std::ffi::OsString::from("/select,");
+        arg.push(p);
+        
         std::process::Command::new("explorer")
-            .arg(p)
+            .arg(arg)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(not(target_os = "windows"))]
     {
-        // Fallback for other OS if needed
+        // Fallback or other OS specific logic
     }
     
     Ok(())
@@ -148,6 +152,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,

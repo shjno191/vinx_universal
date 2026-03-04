@@ -3,13 +3,14 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
 const categories = [
   { id: 'general', name: 'General', icon: '\u2699\uFE0F' },
   { id: 'translate', name: 'Translate', icon: '\u{1F310}' },
+  { id: 'editor', name: 'Editor', icon: '\u{1F4DD}' },
   { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' }
 ];
 
@@ -19,7 +20,13 @@ const settings = ref({
   dictionary_path: '',
   shortcuts: {
     focus_search: 'ctrl+f',
-    open_settings: 'ctrl+shift+s'
+    open_settings: 'ctrl+shift+s',
+    open_file: 'ctrl+o'
+  },
+  editor: {
+    middleClickClose: true,
+    doubleClickNewTab: true,
+    mouseNavHistory: true
   }
 });
 
@@ -89,12 +96,26 @@ const handleShortcutKey = (key: string, e: KeyboardEvent) => {
   isRecording.value = null;
 };
 
+const updateEditorSettings = () => {
+    editorSettings.value = { ...settings.value.editor };
+    saveSettings();
+};
+
 const loadSettings = async () => {
   try {
     const s = await invoke('get_settings') as any;
-    settings.value = s;
-    if (s.shortcuts) {
-      globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
+    if (s) {
+      // Merge properties manually to preserve the structure if some keys are missing
+      if (s.theme) settings.value.theme = s.theme;
+      if (s.dictionary_path) settings.value.dictionary_path = s.dictionary_path;
+      if (s.shortcuts) {
+        settings.value.shortcuts = { ...settings.value.shortcuts, ...s.shortcuts };
+        globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
+      }
+      if (s.editor) {
+        settings.value.editor = { ...settings.value.editor, ...s.editor };
+        editorSettings.value = { ...editorSettings.value, ...s.editor };
+      }
     }
   } catch (e) {
     console.error('Failed to load settings', e);
@@ -234,6 +255,49 @@ onMounted(() => {
         </div>
       </div>
 
+      <div v-if="currentCategory === 'editor'" class="settings-section">
+        <div class="setting-item-vertical">
+          <label>Mouse Features</label>
+          <div class="setting-checkbox-list">
+            <div class="checkbox-row">
+              <label class="checkbox-container">
+                <input type="checkbox" v-model="settings.editor.middleClickClose" @change="updateEditorSettings" />
+                <span class="checkmark"></span>
+                Middle-click to close tab
+              </label>
+            </div>
+            <div class="checkbox-row">
+              <label class="checkbox-container">
+                <input type="checkbox" v-model="settings.editor.doubleClickNewTab" @change="updateEditorSettings" />
+                <span class="checkmark"></span>
+                Double-click on tab bar to create tab
+              </label>
+            </div>
+            <div class="checkbox-row">
+              <label class="checkbox-container">
+                <input type="checkbox" v-model="settings.editor.mouseNavHistory" @change="updateEditorSettings" />
+                <span class="checkmark"></span>
+                Mouse Button 4/5 for navigation
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Editor Shortcuts</label>
+          <div class="shortcut-list">
+            <div class="shortcut-row" @click="startRecording('open_file')">
+              <span class="shortcut-desc">Open File</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_file' }">
+                {{ isRecording === 'open_file' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.open_file) }}
+              </span>
+              <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('open_file', $event)" @blur="isRecording = null" />
+            </div>
+          </div>
+          <p class="shortcut-hint">These shortcuts only work within the Editor tab.</p>
+        </div>
+      </div>
+
       <div v-if="currentCategory === 'shortcut'" class="settings-section">
         <div class="setting-item-vertical">
           <label>Global Shortcuts (Click to change)</label>
@@ -311,6 +375,78 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.setting-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(128, 128, 128, 0.05);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.1);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+}
+
+.checkbox-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  cursor: pointer;
+  font-size: 0.9rem;
+  user-select: none;
+  color: var(--text-color);
+  opacity: 0.9;
+}
+
+.checkbox-container input {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+.checkmark {
+  height: 18px;
+  width: 18px;
+  background-color: var(--button-bg);
+  border: var(--border-style);
+  border-radius: 4px;
+}
+
+.checkbox-container:hover input ~ .checkmark {
+  background-color: var(--button-hover);
+}
+
+.checkbox-container input:checked ~ .checkmark {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.checkmark:after {
+  content: "";
+  position: absolute;
+  display: none;
+}
+
+.checkbox-container input:checked ~ .checkmark:after {
+  display: block;
+}
+
+.checkbox-container .checkmark:after {
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 .shortcut-list {

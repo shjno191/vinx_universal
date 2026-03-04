@@ -1,14 +1,69 @@
 ﻿<script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import mermaid from 'mermaid';
-import { currentFlowCode, aiSettings } from '../store';
+import { currentFlowCode, aiSettings, mermaidCode, analysisMode, showRawFlowCode } from '../store';
+import { analyzeCode } from './AstAnalyzer';
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const mermaidCode = ref('');
 const isLoading = ref(false);
 const error = ref('');
-const showRawCode = ref(false);
 const diagramRef = ref<HTMLElement | null>(null);
+const zoomWrapRef = ref<HTMLElement | null>(null);
+
+// ── Zoom / Pan State ───────────────────────────────────────────────────────
+const zoomScale = ref(1);
+const zoomX = ref(0);
+const zoomY = ref(0);
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragOriginX = 0;
+let dragOriginY = 0;
+
+// transform-origin is always 0 0; translate compensates for zoom point
+const zoomStyle = computed(() =>
+  `transform: translate(${zoomX.value}px, ${zoomY.value}px) scale(${zoomScale.value}); transform-origin: 0 0;`
+);
+
+const onWheel = (e: WheelEvent) => {
+  e.preventDefault();
+  const el = zoomWrapRef.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  // Mouse position relative to viewport top-left
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const oldScale = zoomScale.value;
+  const factor = e.deltaY < 0 ? 1.12 : 0.9;
+  const newScale = Math.min(Math.max(oldScale * factor, 0.1), 6);
+  // Zoom around mouse: adjust translation so the point under cursor stays fixed
+  zoomX.value = mx - (mx - zoomX.value) * (newScale / oldScale);
+  zoomY.value = my - (my - zoomY.value) * (newScale / oldScale);
+  zoomScale.value = newScale;
+};
+
+const onMouseDown = (e: MouseEvent) => {
+  if (e.button !== 0) return;
+  isDragging = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  dragOriginX = zoomX.value;
+  dragOriginY = zoomY.value;
+  (e.currentTarget as HTMLElement).style.cursor = 'grabbing';
+};
+
+const onMouseMove = (e: MouseEvent) => {
+  if (!isDragging) return;
+  zoomX.value = dragOriginX + (e.clientX - dragStartX);
+  zoomY.value = dragOriginY + (e.clientY - dragStartY);
+};
+
+const onMouseUp = (e: MouseEvent) => {
+  isDragging = false;
+  (e.currentTarget as HTMLElement).style.cursor = 'grab';
+};
+
+const resetZoom = () => { zoomScale.value = 1; zoomX.value = 0; zoomY.value = 0; };
 
 // ── Mermaid Setup ─────────────────────────────────────────────────────────────
 const initMermaid = () => {
@@ -32,15 +87,119 @@ const renderDiagram = async (code: string) => {
     const id = `mermaid-${Date.now()}`;
     const { svg } = await mermaid.render(id, code);
     diagramRef.value.innerHTML = svg;
+
+    // Add interaction logic
+    await nextTick();
+    const svgEl = diagramRef.value.querySelector('svg');
+    if (svgEl) {
+      svgEl.style.cursor = 'pointer';
+      svgEl.addEventListener('click', (e: MouseEvent) => {
+        const target = e.target as SVGElement;
+        const node = target.closest('.node');
+        
+        if (node) {
+          // Identify the function (subgraph) class from our class N0 M0 etc.
+          const classList = Array.from(node.classList);
+          const funcClass = classList.find(c => /^M\d+$/.test(c));
+          
+          if (funcClass) {
+            // Highlight everything with this class, dim everything else
+            const allNodes = svgEl.querySelectorAll('.node');
+            const allEdges = svgEl.querySelectorAll('.edgePath');
+            const allClusters = svgEl.querySelectorAll('.cluster');
+
+            // 1. Reset
+            allNodes.forEach(n => n.classList.remove('func-highlight', 'func-dimmed'));
+            allEdges.forEach(n => n.classList.remove('func-highlight', 'func-dimmed'));
+            allClusters.forEach(n => n.classList.remove('func-highlight', 'func-dimmed'));
+
+            // 2. Apply dimming to all
+            allNodes.forEach(n => n.classList.add('func-dimmed'));
+            allEdges.forEach(n => n.classList.add('func-dimmed'));
+            allClusters.forEach(n => n.classList.add('func-dimmed'));
+
+            // 3. Highlight specific function
+            svgEl.querySelectorAll(`.${funcClass}`).forEach(el => {
+              el.classList.remove('func-dimmed');
+              el.classList.add('func-highlight');
+            });
+            
+            // Highlight parent cluster
+            const cluster = svgEl.querySelector(`#cluster_${funcClass}, [id^="cluster_${funcClass}-"]`);
+            if (cluster) {
+              cluster.classList.remove('func-dimmed');
+              cluster.classList.add('func-highlight');
+            }
+
+            // Highlight edges connecting nodes in this function
+            allEdges.forEach(edge => {
+              const edgeClasses = Array.from(edge.classList);
+              // Mermaid edges often have classes like "LS-N0" "LE-N1"
+              // We check if it connects nodes belonging to this function
+              // Or simpler: just highlight edges that have matching IDs in their metadata if available
+              // Actually, Mermaid 10+ standard edges are harder to map.
+              // Fallback: highlight edges that are physically close or by checking their ID prefix if we had it.
+              // For now, let's look for "LS-..." and "LE-..." nodes
+              const startNodeId = edgeClasses.find(c => c.startsWith('LS-'))?.substring(3);
+              const endNodeId = edgeClasses.find(c => c.startsWith('LE-'))?.substring(3);
+              if (startNodeId || endNodeId) {
+                const startNode = svgEl.querySelector(`#${startNodeId}`);
+                if (startNode?.classList.contains(funcClass)) {
+                   edge.classList.remove('func-dimmed');
+                   edge.classList.add('func-highlight');
+                }
+              }
+            });
+            
+            e.stopPropagation();
+            return;
+          }
+        }
+        
+        // Reset if click background
+        svgEl.querySelectorAll('.func-highlight, .func-dimmed').forEach(el => {
+          el.classList.remove('func-highlight', 'func-dimmed');
+        });
+      });
+    }
   } catch (e: any) {
     error.value = `Mermaid render error: ${e.message}\n\nTry re-generating or check the raw code below.`;
-    showRawCode.value = true;
+    showRawFlowCode.value = true;
   }
 };
 
 // ── System Prompt ─────────────────────────────────────────────────────────────
 const buildPrompt = (code: string) =>
-  `Analyze the following code and return ONLY a Mermaid.js flowchart diagram (graph TD) describing the main flow: functions, if/else logic, and loops. Return ONLY the mermaid code block starting with \`\`\`mermaid and ending with \`\`\`. Do not add any explanation.\n\nCode:\n\`\`\`\n${code}\n\`\`\``;
+  `# CONTEXT & ROLE
+You are a Senior Software Architect and an Expert in Reverse Engineering. Your task is to analyze the provided source code and translate its underlying logic into a highly accurate Control Flow Graph (CFG) using Mermaid.js.
+
+# OBJECTIVE
+Generate a structured, easy-to-understand flowchart that maps out the core business logic, ignoring boilerplate syntax. 
+
+# PROCESSING RULES
+1. Main Execution Flow (Luồng chính):
+   - Identify significant logical blocks (e.g., functions, test suites, classes).
+   - For files with multiple entry points, use Mermaid 'subgraph' syntax to group related operations.
+   - Clearly delineate the "Happy Path" within each significant block.
+
+2. Decision & Branching Nodes (Các điểm rẽ nhánh):
+   - Map all control structures (if/else, switch/case, try/catch, while/for).
+   - For each decision node, explicitly state the exact condition causing the branch (e.g., "is valid?", "count > 0?", "has error?").
+
+3. Intra-Branch Operations (Xử lý đặc biệt trong nhánh):
+   - DO NOT transcribe line-by-line code. 
+   - ONLY highlight critical operations: State mutations, I/O (API/DB/File), and Exception handling.
+
+4. Visual Formatting (Định dạng hiển thị):
+   - Use 'flowchart TD'.
+   - Use standard shapes: ([Start/End]) for entries/exits, {Decision} for conditions, [Process] for actions, [(Database/IO)] for external calls.
+   - If the code is a test suite, map the sequence of tests and their internal assertions.
+
+# INPUT CODE:
+${code}
+
+# OUTPUT FORMAT
+Return ONLY the Mermaid.js code block. No conversational filler.`;
 
 // ── AI API Wrapper ─────────────────────────────────────────────────────────────
 const extractMermaidCode = (text: string): string => {
@@ -141,15 +300,30 @@ const generate = async () => {
   if (diagramRef.value) diagramRef.value.innerHTML = '';
 
   try {
-    const prompt = buildPrompt(code);
-    const raw = await callAI(prompt);
-    const extracted = extractMermaidCode(raw);
-    mermaidCode.value = extracted;
-    await renderDiagram(extracted);
-  } catch (e: any) {
-    error.value = e.message ?? 'An unknown error occurred.';
-  } finally {
+    if (analysisMode.value === 'ai') {
+      const prompt = buildPrompt(code);
+      const raw = await callAI(prompt);
+      const extracted = extractMermaidCode(raw);
+      mermaidCode.value = extracted;
+    } else {
+      // STATIC CODE ANALYSIS via AST
+      const result = analyzeCode(code);
+      if (result.error) {
+        throw new Error(`AST Parse Error: ${result.error}\n\nNote: Only JavaScript/TypeScript is supported in CODE mode. Use AI mode for other languages.`);
+      }
+      mermaidCode.value = result.mermaid;
+    }
+    
+    // Critical fix: set isLoading to false BEFORE rendering to ensure diagramRef is mounted
     isLoading.value = false;
+    await nextTick();
+    
+    if (mermaidCode.value) {
+      await renderDiagram(mermaidCode.value);
+    }
+  } catch (e: any) {
+    isLoading.value = false;
+    error.value = e.message ?? 'An unknown error occurred.';
   }
 };
 
@@ -161,7 +335,9 @@ const copyCode = async () => {
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
   initMermaid();
-  if (currentFlowCode.value) {
+  if (mermaidCode.value) {
+    await renderDiagram(mermaidCode.value);
+  } else if (currentFlowCode.value) {
     await generate();
   }
 });
@@ -180,13 +356,40 @@ onMounted(async () => {
           <line x1="15" y1="14" x2="19" y2="17"/>
         </svg>
         <span class="header-title">FLOW CHART</span>
-        <span class="provider-badge">{{ aiSettings.provider.toUpperCase() }}</span>
+        
+        <div class="mode-switcher glass-mini">
+          <button 
+            class="mode-btn" 
+            :class="{ active: analysisMode === 'code' }"
+            @click="setMode('code')"
+          >CODE</button>
+          <button 
+            class="mode-btn" 
+            :class="{ active: analysisMode === 'ai' }"
+            @click="setMode('ai')"
+          >AI</button>
+        </div>
+
+        <span v-if="analysisMode === 'ai'" class="provider-badge">{{ aiSettings.provider.toUpperCase() }}</span>
       </div>
       <div class="header-right">
+        <!-- Zoom controls -->
+        <span v-if="mermaidCode" class="zoom-badge">{{ Math.round(zoomScale * 100) }}%</span>
+        <button
+          v-if="mermaidCode"
+          class="icon-btn"
+          @click="resetZoom"
+          title="Reset Zoom (100%)"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+          </svg>
+        </button>
         <button
           class="icon-btn"
-          :class="{ active: showRawCode }"
-          @click="showRawCode = !showRawCode"
+          :class="{ active: showRawFlowCode }"
+          @click="toggleRawCode()"
           title="Toggle Raw Mermaid Code"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
@@ -221,7 +424,10 @@ onMounted(async () => {
     <!-- Loading State -->
     <div v-if="isLoading" class="loading-overlay">
       <div class="loading-spinner"></div>
-      <p class="loading-text">Analyzing code with <strong>{{ aiSettings.provider }}</strong>...</p>
+      <p class="loading-text">
+        {{ analysisMode === 'ai' ? 'Analyzing code with ' : 'Performing static analysis...' }}
+        <strong v-if="analysisMode === 'ai'">{{ aiSettings.provider }}</strong>
+      </p>
       <p class="loading-sub">This may take a few seconds</p>
     </div>
 
@@ -238,7 +444,7 @@ onMounted(async () => {
     <!-- Main Area -->
     <div v-else class="main-area">
       <!-- Diagram View -->
-      <div class="diagram-panel glass" :class="{ 'half-width': showRawCode && mermaidCode }">
+      <div class="diagram-panel glass" :class="{ 'half-width': showRawFlowCode && mermaidCode }">
         <div v-if="!mermaidCode" class="empty-state">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
             <rect x="2" y="3" width="6" height="4" rx="1"/>
@@ -250,11 +456,21 @@ onMounted(async () => {
           <p>Click <strong>Re-generate</strong> to analyze your code</p>
           <p class="hint">Or go to the Editor tab, write code, and click the ? Flow button</p>
         </div>
-        <div ref="diagramRef" class="mermaid-output"></div>
+        <div
+          ref="zoomWrapRef"
+          class="zoom-viewport"
+          @wheel.prevent="onWheel"
+          @mousedown="onMouseDown"
+          @mousemove="onMouseMove"
+          @mouseup="onMouseUp"
+          @mouseleave="onMouseUp"
+        >
+          <div ref="diagramRef" class="mermaid-output" :style="zoomStyle"></div>
+        </div>
       </div>
 
       <!-- Raw Code Panel -->
-      <div v-if="showRawCode && mermaidCode" class="raw-panel glass">
+      <div v-if="showRawFlowCode && mermaidCode" class="raw-panel glass">
         <div class="raw-header">RAW MERMAID</div>
         <pre class="raw-code">{{ mermaidCode }}</pre>
       </div>
@@ -312,6 +528,41 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Mode Switcher */
+.mode-switcher {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.15);
+  margin-left: 10px;
+}
+
+.mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all 0.2s;
+}
+
+.mode-btn:hover { opacity: 0.8; }
+.mode-btn.active {
+  background: var(--accent-color);
+  color: #fff;
+  opacity: 1;
+}
+
+.glass-mini {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .icon-btn {
@@ -445,28 +696,55 @@ onMounted(async () => {
 .diagram-panel {
   flex: 1;
   border-radius: 12px;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 20px;
+  flex-direction: column;
+  padding: 0;
   transition: all 0.3s;
+  position: relative;
 }
 
 .diagram-panel.half-width { flex: 1.2; }
 
-/* Mermaid SVG output */
-.mermaid-output {
+/* Zoom viewport: fixed size container, clips overflow, grab cursor */
+.zoom-viewport {
+  flex: 1;
   width: 100%;
-  min-height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  position: relative;  /* mermaid-output is positioned relative to this */
+}
+
+/* Mermaid SVG output — absolutely positioned so transform doesn't affect parent layout */
+.mermaid-output {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  min-width: 100%;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  will-change: transform;
+  transition: none;
 }
 
 .mermaid-output :deep(svg) {
-  max-width: 100%;
+  display: block;
+  max-width: none;
   height: auto;
+}
+
+/* Zoom scale badge */
+.zoom-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-color);
+  opacity: 0.5;
+  min-width: 36px;
+  text-align: center;
 }
 
 /* Empty state */
@@ -524,6 +802,40 @@ onMounted(async () => {
 .raw-code::-webkit-scrollbar-track { background: transparent; }
 .diagram-panel::-webkit-scrollbar-thumb,
 .raw-code::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+/* Interactive Function Highlighting */
+.mermaid-output :deep(.func-highlight) rect,
+.mermaid-output :deep(.func-highlight) polygon,
+.mermaid-output :deep(.func-highlight) .label-container,
+.mermaid-output :deep(.func-highlight) .cluster-rect {
+  stroke: #60a5fa !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 4px rgba(96, 165, 250, 0.5));
+  transition: all 0.2s ease;
+}
+
+.mermaid-output :deep(.func-highlight) path {
+  stroke: #60a5fa !important;
+  stroke-width: 4px !important;
+  transition: all 0.2s ease;
+}
+
+.mermaid-output :deep(.func-highlight) .edgeLabel {
+  color: #60a5fa !important;
+  font-weight: bold;
+}
+
+.mermaid-output :deep(.func-dimmed) {
+  opacity: 0.15 !important;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.mermaid-output :deep(.node),
+.mermaid-output :deep(.edgePath),
+.mermaid-output :deep(.cluster) {
+  transition: opacity 0.3s ease, stroke 0.2s ease;
+}
 </style>
 
 

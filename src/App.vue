@@ -182,19 +182,19 @@ onMounted(() => {
     <!-- Main Content Area (Scrollable) -->
     <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' }">
       <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' }">
-        <div v-if="currentTab === 'SQL-Helper'" class="full-height-vif">
+        <div v-show="currentTab === 'SQL-Helper'" class="full-height-vif">
           <SQLHelper :theme="currentTheme" />
         </div>
-        <div v-if="currentTab === 'Translate'" class="full-height-vif">
+        <div v-show="currentTab === 'Translate'" class="full-height-vif">
           <TranslateTab />
         </div>
-        <div v-if="currentTab === 'Compare'" class="full-height-vif">
+        <div v-show="currentTab === 'Compare'" class="full-height-vif">
           <CompareTab />
         </div>
-        <div v-if="currentTab === 'Editor'" class="full-height-vif">
+        <div v-show="currentTab === 'Editor'" class="full-height-vif">
           <EditorTab />
         </div>
-        <div v-if="currentTab === 'FlowChart'" class="full-height-vif">
+        <div v-show="currentTab === 'FlowChart'" class="full-height-vif">
           <FlowChartTab />
         </div>
       </div>

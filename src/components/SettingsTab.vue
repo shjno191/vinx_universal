@@ -209,8 +209,8 @@ const downloadTemplate = async () => {
     if (chosenPath) {
       const data = [
         ['Japanese (JP)', 'English (EN)', 'Vietnamese (VI)'],
-        ['‚±‚ñ‚É‚¿‚Í', 'Hello', 'Xin ch?o'],
-        ['‚ ‚è‚ª‚Æ‚¤', 'Thank you', 'C?m ?n']
+        ['こんにちは', 'Hello', 'Xin chào'],
+        ['ありがとう', 'Thank you', 'Cảm ơn']
       ];
       const ws = XLSX.utils.aoa_to_sheet(data);
       const wb = XLSX.utils.book_new();
@@ -456,7 +456,6 @@ onMounted(() => {
         </div>
       </div>
     </main>
-  </div>
   </div>
 </template>
 

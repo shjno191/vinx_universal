@@ -68,3 +68,8 @@ export const currentFlowCode = ref('');
 
 // Signal to auto-navigate to the Flow Chart tab
 export const triggerFlowChart = ref(false);
+
+// Flow Chart Persistence
+export const mermaidCode = ref('');
+export const analysisMode = ref<'code' | 'ai'>('code');
+export const showRawFlowCode = ref(false);

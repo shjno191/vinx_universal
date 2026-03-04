@@ -1,74 +1,70 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue';
-import { sharedInput, sharedOutput } from '../store';
+import { ref, computed, watch } from 'vue';
+import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
+import { sharedInput, sharedOutput, theme as globalTheme } from '../store';
 
-// States for the editors
-const sideCodeText = ref(sharedInput.value);
-const sideExcelText = ref(sharedOutput.value);
+// The two sides of the diff
+const originalText = ref(sharedInput.value);
+const modifiedText = ref(sharedOutput.value);
 
-// Sync local states with store if needed (or just use local for comparison)
-watch(sharedInput, (val) => sideCodeText.value = val);
-watch(sharedOutput, (val) => sideExcelText.value = val);
+// Sync with shared store
+watch(sharedInput, (val) => originalText.value = val);
+watch(sharedOutput, (val) => modifiedText.value = val);
 
-const compInputLineNumbers = ref<HTMLDivElement | null>(null);
-const compExcelLineNumbers = ref<HTMLDivElement | null>(null);
-const diffCodeLineNumbers = ref<HTMLDivElement | null>(null);
-const diffExcelLineNumbers = ref<HTMLDivElement | null>(null);
+// Sidebar state (removed analysis items)
+const isSidebarOpen = ref(false); 
 
-const compInputTextarea = ref<HTMLTextAreaElement | null>(null);
-const compExcelTextarea = ref<HTMLTextAreaElement | null>(null);
-const diffCodeArea = ref<HTMLDivElement | null>(null);
-const diffExcelArea = ref<HTMLDivElement | null>(null);
+// Monaco instance for theme definition
+const monacoRef = ref<any>(null);
+
+const handleEditorBeforeMount = (monaco: any) => {
+  monacoRef.value = monaco;
+  
+  // Define custom themes that match our app's CSS variables
+  monaco.editor.defineTheme('app-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#161b22', // Matches var(--container-bg) in dark
+    }
+  });
+
+  monaco.editor.defineTheme('app-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#ffffff', // Matches var(--container-bg) in light
+    }
+  });
+};
+
+// Monaco Diff Editor options
+const DIFF_OPTIONS = computed(() => ({
+  automaticLayout: true,
+  fontSize: 13,
+  fontFamily: "'Consolas', 'Courier New', monospace",
+  lineNumbers: 'on' as const,
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  wordWrap: 'on' as const,
+  renderSideBySide: true,
+  originalEditable: true, 
+  readOnly: false,
+  domReadOnly: false,
+  scrollbar: {
+    vertical: 'visible' as const,
+    horizontal: 'visible' as const,
+    useShadows: false,
+    verticalScrollbarSize: 8,
+    horizontalScrollbarSize: 8,
+  },
+  theme: globalTheme.value === 'dark' ? 'app-dark' : 'app-light'
+}));
 
 const showCopyToast = ref(false);
 const copyPos = ref({ x: 0, y: 0 });
-
-// Data items for the UI
-const missingCount = ref(0);
-const extraCount = ref(0);
-const duplicateCount = ref(0);
-
-// Result lists for analysis sidebar
-const missingItems = ref<string[]>([]);
-const extraItems = ref<string[]>([]);
-const duplicateItems = ref<string[]>([]);
-
-// Diff results structure
-interface DiffLine {
-  text: string;
-  type: 'normal' | 'added' | 'removed';
-  num?: number;
-}
-const diffCodeLines = ref<DiffLine[]>([]);
-const diffExcelLines = ref<DiffLine[]>([]);
-
-const inputLines = computed(() => {
-  const lines = sideCodeText.value.split('\n').length;
-  return lines > 0 ? lines : 1;
-});
-
-const excelLines = computed(() => {
-  const lines = sideExcelText.value.split('\n').length;
-  return lines > 0 ? lines : 1;
-});
-
-const syncScrollEditors = (side: 'code' | 'excel') => {
-  if (side === 'code' && compInputTextarea.value && compInputLineNumbers.value) {
-    compInputLineNumbers.value.scrollTop = compInputTextarea.value.scrollTop;
-  } else if (side === 'excel' && compExcelTextarea.value && compExcelLineNumbers.value) {
-    compExcelLineNumbers.value.scrollTop = compExcelTextarea.value.scrollTop;
-  }
-};
-
-const syncScrollDiff = (side: 'code' | 'excel') => {
-  if (side === 'code' && diffCodeArea.value && diffCodeLineNumbers.value && diffExcelArea.value) {
-    diffCodeLineNumbers.value.scrollTop = diffCodeArea.value.scrollTop;
-    diffExcelArea.value.scrollTop = diffCodeArea.value.scrollTop;
-  } else if (side === 'excel' && diffExcelArea.value && diffExcelLineNumbers.value && diffCodeArea.value) {
-    diffExcelLineNumbers.value.scrollTop = diffExcelArea.value.scrollTop;
-    diffCodeArea.value.scrollTop = diffExcelArea.value.scrollTop;
-  }
-};
 
 const copyToClipboard = async (text: string, event: MouseEvent) => {
   if (!text) return;
@@ -82,173 +78,75 @@ const copyToClipboard = async (text: string, event: MouseEvent) => {
   }
 };
 
-const handleRunCompare = () => {
-  // Logic will be implemented later
-  console.log('Running compare...');
-};
-
 const swapInputs = () => {
-  const temp = sideCodeText.value;
-  sideCodeText.value = sideExcelText.value;
-  sideExcelText.value = temp;
+  const temp = originalText.value;
+  originalText.value = modifiedText.value;
+  modifiedText.value = temp;
 };
 
 const clearInputs = () => {
-  sideCodeText.value = '';
-  sideExcelText.value = '';
+  originalText.value = '';
+  modifiedText.value = '';
 };
 
-onMounted(async () => {
-  await nextTick();
-});
+// Watch for content changes to ensure reactive updates
+watch([originalText, modifiedText], () => {
+  console.log('Content changed, ready for compare.');
+}, { deep: true });
+
+// Toggle inline/split view
+const renderSideBySide = ref(true);
+const currentOptions = computed(() => ({
+  ...DIFF_OPTIONS.value,
+  renderSideBySide: renderSideBySide.value,
+}));
 </script>
 
 <template>
   <div class="compare-container">
-    <!-- Top Editors Section -->
-    <div class="top-editors">
-      <div class="editor-pane-group">
-        <div class="pane-header">
-          <span class="pane-label">SIDE CODE</span>
-          <span class="line-counter">{{ sideCodeText ? inputLines : 0 }} lines</span>
-        </div>
-        <div class="pane-editor glass">
-          <div class="line-numbers" ref="compInputLineNumbers">
-            <div v-for="n in inputLines" :key="n" class="line-num">{{ n }}</div>
-          </div>
-          <textarea v-model="sideCodeText" ref="compInputTextarea" @scroll="syncScrollEditors('code')" placeholder="Paste original code here..." spellcheck="false"></textarea>
-        </div>
-      </div>
-
-      <div class="editor-pane-group">
-        <div class="pane-header">
-          <span class="pane-label">SIDE EXCEL</span>
-          <span class="line-counter">{{ sideExcelText ? excelLines : 0 }} lines</span>
-        </div>
-        <div class="pane-editor glass">
-          <div class="line-numbers" ref="compExcelLineNumbers">
-            <div v-for="n in excelLines" :key="n" class="line-num">{{ n }}</div>
-          </div>
-          <textarea v-model="sideExcelText" ref="compExcelTextarea" @scroll="syncScrollEditors('excel')" placeholder="Paste excel content here..." spellcheck="false"></textarea>
-        </div>
-      </div>
-    </div>
-
     <!-- Action Bar -->
-    <div class="action-bar glass">
-      <div class="left-actions">
-        <button class="run-btn" @click="handleRunCompare">
-          <span class="icon">?</span> RUN COMPARE
-        </button>
-      </div>
-      
-      <div class="status-badges">
-        <div class="badge badge-missing">
-          MISSING SIDE CODE: <span>{{ missingCount }}</span>
-        </div>
-        <div class="badge badge-extra">
-          EXTRA SIDE EXCEL: <span>{{ extraCount }}</span>
-        </div>
-        <div class="badge badge-dup">
-          DUP A: 0 | B: {{ duplicateCount }}
-        </div>
+    <header class="action-bar glass">
+      <div class="toolbar-section">
+        <span class="toolbar-title">CODE COMPARE</span>
       </div>
 
-      <div class="right-actions">
-        <button class="tool-btn" @click="swapInputs">
-          <span class="icon">?</span> SWAP
-        </button>
-        <button class="tool-btn" @click="clearInputs">
-          <span class="icon">??</span> CLEAR
-        </button>
-        <button class="tool-btn highlight">
-          <span class="icon">?</span> QUICK TRANSLATE
-        </button>
-      </div>
-    </div>
-
-    <!-- Main Diff Section -->
-    <div class="main-diff-area">
-      <div class="diff-view-container glass">
-        <div class="diff-header">
-          <div class="diff-header-side">
-            <span>SIDE CODE</span>
-            <button class="copy-all-btn" @click="copyToClipboard(sideCodeText, $event)">COPY ALL</button>
-          </div>
-          <div class="diff-header-side">
-            <span>SIDE EXCEL</span>
-            <button class="copy-all-btn" @click="copyToClipboard(sideExcelText, $event)">COPY ALL</button>
-          </div>
+      <div class="toolbar-section">
+        <div class="button-group glass">
+          <button class="icon-btn" :class="{ active: !renderSideBySide }" @click="renderSideBySide = !renderSideBySide" title="Toggle Inline/Split View">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1 2h14v12H1V2zm6.5 1.5v9h1v-9h-1zM2.5 3.5v9h4v-9h-4zm7 0v9h4v-9h-4z"/>
+            </svg>
+          </button>
+          <button class="icon-btn" @click="swapInputs" title="Swap Sides">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M11 1l3 3-3 3V5H2V3h9V1zm-6 8l-3 3 3 3v-2h9v-2H5v-2z"/>
+            </svg>
+          </button>
+          <button class="icon-btn" @click="clearInputs" title="Clear All Texts">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3.5 3.5l1-1h7l1 1h2v1H1.5v-1h2zM3 5h10v9h-1V5H4v9H3V5zm7 1v6H9V6h1zm-3 0v6H6V6h1z"/>
+            </svg>
+          </button>
         </div>
         
-        <div class="diff-body">
-          <!-- Diff Code Side -->
-          <div class="diff-pane" ref="diffCodeArea" @scroll="syncScrollDiff('code')">
-             <div class="diff-line-numbers" ref="diffCodeLineNumbers">
-                <div v-for="line in diffCodeLines" :key="line.num" class="line-num">{{ line.num }}</div>
-             </div>
-             <div class="diff-content">
-                <div v-for="(line, idx) in diffCodeLines" :key="idx" class="diff-row" :class="line.type">
-                  <span class="marker"></span>
-                  <span class="text">{{ line.text }}</span>
-                </div>
-                <div v-if="diffCodeLines.length === 0" class="empty-state">No comparison data</div>
-             </div>
-          </div>
-          
-          <!-- Diff Excel Side -->
-          <div class="diff-pane" ref="diffExcelArea" @scroll="syncScrollDiff('excel')">
-              <div class="diff-line-numbers" ref="diffExcelLineNumbers">
-                <div v-for="line in diffExcelLines" :key="line.num" class="line-num">{{ line.num }}</div>
-             </div>
-             <div class="diff-content">
-                <div v-for="(line, idx) in diffExcelLines" :key="idx" class="diff-row" :class="line.type">
-                  <span class="marker"></span>
-                  <span class="text">{{ line.text }}</span>
-                </div>
-                <div v-if="diffExcelLines.length === 0" class="empty-state">No comparison data</div>
-             </div>
-          </div>
-        </div>
+        <div class="divider"></div>
       </div>
+    </header>
 
-      <!-- Analysis Sidebar -->
-      <div class="analysis-sidebar">
-        <div class="analysis-group glass">
-          <div class="analysis-header missing">
-            MISSING IN SIDE EXCEL
-            <span class="count">{{ missingCount }}</span>
-          </div>
-          <div class="analysis-items">
-            <div v-for="(item, idx) in missingItems" :key="idx" class="item">{{ item }}</div>
-            <div v-if="missingItems.length === 0" class="empty-item">None</div>
-          </div>
-        </div>
-
-        <div class="analysis-group glass">
-          <div class="analysis-header extra">
-            EXTRA IN SIDE EXCEL
-            <span class="count">{{ extraCount }}</span>
-          </div>
-          <div class="analysis-items">
-            <div v-for="(item, idx) in extraItems" :key="idx" class="item">{{ item }}</div>
-            <div v-if="extraItems.length === 0" class="empty-item">None</div>
-          </div>
-        </div>
-
-        <div class="analysis-group glass">
-          <div class="analysis-header dup">
-            DUPLICATES
-            <span class="count">{{ duplicateCount }}</span>
-          </div>
-          <div class="analysis-items">
-            <div v-for="(item, idx) in duplicateItems" :key="idx" class="item">{{ item }}</div>
-            <div v-if="duplicateItems.length === 0" class="empty-item">None</div>
-          </div>
-        </div>
+    <main class="main-content">
+      <!-- Editor Area -->
+      <div class="editor-wrapper glass">
+        <VueMonacoDiffEditor
+          v-model:original="originalText"
+          v-model:modified="modifiedText"
+          :theme="globalTheme === 'dark' ? 'app-dark' : 'app-light'"
+          language="plaintext"
+          :options="currentOptions"
+          @before-mount="handleEditorBeforeMount"
+          class="diff-instance"
+        />
       </div>
-    </div>
-
+    </main>
 
     <!-- Copy Bubble -->
     <transition name="bubble">
@@ -270,359 +168,137 @@ onMounted(async () => {
   gap: 12px;
   box-sizing: border-box;
   overflow: hidden;
-}
-
-/* Top Editors */
-.top-editors {
-  display: flex;
-  gap: 15px;
-  height: 25%;
-  min-height: 150px;
-}
-
-.editor-pane-group {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.pane-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 5px;
-}
-
-.pane-label {
-  font-size: 0.65rem;
-  font-weight: 800;
-  opacity: 0.5;
-  letter-spacing: 0.05em;
   color: var(--text-color);
-}
-
-.line-counter {
-  font-size: 0.6rem;
-  opacity: 0.3;
-  font-family: monospace;
-}
-
-.pane-editor {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-  background: var(--input-bg);
-  border-radius: 12px;
-  border: 1px solid rgba(128, 128, 128, 0.12);
-  position: relative;
 }
 
 .glass {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.1);
-}
-
-.line-numbers {
-  width: 32px;
-  background: rgba(0, 0, 0, 0.05);
-  border-right: 1px solid rgba(128, 128, 128, 0.08);
-  padding: 10px 0;
-  overflow: hidden;
-  user-select: none;
-}
-
-.line-num {
-  font-size: 0.65rem;
-  line-height: 1.5;
-  text-align: center;
-  color: var(--text-color);
-  opacity: 0.25;
-  font-family: 'Consolas', monospace;
-}
-
-textarea {
-  flex: 1;
-  background: transparent;
-  border: none;
-  padding: 10px;
-  color: var(--text-color);
-  font-family: 'Consolas', monospace;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-  white-space: pre;
-  overflow-x: auto;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
 }
 
 /* Action Bar */
 .action-bar {
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 15px;
+  padding: 0 15px;
   border-radius: 12px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
+  flex-shrink: 0;
 }
 
-.run-btn {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-weight: 800;
-  font-size: 0.75rem;
-  cursor: pointer;
+.toolbar-section {
   display: flex;
   align-items: center;
-  gap: 8px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.run-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
-}
-
-.status-badges {
-  display: flex;
   gap: 12px;
 }
 
-.badge {
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 0.65rem;
-  font-weight: 700;
-  background: rgba(128, 128, 128, 0.1);
-  border: 1px solid rgba(128, 128, 128, 0.1);
-}
-
-.badge span {
+.toolbar-title {
+  font-size: 0.85rem;
   font-weight: 900;
-  margin-left: 2px;
+  letter-spacing: 0.1em;
+  opacity: 0.8;
+  color: var(--accent-color);
+  padding-left: 5px;
 }
 
-.badge-missing { color: #f87171; border-color: rgba(248, 113, 113, 0.2); background: rgba(248, 113, 113, 0.05); }
-.badge-extra { color: #4ade80; border-color: rgba(74, 222, 128, 0.2); background: rgba(74, 222, 128, 0.05); }
-.badge-dup { color: #fbbf24; border-color: rgba(251, 191, 36, 0.2); background: rgba(251, 191, 36, 0.05); }
-
-.right-actions {
-  display: flex;
-  gap: 8px;
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--glass-border);
 }
 
-.tool-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  color: var(--text-color);
-  padding: 5px 12px;
-  border-radius: 6px;
-  font-size: 0.65rem;
-  font-weight: 700;
-  cursor: pointer;
+.status-summary {
   display: flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
   transition: background 0.2s;
 }
 
-.tool-btn:hover { background: rgba(255, 255, 255, 0.1); }
-.tool-btn.highlight { border-color: rgba(99, 102, 241, 0.4); color: #818cf8; }
-
-/* Main Diff Area */
-.main-diff-area {
-  flex: 1;
-  display: flex;
-  gap: 15px;
-  overflow: hidden;
-}
-
-.diff-view-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  border: 1px solid rgba(128, 128, 128, 0.1);
-  overflow: hidden;
-}
-
-.diff-header {
-  display: flex;
-  background: rgba(0, 0, 0, 0.1);
-  border-bottom: 1px solid rgba(128, 128, 128, 0.08);
-}
-
-.diff-header-side {
-  flex: 1;
-  padding: 8px 15px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.no-diff-text {
   font-size: 0.65rem;
-  font-weight: 700;
-  opacity: 0.6;
+  opacity: 0.4;
+  font-weight: 500;
 }
 
-.copy-all-btn {
+.button-group {
+  display: flex;
+  padding: 3px;
+  border-radius: 8px;
+  gap: 2px;
+}
+
+.icon-btn {
   background: transparent;
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  color: #6366f1;
-  font-size: 0.6rem;
-  padding: 2px 8px;
-  border-radius: 4px;
+  border: none;
+  color: var(--text-color);
+  padding: 6px;
+  border-radius: 6px;
   cursor: pointer;
-}
-
-.diff-body {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-.diff-pane {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  position: relative;
-}
-
-.diff-line-numbers {
-  width: 32px;
-  padding: 10px 0;
-  background: rgba(0, 0, 0, 0.02);
-  border-right: 1px solid rgba(128, 128, 128, 0.05);
-  user-select: none;
-}
-
-.diff-content {
-  flex: 1;
-  padding: 10px 0;
-}
-
-.diff-row {
+  opacity: 0.6;
   display: flex;
   align-items: center;
-  padding: 0 10px;
-  min-height: 24px;
-  font-family: 'Consolas', monospace;
-  font-size: 0.8rem;
-  white-space: pre;
+  justify-content: center;
+  transition: all 0.2s;
 }
 
-.diff-row .marker { width: 4px; height: 100%; margin-right: 10px; border-radius: 2px; }
+.icon-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
 
-.diff-row.removed { background: rgba(239, 68, 68, 0.05); }
-.diff-row.removed .marker { background: #ef4444; }
-.diff-row.added { background: rgba(34, 197, 94, 0.05); }
-.diff-row.added .marker { background: #22c55e; }
+.icon-btn.active {
+  opacity: 1;
+  color: #818cf8;
+  background: rgba(99, 102, 241, 0.15);
+}
 
-/* Sidebar */
-.analysis-sidebar {
-  width: 280px;
+/* Main Layout */
+.main-content {
+  flex: 1;
   display: flex;
-  flex-direction: column;
   gap: 12px;
-  overflow-y: auto;
+  min-height: 0;
 }
 
-.analysis-group {
+.editor-wrapper {
+  flex: 1;
   border-radius: 12px;
-  border: 1px solid rgba(128, 128, 128, 0.1);
-  padding: 12px;
+  overflow: hidden;
+  position: relative;
+  min-width: 0;
 }
 
-.analysis-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.7rem;
-  font-weight: 900;
-  margin-bottom: 10px;
+/* Theme specific overrides for glass and sidebar */
+.compare-container {
+  --glass-bg: rgba(30, 30, 30, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --sidebar-header-bg: rgba(255, 255, 255, 0.05);
+  background: var(--bg-color);
 }
 
-.analysis-header .count {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 0.65rem;
-  color: white;
+:root.theme-light .compare-container {
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --sidebar-header-bg: rgba(0, 0, 0, 0.05);
+  --container-bg: #f8fafc;
+  --bg-color: #f8fafc;
 }
 
-.analysis-header.missing { color: #f87171; }
-.analysis-header.missing .count { background: #ef4444; }
-.analysis-header.extra { color: #4ade80; }
-.analysis-header.extra .count { background: #22c55e; }
-.analysis-header.dup { color: #fbbf24; }
-.analysis-header.dup .count { background: #f97316; }
-
-.analysis-items {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.analysis-items .item {
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 6px;
-  font-size: 0.65rem;
-  font-family: monospace;
-  word-break: break-all;
-  border: 1px solid rgba(128, 128, 128, 0.08);
-}
-
-.empty-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.diff-instance {
+  width: 100%;
   height: 100%;
-  font-size: 0.75rem;
-  opacity: 0.3;
-  font-style: italic;
 }
 
-.empty-item {
-  padding: 10px;
-  font-size: 0.65rem;
-  opacity: 0.2;
-  text-align: center;
-  border: 1px dashed rgba(128, 128, 128, 0.2);
-  border-radius: 6px;
-}
-
-/* Bubble styles */
-.copy-bubble {
-  position: fixed;
-  background: #10b981;
-  color: #fff;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 0.65rem;
-  font-weight: 900;
-  box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3);
-  z-index: 3000;
-  pointer-events: none;
-  transform: translateX(-50%);
-}
-.bubble-enter-active, .bubble-leave-active { transition: all 0.2s ease; }
-.bubble-enter-from { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
-.bubble-leave-to { opacity: 0; transform: translate(-50%, -10px) scale(0.8); }
-
-/* Scrollbar styling */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* Custom Scrollbar for Sidebar (removed, but keeping general scrollbar if needed elsewhere) */
+::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.2); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.3); }
-
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
 </style>
-

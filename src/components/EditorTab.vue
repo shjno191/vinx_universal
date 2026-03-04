@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { globalShortcuts, editorSettings, cursorHistory, cursorHistoryIndex } from '../store';
+import { globalShortcuts, editorSettings, cursorHistory, cursorHistoryIndex, theme as globalTheme } from '../store';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface Tab {
@@ -34,24 +34,46 @@ const currentActiveId = computed({
   }
 });
 
-const MONACO_OPTIONS = {
+const handleEditorBeforeMount = (monaco: any) => {
+  // Define custom themes that match our app's CSS variables
+  monaco.editor.defineTheme('app-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#161b22', // Matches var(--container-bg) in dark
+    }
+  });
+
+  monaco.editor.defineTheme('app-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#ffffff', // Matches var(--container-bg) in light
+    }
+  });
+};
+
+const MONACO_OPTIONS = computed(() => ({
   automaticLayout: true,
   formatOnPaste: true,
   formatOnType: true,
   minimap: { enabled: true },
   fontSize: 14,
   scrollBeyondLastLine: false,
-  wordWrap: 'on',
+  wordWrap: 'on' as const,
   fixedOverflowWidgets: true,
   padding: { top: 10 },
   scrollbar: {
-    vertical: 'visible',
-    horizontal: 'visible',
+    vertical: 'visible' as const,
+    horizontal: 'visible' as const,
     useShadows: false,
     verticalScrollbarSize: 10,
     horizontalScrollbarSize: 10,
   },
-};
+  theme: globalTheme.value === 'dark' ? 'app-dark' : 'app-light'
+}));
 
 const addTab = () => {
   const newId = Date.now().toString();
@@ -356,11 +378,12 @@ const handleTabBarDbClick = (e: MouseEvent) => {
         <div v-if="isSplit" class="pane-header">{{ activeTabLeft.name }}</div>
         <VueMonacoEditor
           v-model:value="activeTabLeft.content"
-          theme="vs-dark"
+          :theme="globalTheme === 'dark' ? 'app-dark' : 'app-light'"
           :language="activeTabLeft.language"
           :options="MONACO_OPTIONS"
           class="monaco-instance"
           @mount="handleEditorMount($event, 'left')"
+          @before-mount="handleEditorBeforeMount"
         />
       </div>
 
@@ -374,11 +397,12 @@ const handleTabBarDbClick = (e: MouseEvent) => {
         <div class="pane-header">{{ activeTabRight.name }}</div>
         <VueMonacoEditor
           v-model:value="activeTabRight.content"
-          theme="vs-dark"
+          :theme="globalTheme === 'dark' ? 'app-dark' : 'app-light'"
           :language="activeTabRight.language"
           :options="MONACO_OPTIONS"
           class="monaco-instance"
           @mount="handleEditorMount($event, 'right')"
+          @before-mount="handleEditorBeforeMount"
         />
       </div>
     </div>
@@ -410,19 +434,21 @@ const handleTabBarDbClick = (e: MouseEvent) => {
 .editor-tab-container {
   width: 100%;
   height: 100%;
-  background-color: #1e1e1e;
+  background-color: var(--bg-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  color: var(--text-color);
 }
 
 .editor-tabs-bar {
   display: flex;
   align-items: center;
-  background-color: #252526;
+  background-color: var(--container-bg);
   height: 35px;
   flex-shrink: 0;
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: var(--border-style);
+  padding: 0 5px;
 }
 
 .tabs-scroll-area {
@@ -430,6 +456,7 @@ const handleTabBarDbClick = (e: MouseEvent) => {
   display: flex;
   height: 100%;
   overflow-x: auto;
+  gap: 2px;
 }
 
 .tabs-scroll-area::-webkit-scrollbar { height: 0; }
@@ -437,140 +464,167 @@ const handleTabBarDbClick = (e: MouseEvent) => {
 .editor-tab {
   display: flex;
   align-items: center;
-  padding: 0 10px;
-  height: 100%;
+  padding: 0 12px;
+  height: 28px;
+  margin-top: 7px;
   min-width: 120px;
-  max-width: 180px;
-  background-color: #2d2d2d;
-  color: rgba(255, 255, 255, 0.4);
+  max-width: 200px;
+  background-color: var(--button-bg);
+  color: var(--text-color);
+  opacity: 0.6;
   cursor: pointer;
-  border-right: 1px solid #1e1e1e;
+  border-radius: 6px 6px 0 0;
+  border: var(--border-style);
+  border-bottom: none;
   font-size: 0.72rem;
   user-select: none;
-  transition: background 0.15s, color 0.15s;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.editor-tab:hover {
+  opacity: 0.9;
+  background-color: var(--button-hover);
 }
 
 .editor-tab.active {
-  background-color: #1e1e1e;
-  color: #fff;
+  opacity: 1;
+  background-color: var(--bg-color);
+  border-bottom: 2px solid var(--accent-color);
+  z-index: 2;
 }
 
-.editor-tab:hover:not(.active) { background-color: #333; }
+.tab-icon {
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
 
-.tab-icon { margin-right: 6px; font-size: 0.75rem; }
-.tab-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 8px;
+}
 
 .tab-close {
-  background: none;
+  background: transparent;
   border: none;
   color: inherit;
   font-size: 1rem;
-  margin-left: 6px;
-  cursor: pointer;
-  opacity: 0.4;
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.4;
+  transition: all 0.2s;
 }
 
-.tab-close:hover { background-color: rgba(255, 255, 255, 0.1); opacity: 1; }
+.tab-close:hover {
+  opacity: 1;
+  background-color: rgba(255, 0, 0, 0.2);
+}
 
 .tab-bar-actions {
   display: flex;
   align-items: center;
-  padding: 0 10px;
   gap: 5px;
+  padding: 0 5px;
 }
 
 .action-btn {
-  background: none;
+  background: transparent;
   border: none;
-  color: #fff;
-  font-size: 1rem;
-  cursor: pointer;
-  opacity: 0.6;
-  width: 28px;
-  height: 28px;
+  color: var(--text-color);
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.2s;
 }
 
-.action-btn:hover { background-color: rgba(255, 255, 255, 0.1); opacity: 1; }
-.action-btn.active { color: #007acc; opacity: 1; }
+.action-btn:hover {
+  background-color: var(--button-hover);
+  opacity: 1;
+}
+
+.action-btn.active {
+  color: var(--accent-color);
+  opacity: 1;
+}
 
 .editor-view-area {
   flex: 1;
   display: flex;
+  background-color: var(--bg-color);
   overflow: hidden;
-}
-
-.editor-view-area.split-view {
-  flex-direction: row;
 }
 
 .pane {
   flex: 1;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   position: relative;
-  min-width: 0;
 }
-
-.split-view .pane {
-  border-right: 1px solid #2d2d2d;
-}
-
-.split-view .pane:last-child { border-right: none; }
 
 .pane.active {
-  box-shadow: inset 0 0 0 1px #007acc;
-  z-index: 10;
+  box-shadow: inset 0 0 0 1px var(--accent-color);
 }
 
 .pane-header {
   height: 22px;
-  background-color: #252526;
-  color: #969696;
+  background-color: var(--container-bg);
+  color: var(--text-color);
   font-size: 0.65rem;
-  padding: 0 10px;
   display: flex;
   align-items: center;
-  font-weight: bold;
+  padding: 0 10px;
+  border-bottom: var(--border-style);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
 }
 
-.monaco-instance { flex: 1; width: 100%; height: 100%; }
+.monaco-instance {
+  flex: 1;
+}
 
-/* Context Menu Styles */
+/* Context Menu */
 .context-menu {
   position: fixed;
-  background-color: #252526;
-  border: 1px solid #454545;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  padding: 5px 0;
   z-index: 10000;
+  background-color: var(--container-bg);
+  border: var(--border-style);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 5px 0;
   min-width: 160px;
-  border-radius: 4px;
+  backdrop-filter: blur(10px);
 }
 
 .context-item {
-  padding: 6px 16px;
-  color: #cccccc;
+  padding: 8px 15px;
   font-size: 0.75rem;
+  color: var(--text-color);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.15s;
 }
 
 .context-item:hover {
-  background-color: #007acc;
-  color: #ffffff;
+  background-color: var(--button-hover);
 }
 
 .context-divider {
   height: 1px;
-  background-color: #454545;
-  margin: 4px 0;
+  background-color: var(--border-style);
+  margin: 5px 0;
 }
 </style>

@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -106,7 +106,10 @@ const loadSettings = async () => {
     const s = await invoke('get_settings') as any;
     if (s) {
       // Merge properties manually to preserve the structure if some keys are missing
-      if (s.theme) settings.value.theme = s.theme;
+      if (s.theme) {
+        settings.value.theme = s.theme;
+        theme.value = s.theme;
+      }
       if (s.dictionary_path) settings.value.dictionary_path = s.dictionary_path;
       if (s.shortcuts) {
         settings.value.shortcuts = { ...settings.value.shortcuts, ...s.shortcuts };
@@ -143,6 +146,7 @@ const chooseDictionaryFile = async () => {
 
 const saveSettings = async () => {
   try {
+    theme.value = settings.value.theme; // Update global theme immediately
     await invoke('save_settings', { settings: settings.value });
     emit('theme-changed', settings.value.theme);
   } catch (e) {

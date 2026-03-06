@@ -127,6 +127,30 @@ fn build_node(path: &Path, depth: u32, max_depth: u32) -> Result<FileNode, Strin
     Ok(FileNode { name, path: path_str, is_dir, children, extension })
 }
 
+#[tauri::command]
+fn git_execute(args: Vec<String>, cwd: String) -> Result<String, String> {
+    use std::process::Command;
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("cmd");
+    #[cfg(target_os = "windows")]
+    command.args(&["/C", "git"]);
+    
+    #[cfg(not(target_os = "windows"))]
+    let mut command = Command::new("git");
+
+    let output = command
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -143,7 +167,8 @@ pub fn run() {
             read_file_binary,
             write_file_binary,
             open_file_path,
-            read_dir_tree
+            read_dir_tree,
+            git_execute
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

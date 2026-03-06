@@ -8,6 +8,7 @@ export const sharedTargetLang = ref<'en' | 'jp' | 'vi'>('jp');
 export const triggerDictionaryFocus = ref(0);
 export const triggerOpenFile = ref(0);
 export const showSettingsTrigger = ref<{ category?: string } | null>(null);
+export const projectRootPath = ref('');
 
 export interface EditorSettings {
     middleClickClose: boolean;
@@ -73,3 +74,14 @@ export const triggerFlowChart = ref(false);
 export const mermaidCode = ref('');
 export const analysisMode = ref<'code' | 'ai'>('code');
 export const showRawFlowCode = ref(false);
+
+// Git / Source Control State
+export interface GitFile {
+    path: string;
+    name: string;
+    status: 'M' | 'A' | 'D' | '??'; // Modified, Added, Deleted, Untracked
+    staged: boolean;
+}
+
+export const gitStatus = ref<GitFile[]>([]);
+export const triggerOpenDiff = ref<{ path: string; name: string; original: string; modified: string; label: string } | null>(null);

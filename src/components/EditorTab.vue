@@ -1,12 +1,13 @@
 ﻿<script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import * as monaco from 'monaco-editor';
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { globalShortcuts, editorSettings, cursorHistory, cursorHistoryIndex, theme as globalTheme, currentFlowCode, triggerFlowChart } from '../store';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import ExplorerNode from './ExplorerNode.vue';
+import SourceControl from './SourceControl.vue';
+import { projectRootPath, triggerOpenDiff } from '../store';
 
 // --- Common Icons ---
 const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -18,6 +19,7 @@ const CloseIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 const ClearIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
 const FileOpenIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
 const ProjectOpenIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>';
+const OpenFolderActionIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>';
 
 // --- Types ---
 interface Tab {
@@ -27,6 +29,8 @@ interface Tab {
   language: string;
   path?: string;
   isModified?: boolean;
+  isDiff?: boolean;
+  diffData?: { original: string; modified: string };
 }
 
 interface FileNode {
@@ -46,14 +50,45 @@ const activeTabIdRight = ref('');
 const focusedPane = ref<'left' | 'right'>('left');
 const showSplit = ref(false);
 const syncScroll = ref(false);
-const showExplorer = ref(true); // Default to true if project open
+const showExplorer = ref(true); 
 const projectRoot = ref<FileNode | null>(null);
 const expandedPaths = ref<Set<string>>(new Set());
-const projectRootPath = ref('');
 const searchQuery = ref('');
+const activeSidebar = ref<'explorer' | 'git'>('explorer');
+const sidebarWidth = ref(260);
+const isResizing = ref(false);
+
+const initResize = (e: MouseEvent) => {
+  isResizing.value = true;
+  const startX = e.clientX;
+  const startWidth = sidebarWidth.value;
+
+  const doResize = (moveEvent: MouseEvent) => {
+    if (!isResizing.value) return;
+    const delta = moveEvent.clientX - startX;
+    const newWidth = startWidth + delta;
+    if (newWidth > 150 && newWidth < 600) {
+      sidebarWidth.value = newWidth;
+    }
+  };
+
+  const stopResize = () => {
+    isResizing.value = false;
+    document.removeEventListener('mousemove', doResize);
+    document.removeEventListener('mouseup', stopResize);
+    document.body.style.cursor = 'default';
+  };
+
+  document.addEventListener('mousemove', doResize);
+  document.addEventListener('mouseup', stopResize);
+  document.body.style.cursor = 'col-resize';
+};
 
 const activeTabLeft = computed(() => tabs.value.find(t => t.id === activeTabIdLeft.value) || tabs.value[0]);
 const activeTabRight = computed(() => tabs.value.find(t => t.id === activeTabIdRight.value) || tabs.value[0]);
+const activeFilePath = computed(() => activeTabLeft.value?.path || '');
+
+const currentTab = computed(() => focusedPane.value === 'left' ? activeTabLeft.value : (activeTabRight.value || activeTabLeft.value));
 
 const currentActiveId = computed({
   get: () => focusedPane.value === 'left' ? activeTabIdLeft.value : (activeTabIdRight.value || activeTabIdLeft.value),
@@ -64,6 +99,31 @@ const currentActiveId = computed({
       activeTabIdRight.value = val;
     }
   }
+});
+
+// Watch for diff requests from SourceControl
+watch(triggerOpenDiff, (val) => {
+  if (!val) return;
+  const { path, name, original, modified, label } = val;
+  const tabId = `diff-${path}-${label}`;
+  const existing = tabs.value.find(t => t.id === tabId);
+  if (existing) {
+    currentActiveId.value = existing.id;
+  } else {
+    const newTab: Tab = {
+      id: tabId,
+      name: `${name} (${label})`,
+      content: modified,
+      language: getFileLanguage(path.split('.').pop() || ''),
+      path: path,
+      isDiff: true,
+      diffData: { original, modified }
+    };
+    tabs.value.push(newTab);
+    currentActiveId.value = newTab.id;
+  }
+  // Clear trigger to allow same diff to be re-triggered
+  nextTick(() => { triggerOpenDiff.value = null; });
 });
 
 const editors = { left: null as any, right: null as any };
@@ -188,6 +248,18 @@ const handleKeyDown = (e: KeyboardEvent) => {
       if (e.shiftKey) openProject();
       else openFile();
     }
+    if (e.shiftKey) {
+      if (e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        activeSidebar.value = 'explorer';
+        showExplorer.value = true;
+      }
+      if (e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        activeSidebar.value = 'git';
+        showExplorer.value = true;
+      }
+    }
   }
 };
 
@@ -200,13 +272,16 @@ const addTab = () => {
 };
 
 const removeTab = (id: string) => {
-  if (tabs.value.length === 1) return;
   const i = tabs.value.findIndex(t => t.id === id);
-  if (i !== -1) {
-    tabs.value.splice(i, 1);
-    if (currentActiveId.value === id) currentActiveId.value = tabs.value[Math.max(0, i-1)].id;
-    if (activeTabIdRight.value === id) activeTabIdRight.value = '';
+  if (i === -1) return;
+  tabs.value.splice(i, 1);
+  if (tabs.value.length === 0) {
+    tabs.value.push({ id: Date.now().toString(), name: 'untitled.txt', content: '', language: 'plaintext' });
   }
+  if (currentActiveId.value === id || tabs.value.length > 0) {
+    currentActiveId.value = tabs.value[Math.max(0, i - 1)].id;
+  }
+  if (activeTabIdRight.value === id) activeTabIdRight.value = '';
 };
 
 const generateFlowChart = () => {
@@ -218,60 +293,96 @@ const generateFlowChart = () => {
 
 <template>
   <div class="editor-tab-container">
-    <transition name="explorer-slide">
-      <div v-if="showExplorer" class="explorer-panel">
-        <div class="explorer-header">
-          <span class="explorer-title">EXPLORER</span>
-          <div class="explorer-actions">
-            <button class="explorer-icon-btn" @click="refreshTree" title="Refresh" v-html="RefreshIcon"></button>
-            <button class="explorer-icon-btn" @click="showExplorer = false" title="Close Explorer" v-html="CloseIcon"></button>
-          </div>
-        </div>
-        
-        <div class="explorer-search-box">
-          <div class="search-input-wrapper">
-            <input 
-              v-model="searchQuery" 
-              type="text" 
-              placeholder="Search files..." 
-              class="explorer-search-input"
-              spellcheck="false"
-            />
-            <button v-if="searchQuery" class="clear-search" @click="searchQuery = ''" v-html="ClearIcon"></button>
-          </div>
-        </div>
+    <!-- Activity Bar (VS Code style) -->
+    <div class="activity-bar">
+      <div 
+        class="activity-item" 
+        :class="{ active: activeSidebar === 'explorer' && showExplorer }" 
+        @click="activeSidebar = 'explorer'; showExplorer = true"
+        title="Explorer (Ctrl+Shift+E)"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+      </div>
+      <div 
+        class="activity-item" 
+        :class="{ active: activeSidebar === 'git' && showExplorer }" 
+        @click="activeSidebar = 'git'; showExplorer = true"
+        title="Source Control (Ctrl+Shift+G)"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="6" r="3"></circle><line x1="18" y1="9" x2="18" y2="12"></line><line x1="6" y1="9" x2="6" y2="12"></line><line x1="12" y1="15" x2="18" y2="12"></line><line x1="12" y1="15" x2="6" y2="12"></line></svg>
+      </div>
+    </div>
 
-        <div class="explorer-root-label" v-if="projectRoot" @click="toggleFolder(projectRoot)">
-          <span class="explorer-folder-arrow" v-html="expandedPaths.has(projectRoot.path) ? ChevronDown : ChevronRight"></span>
-          <span class="root-icon" v-html="expandedPaths.has(projectRoot.path) ? FolderOpenIcon : FolderIcon"></span>
-          <span class="explorer-name">{{ projectRoot.name }}</span>
-        </div>
-        
-        <div class="explorer-body">
-          <template v-if="projectRoot && (expandedPaths.has(projectRoot.path) || searchQuery)">
-            <ExplorerNode
-              v-for="child in projectRoot.children"
-              :key="child.path"
-              :node="child"
-              :expanded-paths="expandedPaths"
-              :depth="1"
-              :search-query="searchQuery"
-              @open="openFileFromExplorer"
-              @toggle="toggleFolder"
-            />
-          </template>
-          <div v-else-if="!projectRoot" class="explorer-empty">
-            <p>No project folder open</p>
-            <button class="open-folder-btn-minimal" @click="openProject">Open Folder</button>
+    <transition name="explorer-slide">
+      <div v-if="showExplorer" class="sidebar-panel" :style="{ width: sidebarWidth + 'px' }">
+        <template v-if="activeSidebar === 'explorer'">
+          <div class="explorer-header">
+            <span class="explorer-title">EXPLORER</span>
+            <div class="explorer-actions">
+              <button class="explorer-icon-btn" @click="openProject" title="Open Folder (Ctrl+Shift+O)" v-html="OpenFolderActionIcon"></button>
+              <button class="explorer-icon-btn" @click="refreshTree" title="Refresh" v-html="RefreshIcon"></button>
+              <button class="explorer-icon-btn" @click="showExplorer = false" title="Close Explorer" v-html="CloseIcon"></button>
+            </div>
           </div>
-        </div>
+          
+          <div class="explorer-search-box">
+            <div class="search-input-wrapper">
+              <input 
+                v-model="searchQuery" 
+                type="text" 
+                placeholder="Search files..." 
+                class="explorer-search-input"
+                spellcheck="false"
+              />
+              <button v-if="searchQuery" class="clear-search" @click="searchQuery = ''" v-html="ClearIcon"></button>
+            </div>
+          </div>
+
+          <div class="explorer-root-label" v-if="projectRoot" @click="toggleFolder(projectRoot)">
+            <span class="explorer-folder-arrow" v-html="expandedPaths.has(projectRoot.path) ? ChevronDown : ChevronRight"></span>
+            <span class="root-icon" v-html="expandedPaths.has(projectRoot.path) ? FolderOpenIcon : FolderIcon"></span>
+            <span class="explorer-name">{{ projectRoot.name }}</span>
+          </div>
+          
+          <div class="explorer-body">
+            <template v-if="projectRoot && (expandedPaths.has(projectRoot.path) || searchQuery)">
+              <ExplorerNode
+                v-for="child in projectRoot.children"
+                :key="child.path"
+                :node="child"
+                :expanded-paths="expandedPaths"
+                :depth="1"
+                :search-query="searchQuery"
+                :active-path="activeFilePath"
+                @open="openFileFromExplorer"
+                @toggle="toggleFolder"
+              />
+            </template>
+            <div v-else-if="!projectRoot" class="explorer-empty">
+              <p>No project folder open</p>
+              <button class="open-folder-btn-minimal" @click="openProject">Open Folder</button>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="activeSidebar === 'git'">
+          <SourceControl />
+        </template>
       </div>
     </transition>
+
+    <div v-if="showExplorer" class="sidebar-resizer" @mousedown="initResize"></div>
 
     <div class="editor-main-area">
       <div class="editor-tabs-bar" @dblclick="addTab">
         <div class="tabs-scroll-area">
-          <div v-for="tab in tabs" :key="tab.id" class="editor-tab" :class="{ active: tab.id === currentActiveId }" @click="currentActiveId = tab.id">
+          <div 
+            v-for="tab in tabs" 
+            :key="tab.id" 
+            class="editor-tab" 
+            :class="{ active: tab.id === currentActiveId, 'is-diff': tab.isDiff }" 
+            @click="currentActiveId = tab.id"
+            @mouseup.middle.prevent="removeTab(tab.id)"
+          >
             <span class="tab-name">{{ tab.name }}</span>
             <span class="tab-close" @click.stop="removeTab(tab.id)">&times;</span>
           </div>
@@ -289,31 +400,44 @@ const generateFlowChart = () => {
       </div>
 
       <div class="editor-view-area" :class="{ 'split-view': showSplit }">
-        <div class="editor-pane" :class="{ focused: focusedPane === 'left' }" @mousedown="focusedPane = 'left'">
-          <VueMonacoEditor
-            v-model:value="activeTabLeft.content"
-            :language="activeTabLeft.language"
-            :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
-            class="monaco-instance"
-            @mount="handleEditorMount($event, 'left')"
-          />
-        </div>
-        <div v-if="showSplit" class="editor-pane" :class="{ focused: focusedPane === 'right' }" @mousedown="focusedPane = 'right'">
-          <div class="pane-header">
-            <select v-model="activeTabIdRight" class="tab-select">
-              <optgroup label="Open Tabs">
-                <option v-for="t in tabs" :key="t.id" :value="t.id">{{ t.name }}</option>
-              </optgroup>
-            </select>
+        <template v-if="currentTab?.isDiff && currentTab.diffData">
+          <div class="diff-editor-pane">
+            <monaco-diff-editor
+              :original="currentTab.diffData.original"
+              :modified="currentTab.diffData.modified"
+              :language="getFileLanguage(currentTab.path?.split('.').pop() || '')"
+              :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
+              class="monaco-instance"
+            />
           </div>
-          <VueMonacoEditor
-            v-model:value="activeTabRight.content"
-            :language="activeTabRight.language"
-            :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
-            class="monaco-instance"
-            @mount="handleEditorMount($event, 'right')"
-          />
-        </div>
+        </template>
+        <template v-else>
+          <div class="editor-pane" :class="{ focused: focusedPane === 'left' }" @mousedown="focusedPane = 'left'">
+            <VueMonacoEditor
+              v-model:value="activeTabLeft.content"
+              :language="activeTabLeft.language"
+              :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
+              class="monaco-instance"
+              @mount="handleEditorMount($event, 'left')"
+            />
+          </div>
+          <div v-if="showSplit" class="editor-pane" :class="{ focused: focusedPane === 'right' }" @mousedown="focusedPane = 'right'">
+            <div class="pane-header">
+              <select v-model="activeTabIdRight" class="tab-select">
+                <optgroup label="Open Tabs">
+                  <option v-for="t in tabs" :key="t.id" :value="t.id">{{ t.name }}</option>
+                </optgroup>
+              </select>
+            </div>
+            <VueMonacoEditor
+              v-model:value="activeTabRight.content"
+              :language="activeTabRight.language"
+              :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
+              class="monaco-instance"
+              @mount="handleEditorMount($event, 'right')"
+            />
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -321,9 +445,61 @@ const generateFlowChart = () => {
 
 <style scoped>
 .editor-tab-container { display: flex; height: 100%; background: var(--container-bg); }
+
+.activity-bar {
+  width: 48px;
+  background: rgba(0,0,0,0.2);
+  border-right: var(--border-style);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 10px;
+  flex-shrink: 0;
+}
+
+.activity-item {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-color);
+  opacity: 0.4;
+  cursor: pointer;
+  transition: opacity 0.2s, color 0.2s;
+  position: relative;
+}
+
+.activity-item:hover { opacity: 1; }
+.activity-item.active { opacity: 1; color: var(--accent-color); }
+.activity-item.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--accent-color);
+}
+
+.sidebar-panel { border-right: none; display: flex; flex-direction: column; background: var(--container-bg); z-index: 10; flex-shrink: 0; }
+
+.sidebar-resizer {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+  z-index: 20;
+  border-right: var(--border-style);
+}
+
+.sidebar-resizer:hover, .sidebar-resizer:active {
+  background: var(--accent-color);
+  opacity: 0.5;
+}
+
 .editor-main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; box-shadow: -4px 0 15px rgba(0,0,0,0.1); z-index: 5; }
 
-.explorer-panel { width: 260px; border-right: var(--border-style); display: flex; flex-direction: column; background: var(--container-bg); z-index: 10; flex-shrink: 0; }
 .explorer-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: var(--border-style); height: 40px; }
 .explorer-title { font-size: 0.65rem; font-weight: 800; opacity: 0.6; letter-spacing: 1.2px; text-transform: uppercase; }
 .explorer-actions { display: flex; gap: 4px; }
@@ -366,6 +542,8 @@ const generateFlowChart = () => {
 
 .editor-tab { display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 28px; background: rgba(255,255,255,0.04); border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8rem; transition: background 0.2s, opacity 0.2s; white-space: nowrap; max-width: 160px; border: 1px solid transparent; border-bottom: none; }
 .editor-tab.active { background: var(--container-bg); border-color: rgba(255,255,255,0.08); opacity: 1; }
+.editor-tab.is-diff { border-bottom: 2px solid #f59e0b; }
+.editor-tab.is-diff .tab-name { color: #f59e0b; }
 .tab-name { overflow: hidden; text-overflow: ellipsis; opacity: 0.7; }
 .active .tab-name { opacity: 1; font-weight: 500; }
 .tab-close { opacity: 0.3; font-size: 1rem; transition: opacity 0.2s; }
@@ -381,6 +559,12 @@ const generateFlowChart = () => {
 .editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .editor-pane.focused { box-shadow: inset 0 0 0 1px var(--accent-color); z-index: 10; }
 .monaco-instance { flex: 1; }
+
+.diff-editor-pane { flex: 1; display: flex; flex-direction: column; }
+.diff-header { height: 35px; background: rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: var(--border-style); }
+.diff-title { font-size: 0.75rem; font-weight: 600; opacity: 0.8; }
+.close-diff { background: transparent; border: none; color: var(--text-color); cursor: pointer; opacity: 0.6; }
+.close-diff:hover { opacity: 1; }
 
 .pane-header { height: 32px; background: rgba(0,0,0,0.1); display: flex; align-items: center; padding: 0 10px; border-bottom: var(--border-style); }
 .tab-select { background: transparent; border: none; color: var(--text-color); font-size: 0.75rem; width: 100%; outline: none; opacity: 0.7; }

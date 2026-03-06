@@ -1,148 +1,131 @@
-use std::collections::HashMap;
+﻿use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Settings {
-    pub theme: String,
-    pub dictionary_path: String,
-    pub shortcuts: HashMap<String, String>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        let mut shortcuts = HashMap::new();
-        shortcuts.insert("focus_search".to_string(), "ctrl+f".to_string());
-        shortcuts.insert("open_settings".to_string(), "ctrl+shift+s".to_string());
-        shortcuts.insert("open_file".to_string(), "ctrl+o".to_string());
-        
-        Self {
-            theme: "dark".to_string(),
-            dictionary_path: "".to_string(),
-            shortcuts,
-        }
-    }
-}
-
-fn get_settings_path() -> PathBuf {
-    let mut path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-    path.pop(); // Remove the executable name
-    path.push("settings.json");
-    path
+pub struct FileNode {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub children: Vec<FileNode>,
+    pub extension: String,
 }
 
 #[tauri::command]
-fn get_settings(app_handle: tauri::AppHandle) -> Settings {
-    let path = get_settings_path();
+fn get_settings() -> Result<String, String> {
+    let path = tauri::api::path::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("vinx_universal")
+        .join("settings.json");
     if !path.exists() {
-        let default_settings = Settings::default();
-        let _ = save_settings(app_handle, default_settings.clone());
-        return default_settings;
+        return Ok("{}".to_string());
     }
-
-    let content = fs::read_to_string(path).unwrap_or_default();
-    let mut settings: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
-    
-    // Merge logic: ensure all keys from default exist
-    let default_val = serde_json::to_value(Settings::default()).unwrap();
-    if let Some(obj) = settings.as_object_mut() {
-        if let Some(def_obj) = default_val.as_object() {
-            for (k, v) in def_obj {
-                if !obj.contains_key(k) {
-                    obj.insert(k.clone(), v.clone());
-                }
-            }
-        }
-    } else {
-        settings = default_val;
-    }
-
-    serde_json::from_value(settings).unwrap_or_default()
+    fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn save_settings(_app_handle: tauri::AppHandle, settings: Settings) -> Result<(), String> {
-    let path = get_settings_path();
-    let content = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    fs::write(path, content).map_err(|e| e.to_string())?;
+fn save_settings(settings: String) -> Result<(), String> {
+    let path = tauri::api::path::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("vinx_universal");
+    if !path.exists() {
+        fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    }
+    fs::write(path.join("settings.json"), settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_settings_file() -> Result<(), String> {
+    let path = tauri::api::path::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("vinx_universal")
+        .join("settings.json");
+    if path.exists() {
+        opener::reveal(&path).map_err(|e| e.to_string())?;
+    }
     Ok(())
-}
-
-#[tauri::command]
-fn open_settings_file(app_handle: tauri::AppHandle) -> Result<(), String> {
-    let path = get_settings_path();
-    if !path.exists() {
-        let _ = get_settings(app_handle.clone());
-    }
-    
-    open_file_path(path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
 fn read_file_content(path: String) -> Result<String, String> {
-    let p = std::path::Path::new(&path);
-    if !p.exists() {
-        return Err("File does not exist".to_string());
-    }
-    
-    let bytes = fs::read(p).map_err(|e| e.to_string())?;
-    
-    // Try UTF-8 first
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
     let (res, _encoding, has_errors) = encoding_rs::UTF_8.decode(&bytes);
     if !has_errors {
         return Ok(res.into_owned());
     }
-    
-    // Fallback to Shift-JIS (Common for Japanese logs)
     let (res, _encoding, has_errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
     if !has_errors {
         return Ok(res.into_owned());
     }
-
-    // Last resort: just decode as UTF-8 ignoring errors
-    Ok(res.into_owned())
+    Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
 #[tauri::command]
 fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
-    let p = std::path::Path::new(&path);
-    if !p.exists() {
-        return Err("File does not exist".to_string());
-    }
-    
-    fs::read(p).map_err(|e| e.to_string())
+    fs::read(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn write_file_binary(path: String, data: Vec<u8>) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    fs::write(p, data).map_err(|e| e.to_string())
+    fs::write(path, data).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn open_file_path(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    if !p.exists() {
-        return Err("File does not exist".to_string());
+    opener::reveal(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_dir_tree(path: String, depth: u32) -> Result<FileNode, String> {
+    let root_path = Path::new(&path);
+    if !root_path.exists() {
+        return Err("Path does not exist".to_string());
+    }
+    build_node(root_path, 0, depth)
+}
+
+fn build_node(path: &Path, depth: u32, max_depth: u32) -> Result<FileNode, String> {
+    let name = path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    let path_str = path.to_string_lossy().to_string();
+    let is_dir = path.is_dir();
+    let extension = path.extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let mut children = vec![];
+
+    if is_dir && depth < max_depth {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                let entry_name = entry_path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                
+                if entry_name.starts_with('.') || entry_name == "node_modules" || entry_name == "target" || entry_name == "dist" {
+                    continue;
+                }
+                
+                if let Ok(child) = build_node(&entry_path, depth + 1, max_depth) {
+                    children.push(child);
+                }
+            }
+        }
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        let mut arg = std::ffi::OsString::from("/select,");
-        arg.push(p);
-        
-        std::process::Command::new("explorer")
-            .arg(arg)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        // Fallback or other OS specific logic
-    }
-    
-    Ok(())
+    children.sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            b.is_dir.cmp(&a.is_dir)
+        } else {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        }
+    });
+
+    Ok(FileNode { name, path: path_str, is_dir, children, extension })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -160,7 +143,8 @@ pub fn run() {
             read_file_content,
             read_file_binary,
             write_file_binary,
-            open_file_path
+            open_file_path,
+            read_dir_tree
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

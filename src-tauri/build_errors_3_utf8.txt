@@ -1,0 +1,129 @@
+﻿cargo :     Checking vinx_universal v0.1.0 (D:\vinx
+_tools\vinx_universal\src-tauri)
+At line:1 char:1
++ cargo check 2> build_errors_3.txt; Get-Content bu
+ild_errors_3.txt | S ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    C 
+   hecking vi...rsal\src-tauri):String) [], Remot  
+  eException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+error[E0603]: enum `Error` is private
+  --> src\lib.rs:18:35
+   |
+18 |         .map_err(|e: tauri::path::Error| e.to_
+string())?
+   |                                   ^^^^^ privat
+e enum
+   |
+note: the enum `Error` is defined here
+  --> C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\path\
+mod.rs:17:5
+   |
+17 | use crate::error::*;
+   |     ^^^^^^^^^^^^
+   |
+  ::: C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\error
+.rs:32:1
+   |
+32 | #[non_exhaustive]
+   | ----------------- cannot be constructed becaus
+e it is `#[non_exhaustive]`
+help: consider importing this enum instead
+   |
+18 -         .map_err(|e: tauri::path::Error| e.to_
+string())?
+18 +         .map_err(|e: tauri::Error| e.to_string
+())?
+   |
+help: import `Error` directly
+   |
+18 -         .map_err(|e: tauri::path::Error| e.to_
+string())?
+18 +         .map_err(|e: tauri::error::Error| e.to
+_string())?
+   |
+
+error[E0603]: enum `Error` is private
+  --> src\lib.rs:30:35
+   |
+30 |         .map_err(|e: tauri::path::Error| e.to_
+string())?
+   |                                   ^^^^^ privat
+e enum
+   |
+note: the enum `Error` is defined here
+  --> C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\path\
+mod.rs:17:5
+   |
+17 | use crate::error::*;
+   |     ^^^^^^^^^^^^
+   |
+  ::: C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\error
+.rs:32:1
+   |
+32 | #[non_exhaustive]
+   | ----------------- cannot be constructed becaus
+e it is `#[non_exhaustive]`
+help: consider importing this enum instead
+   |
+30 -         .map_err(|e: tauri::path::Error| e.to_
+string())?
+30 +         .map_err(|e: tauri::Error| e.to_string
+())?
+   |
+help: import `Error` directly
+   |
+30 -         .map_err(|e: tauri::path::Error| e.to_
+string())?
+30 +         .map_err(|e: tauri::error::Error| e.to
+_string())?
+   |
+
+error[E0603]: enum `Error` is private
+  --> src\lib.rs:41:35
+   |
+41 |         .map_err(|e: tauri::path::Error| e.to_
+string())?
+   |                                   ^^^^^ privat
+e enum
+   |
+note: the enum `Error` is defined here
+  --> C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\path\
+mod.rs:17:5
+   |
+17 | use crate::error::*;
+   |     ^^^^^^^^^^^^
+   |
+  ::: C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\error
+.rs:32:1
+   |
+32 | #[non_exhaustive]
+   | ----------------- cannot be constructed becaus
+e it is `#[non_exhaustive]`
+help: consider importing this enum instead
+   |
+41 -         .map_err(|e: tauri::path::Error| e.to_
+string())?
+41 +         .map_err(|e: tauri::Error| e.to_string
+())?
+   |
+help: import `Error` directly
+   |
+41 -         .map_err(|e: tauri::path::Error| e.to_
+string())?
+41 +         .map_err(|e: tauri::error::Error| e.to
+_string())?
+   |
+
+For more information about this error, try `rustc -
+-explain E0603`.
+error: could not compile `vinx_universal` (lib) due
+ to 3 previous errors

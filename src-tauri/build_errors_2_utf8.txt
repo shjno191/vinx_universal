@@ -1,0 +1,268 @@
+﻿cargo :     Checking vinx_universal v0.1.0 (D:\vinx
+_tools\vinx_universal\src-tauri)
+At line:1 char:1
++ cargo check 2> build_errors_2.txt; Get-Content bu
+ild_errors_2.txt | S ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    C 
+   hecking vi...rsal\src-tauri):String) [], Remot  
+  eException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+error[E0425]: cannot find function `reveal` in crat
+e `opener`
+   --> src\lib.rs:44:17
+    |
+ 44 |         opener::reveal(&path).map_err(|e: ope
+ner::Error| e.to_string())?;
+    |                 ^^^^^^ not found in `opener`
+    |
+note: found an item that was configured out
+   --> C:\Users\09204113161\.cargo\registry\src\ind
+ex.crates.io-1949cf8c6b5b557f\opener-0.7.2\src\lib.
+rs:139:8
+    |
+138 | #[cfg(feature = "reveal")]
+    |       ------------------ the item is gated be
+hind the `reveal` feature
+139 | pub fn reveal<P>(path: P) -> Result<(), OpenE
+rror>
+    |        ^^^^^^
+
+error[E0425]: cannot find function `reveal` in crat
+e `opener`
+   --> src\lib.rs:75:13
+    |
+ 75 |     opener::reveal(Path::new(&path)).map_err(
+|e: opener::Error| e.to_string())
+    |             ^^^^^^ not found in `opener`
+    |
+note: found an item that was configured out
+   --> C:\Users\09204113161\.cargo\registry\src\ind
+ex.crates.io-1949cf8c6b5b557f\opener-0.7.2\src\lib.
+rs:139:8
+    |
+138 | #[cfg(feature = "reveal")]
+    |       ------------------ the item is gated be
+hind the `reveal` feature
+139 | pub fn reveal<P>(path: P) -> Result<(), OpenE
+rror>
+    |        ^^^^^^
+
+error[E0603]: trait `Error` is private
+  --> src\lib.rs:44:51
+   |
+44 |         opener::reveal(&path).map_err(|e: open
+er::Error| e.to_string())?;
+   |                                               
+    ^^^^^ private trait
+   |
+note: the trait `Error` is defined here
+  --> C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\opener-0.7.2\src\lib.r
+s:54:5
+   |
+54 | use std::error::Error;
+   |     ^^^^^^^^^^^^^^^^^
+help: consider importing this trait instead
+   |
+44 -         opener::reveal(&path).map_err(|e: open
+er::Error| e.to_string())?;
+44 +         opener::reveal(&path).map_err(|e: std:
+:error::Error| e.to_string())?;
+   |
+help: import `Error` directly
+   |
+44 -         opener::reveal(&path).map_err(|e: open
+er::Error| e.to_string())?;
+44 +         opener::reveal(&path).map_err(|e: core
+::error::Error| e.to_string())?;
+   |
+
+error[E0603]: trait `Error` is private
+  --> src\lib.rs:75:58
+   |
+75 |     opener::reveal(Path::new(&path)).map_err(|
+e: opener::Error| e.to_string())
+   |                                               
+           ^^^^^ private trait
+   |
+note: the trait `Error` is defined here
+  --> C:\Users\09204113161\.cargo\registry\src\inde
+x.crates.io-1949cf8c6b5b557f\opener-0.7.2\src\lib.r
+s:54:5
+   |
+54 | use std::error::Error;
+   |     ^^^^^^^^^^^^^^^^^
+help: consider importing this trait instead
+   |
+75 -     opener::reveal(Path::new(&path)).map_err(|
+e: opener::Error| e.to_string())
+75 +     opener::reveal(Path::new(&path)).map_err(|
+e: std::error::Error| e.to_string())
+   |
+help: import `Error` directly
+   |
+75 -     opener::reveal(Path::new(&path)).map_err(|
+e: opener::Error| e.to_string())
+75 +     opener::reveal(Path::new(&path)).map_err(|
+e: core::error::Error| e.to_string())
+   |
+
+error[E0599]: no method named `path` found for stru
+ct `AppHandle<R>` in the current scope
+   --> src\lib.rs:16:20
+    |
+ 16 |     let path = app.path().config_dir()
+    |                    ^^^^ method not found in `
+AppHandle`
+    |
+   ::: C:\Users\09204113161\.cargo\registry\src\ind
+ex.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\lib.
+rs:772:6
+    |
+772 |   fn path(&self) -> &crate::path::PathResolve
+r<R> {
+    |      ---- the method is available for `AppHan
+dle` here
+    |
+    = help: items from traits can only be used if t
+he trait is in scope
+help: trait `Manager` which provides `path` is impl
+emented but not in scope; perhaps you want to impor
+t it
+    |
+  1 + use tauri::Manager;
+    |
+
+error[E0282]: type annotations needed
+  --> src\lib.rs:17:19
+   |
+17 |         .map_err(|e| e.to_string())?
+   |                   ^  - type must be known at t
+his point
+   |
+help: consider giving this closure parameter an exp
+licit type
+   |
+17 |         .map_err(|e: /* Type */| e.to_string()
+)?
+   |                    ++++++++++++
+
+error[E0599]: no method named `path` found for stru
+ct `AppHandle<R>` in the current scope
+   --> src\lib.rs:28:20
+    |
+ 28 |     let path = app.path().config_dir()
+    |                    ^^^^ method not found in `
+AppHandle`
+    |
+   ::: C:\Users\09204113161\.cargo\registry\src\ind
+ex.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\lib.
+rs:772:6
+    |
+772 |   fn path(&self) -> &crate::path::PathResolve
+r<R> {
+    |      ---- the method is available for `AppHan
+dle` here
+    |
+    = help: items from traits can only be used if t
+he trait is in scope
+help: trait `Manager` which provides `path` is impl
+emented but not in scope; perhaps you want to impor
+t it
+    |
+  1 + use tauri::Manager;
+    |
+
+error[E0282]: type annotations needed
+  --> src\lib.rs:29:19
+   |
+29 |         .map_err(|e| e.to_string())?
+   |                   ^  - type must be known at t
+his point
+   |
+help: consider giving this closure parameter an exp
+licit type
+   |
+29 |         .map_err(|e: /* Type */| e.to_string()
+)?
+   |                    ++++++++++++
+
+error[E0599]: no method named `path` found for stru
+ct `AppHandle<R>` in the current scope
+   --> src\lib.rs:39:20
+    |
+ 39 |     let path = app.path().config_dir()
+    |                    ^^^^ method not found in `
+AppHandle`
+    |
+   ::: C:\Users\09204113161\.cargo\registry\src\ind
+ex.crates.io-1949cf8c6b5b557f\tauri-2.10.2\src\lib.
+rs:772:6
+    |
+772 |   fn path(&self) -> &crate::path::PathResolve
+r<R> {
+    |      ---- the method is available for `AppHan
+dle` here
+    |
+    = help: items from traits can only be used if t
+he trait is in scope
+help: trait `Manager` which provides `path` is impl
+emented but not in scope; perhaps you want to impor
+t it
+    |
+  1 + use tauri::Manager;
+    |
+
+error[E0282]: type annotations needed
+  --> src\lib.rs:40:19
+   |
+40 |         .map_err(|e| e.to_string())?
+   |                   ^  - type must be known at t
+his point
+   |
+help: consider giving this closure parameter an exp
+licit type
+   |
+40 |         .map_err(|e: /* Type */| e.to_string()
+)?
+   |                    ++++++++++++
+
+error[E0782]: expected a type, found a trait
+  --> src\lib.rs:44:43
+   |
+44 |         opener::reveal(&path).map_err(|e: open
+er::Error| e.to_string())?;
+   |                                           ^^^^
+^^^^^^^^^
+   |
+help: you can add the `dyn` keyword if you want a t
+rait object
+   |
+44 |         opener::reveal(&path).map_err(|e: dyn 
+opener::Error| e.to_string())?;
+   |                                           +++
+
+error[E0782]: expected a type, found a trait
+  --> src\lib.rs:75:50
+   |
+75 |     opener::reveal(Path::new(&path)).map_err(|
+e: opener::Error| e.to_string())
+   |                                               
+   ^^^^^^^^^^^^^
+   |
+help: you can add the `dyn` keyword if you want a t
+rait object
+   |
+75 |     opener::reveal(Path::new(&path)).map_err(|
+e: dyn opener::Error| e.to_string())
+   |                                               
+   +++
+
+Some errors have detailed explanations: E0282, E042
+5, E0599, E0603, E0782.
+For more information about an error, try `rustc --e
+xplain E0282`.
+error: could not compile `vinx_universal` (lib) due
+ to 12 previous errors

@@ -8,6 +8,17 @@ import { globalShortcuts, editorSettings, cursorHistory, cursorHistoryIndex, the
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import ExplorerNode from './ExplorerNode.vue';
 
+// --- Common Icons ---
+const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+const ChevronDown = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+const FolderIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" opacity="0.9"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path></svg>';
+const FolderOpenIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" opacity="0.9"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"></path></svg>';
+const RefreshIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>';
+const CloseIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+const ClearIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+const FileOpenIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
+const ProjectOpenIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>';
+
 // --- Types ---
 interface Tab {
   id: string;
@@ -212,8 +223,8 @@ const generateFlowChart = () => {
         <div class="explorer-header">
           <span class="explorer-title">EXPLORER</span>
           <div class="explorer-actions">
-            <button class="explorer-icon-btn" @click="refreshTree" title="Refresh"></button>
-            <button class="explorer-icon-btn" @click="showExplorer = false" title="Close Explorer">&times;</button>
+            <button class="explorer-icon-btn" @click="refreshTree" title="Refresh" v-html="RefreshIcon"></button>
+            <button class="explorer-icon-btn" @click="showExplorer = false" title="Close Explorer" v-html="CloseIcon"></button>
           </div>
         </div>
         
@@ -226,13 +237,13 @@ const generateFlowChart = () => {
               class="explorer-search-input"
               spellcheck="false"
             />
-            <button v-if="searchQuery" class="clear-search" @click="searchQuery = ''">&times;</button>
+            <button v-if="searchQuery" class="clear-search" @click="searchQuery = ''" v-html="ClearIcon"></button>
           </div>
         </div>
 
         <div class="explorer-root-label" v-if="projectRoot" @click="toggleFolder(projectRoot)">
-          <span class="explorer-folder-arrow">{{ expandedPaths.has(projectRoot.path) ? '' : '' }}</span>
-          <span class="root-icon"></span>
+          <span class="explorer-folder-arrow" v-html="expandedPaths.has(projectRoot.path) ? ChevronDown : ChevronRight"></span>
+          <span class="root-icon" v-html="expandedPaths.has(projectRoot.path) ? FolderOpenIcon : FolderIcon"></span>
           <span class="explorer-name">{{ projectRoot.name }}</span>
         </div>
         
@@ -266,10 +277,14 @@ const generateFlowChart = () => {
           </div>
         </div>
         <div class="tab-bar-actions">
-          <button class="action-btn" @click="openFile" title="Open File (Ctrl+O)"></button>
-          <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Open Project (Ctrl+Shift+O)"></button>
-          <button class="action-btn" @click="generateFlowChart" title="Flow Chart"></button>
-          <button class="action-btn" @click="showSplit = !showSplit" :class="{ active: showSplit }" title="Split Screen">[]</button>
+          <button class="action-btn" @click="openFile" title="Open File (Ctrl+O)" v-html="FileOpenIcon"></button>
+          <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Open Project (Ctrl+Shift+O)" v-html="ProjectOpenIcon"></button>
+          <button class="action-btn" @click="generateFlowChart" title="Flow Chart">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+          </button>
+          <button class="action-btn" @click="showSplit = !showSplit" :class="{ active: showSplit }" title="Split Screen">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>
+          </button>
         </div>
       </div>
 
@@ -324,8 +339,20 @@ const generateFlowChart = () => {
 
 .explorer-root-label { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; font-size: 0.85rem; font-weight: 700; background: rgba(255,255,255,0.02); border-bottom: var(--border-style); }
 .explorer-root-label:hover { background: rgba(255,255,255,0.05); }
-.explorer-folder-arrow { font-size: 0.6rem; opacity: 0.4; width: 12px; }
-.root-icon { font-size: 1rem; }
+.explorer-folder-arrow { 
+  font-size: 0.6rem; 
+  opacity: 0.4; 
+  width: 12px; 
+  display: flex; 
+  justify-content: center;
+}
+.root-icon { 
+  font-size: 1rem; 
+  color: #fbbf24;
+  display: flex;
+  align-items: center;
+}
+:root.theme-light .root-icon { color: #d97706; }
 .explorer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .explorer-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: 20px; }

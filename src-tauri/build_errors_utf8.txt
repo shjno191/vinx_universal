@@ -1,0 +1,121 @@
+﻿cargo :     Checking vinx_universal v0.1.0 (D:\vinx
+_tools\vinx_universal\src-tauri)
+At line:1 char:1
++ cargo check 2> build_errors.txt
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    C 
+   hecking vi...rsal\src-tauri):String) [], Remot  
+  eException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+error[E0433]: failed to resolve: could not find `ap
+i` in `tauri`
+  --> src\lib.rs:18:23
+   |
+18 |     let path = tauri::api::path::config_dir()
+   |                       ^^^ could not find `api`
+ in `tauri`
+
+error[E0433]: failed to resolve: could not find `ap
+i` in `tauri`
+  --> src\lib.rs:30:23
+   |
+30 |     let path = tauri::api::path::config_dir()
+   |                       ^^^ could not find `api`
+ in `tauri`
+
+error[E0433]: failed to resolve: could not find `ap
+i` in `tauri`
+  --> src\lib.rs:41:23
+   |
+41 |     let path = tauri::api::path::config_dir()
+   |                       ^^^ could not find `api`
+ in `tauri`
+
+warning: unused import: `std::collections::HashMap`
+ --> src\lib.rs:1:5
+  |
+1 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[war
+n(unused)]`) on by default
+
+warning: unused import: `PathBuf`
+ --> src\lib.rs:3:23
+  |
+3 | use std::path::{Path, PathBuf};
+  |                       ^^^^^^^
+
+error[E0433]: failed to resolve: use of unresolved 
+module or unlinked crate `opener`
+  --> src\lib.rs:46:9
+   |
+46 |         opener::reveal(&path).map_err(|e| e.to
+_string())?;
+   |         ^^^^^^ use of unresolved module or unl
+inked crate `opener`
+   |
+   = help: if you wanted to use a crate named `open
+er`, use `cargo add opener` to add it to your `Carg
+o.toml`
+
+error[E0282]: type annotations needed
+  --> src\lib.rs:46:40
+   |
+46 |         opener::reveal(&path).map_err(|e| e.to
+_string())?;
+   |                                        ^  - ty
+pe must be known at this point
+   |
+help: consider giving this closure parameter an exp
+licit type
+   |
+46 |         opener::reveal(&path).map_err(|e: /* T
+ype */| e.to_string())?;
+   |                                         ++++++
+++++++
+
+error[E0433]: failed to resolve: use of unresolved 
+module or unlinked crate `opener`
+  --> src\lib.rs:77:5
+   |
+77 |     opener::reveal(Path::new(&path)).map_err(|
+e| e.to_string())
+   |     ^^^^^^ use of unresolved module or unlinke
+d crate `opener`
+   |
+   = help: if you wanted to use a crate named `open
+er`, use `cargo add opener` to add it to your `Carg
+o.toml`
+
+error[E0282]: type annotations needed
+  --> src\lib.rs:77:47
+   |
+77 |     opener::reveal(Path::new(&path)).map_err(|
+e| e.to_string())
+   |                                               
+^  - type must be known at this point
+   |
+help: consider giving this closure parameter an exp
+licit type
+   |
+77 |     opener::reveal(Path::new(&path)).map_err(|
+e: /* Type */| e.to_string())
+   |                                               
+ ++++++++++++
+
+warning: unused import: `tauri::Manager`
+ --> src\lib.rs:5:5
+  |
+5 | use tauri::Manager;
+  |     ^^^^^^^^^^^^^^
+
+Some errors have detailed explanations: E0282, E043
+3.
+For more information about an error, try `rustc --e
+xplain E0282`.
+warning: `vinx_universal` (lib) generated 3 warning
+s
+error: could not compile `vinx_universal` (lib) due
+ to 7 previous errors; 3 warnings emitted

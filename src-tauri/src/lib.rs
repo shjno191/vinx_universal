@@ -1,6 +1,5 @@
-﻿use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+﻿use std::fs;
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
@@ -14,9 +13,9 @@ pub struct FileNode {
 }
 
 #[tauri::command]
-fn get_settings() -> Result<String, String> {
-    let path = tauri::api::path::config_dir()
-        .ok_or("Could not find config directory")?
+fn get_settings(app: tauri::AppHandle) -> Result<String, String> {
+    let path = app.path().config_dir()
+        .map_err(|e: tauri::Error| e.to_string())?
         .join("vinx_universal")
         .join("settings.json");
     if !path.exists() {
@@ -26,9 +25,9 @@ fn get_settings() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn save_settings(settings: String) -> Result<(), String> {
-    let path = tauri::api::path::config_dir()
-        .ok_or("Could not find config directory")?
+fn save_settings(app: tauri::AppHandle, settings: String) -> Result<(), String> {
+    let path = app.path().config_dir()
+        .map_err(|e: tauri::Error| e.to_string())?
         .join("vinx_universal");
     if !path.exists() {
         fs::create_dir_all(&path).map_err(|e| e.to_string())?;
@@ -37,13 +36,13 @@ fn save_settings(settings: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_settings_file() -> Result<(), String> {
-    let path = tauri::api::path::config_dir()
-        .ok_or("Could not find config directory")?
+fn open_settings_file(app: tauri::AppHandle) -> Result<(), String> {
+    let path = app.path().config_dir()
+        .map_err(|e: tauri::Error| e.to_string())?
         .join("vinx_universal")
         .join("settings.json");
     if path.exists() {
-        opener::reveal(&path).map_err(|e| e.to_string())?;
+        opener::reveal(&path).map_err(|e: opener::OpenError| e.to_string())?;
     }
     Ok(())
 }
@@ -74,7 +73,7 @@ fn write_file_binary(path: String, data: Vec<u8>) -> Result<(), String> {
 
 #[tauri::command]
 fn open_file_path(path: String) -> Result<(), String> {
-    opener::reveal(Path::new(&path)).map_err(|e| e.to_string())
+    opener::reveal(Path::new(&path)).map_err(|e: opener::OpenError| e.to_string())
 }
 
 #[tauri::command]

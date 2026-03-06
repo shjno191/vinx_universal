@@ -1,12 +1,13 @@
 ﻿<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import * as monaco from 'monaco-editor';
-import { VueMonacoEditor } from '@guolao/vue-monaco-editor';
+import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import ExplorerNode from './ExplorerNode.vue';
 import SourceControl from './SourceControl.vue';
+import ExplorerContextMenu from './ExplorerContextMenu.vue';
 import { projectRootPath, triggerOpenDiff } from '../store';
 
 // --- Common Icons ---
@@ -108,7 +109,9 @@ watch(triggerOpenDiff, (val) => {
   const tabId = `diff-${path}-${label}`;
   const existing = tabs.value.find(t => t.id === tabId);
   if (existing) {
-    currentActiveId.value = existing.id;
+    // Always focus left pane so currentTab correctly resolves to this diff tab
+    activeTabIdLeft.value = existing.id;
+    focusedPane.value = 'left';
   } else {
     const newTab: Tab = {
       id: tabId,
@@ -120,9 +123,9 @@ watch(triggerOpenDiff, (val) => {
       diffData: { original, modified }
     };
     tabs.value.push(newTab);
-    currentActiveId.value = newTab.id;
+    activeTabIdLeft.value = newTab.id;
+    focusedPane.value = 'left';
   }
-  // Clear trigger to allow same diff to be re-triggered
   nextTick(() => { triggerOpenDiff.value = null; });
 });
 
@@ -372,6 +375,8 @@ const generateFlowChart = () => {
 
     <div v-if="showExplorer" class="sidebar-resizer" @mousedown="initResize"></div>
 
+    <ExplorerContextMenu @open="openFileFromExplorer" />
+
     <div class="editor-main-area">
       <div class="editor-tabs-bar" @dblclick="addTab">
         <div class="tabs-scroll-area">
@@ -400,12 +405,14 @@ const generateFlowChart = () => {
       </div>
 
       <div class="editor-view-area" :class="{ 'split-view': showSplit }">
-        <template v-if="currentTab?.isDiff && currentTab.diffData">
+        <!-- Diff Editor: always shown in left pane based on activeTabLeft -->
+        <template v-if="activeTabLeft?.isDiff && activeTabLeft.diffData">
           <div class="diff-editor-pane">
-            <monaco-diff-editor
-              :original="currentTab.diffData.original"
-              :modified="currentTab.diffData.modified"
-              :language="getFileLanguage(currentTab.path?.split('.').pop() || '')"
+            <VueMonacoDiffEditor
+              :key="activeTabLeft.id"
+              :original="activeTabLeft.diffData.original"
+              :modified="activeTabLeft.diffData.modified"
+              :language="getFileLanguage(activeTabLeft.path?.split('.').pop() || '')"
               :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
               class="monaco-instance"
             />

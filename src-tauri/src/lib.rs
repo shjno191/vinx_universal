@@ -144,10 +144,44 @@ fn git_execute(args: Vec<String>, cwd: String) -> Result<String, String> {
         .output()
         .map_err(|e| e.to_string())?;
 
+    let decode_output = |bytes: &[u8]| -> String {
+        // Try UTF-8 first
+        let (res, _, has_errors) = encoding_rs::UTF_8.decode(bytes);
+        if !has_errors {
+            return res.into_owned();
+        }
+        // Fall back to Shift-JIS for Japanese Windows environments
+        let (res, _, has_errors) = encoding_rs::SHIFT_JIS.decode(bytes);
+        if !has_errors {
+            return res.into_owned();
+        }
+        // Last resort: lossy UTF-8
+        String::from_utf8_lossy(bytes).to_string()
+    };
+
     if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(decode_output(&output.stdout).trim_end().to_string())
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        Err(decode_output(&output.stderr).trim_end().to_string())
+    }
+}
+
+#[tauri::command]
+fn test_tcp_connection(host: String, port: u16) -> Result<String, String> {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+    let addr = format!("{}:{}", host, port);
+    match addr.to_socket_addrs() {
+        Err(e) => return Err(format!("DNS error: {}", e)),
+        Ok(mut addrs) => match addrs.next() {
+            None => return Err("Could not resolve host".to_string()),
+            Some(socket_addr) => {
+                match TcpStream::connect_timeout(&socket_addr, Duration::from_secs(5)) {
+                    Ok(_) => Ok(format!("Connected to {}:{} successfully!", host, port)),
+                    Err(e) => Err(format!("Connection failed: {}", e)),
+                }
+            }
+        }
     }
 }
 
@@ -168,7 +202,8 @@ pub fn run() {
             write_file_binary,
             open_file_path,
             read_dir_tree,
-            git_execute
+            git_execute,
+            test_tcp_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

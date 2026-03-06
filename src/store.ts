@@ -85,3 +85,24 @@ export interface GitFile {
 
 export const gitStatus = ref<GitFile[]>([]);
 export const triggerOpenDiff = ref<{ path: string; name: string; original: string; modified: string; label: string } | null>(null);
+
+export interface ContextMenuState {
+    x: number;
+    y: number;
+    node: any;
+}
+export const activeContextMenu = ref<ContextMenuState | null>(null);
+
+// Remote Machine Config (for SQL Helper)
+export interface RemoteMachineConfig {
+    enabled: boolean;
+    label: string;         // Display name, e.g. "Dev Server"
+    host: string;          // IP or hostname
+    port: number;          // Port (default 22 for SSH)
+    username: string;      // Login name
+    password: string;      // Password (stored locally only)
+    remotePathPrefix: string;  // Remote path to map, e.g. "/data/logs"
+    localPathPrefix: string;   // Local/UNC path that mirrors it, e.g. "\\\\server\\logs"
+}
+
+export const remoteMachineConfigs = ref<RemoteMachineConfig[]>([]);

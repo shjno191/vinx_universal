@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, remoteMachineConfigs, type RemoteMachineConfig } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -13,6 +13,7 @@ const categories = [
   { id: 'editor', name: 'Editor', icon: '\u{1F4DD}' },
   { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' },
   { id: 'ai', name: 'AI', icon: '\u{1F916}' },
+  { id: 'sqlhelper', name: 'SQL Helper', icon: '\u{1F5A5}\uFE0F' },
 ];
 
 const currentCategory = ref('general');
@@ -106,7 +107,6 @@ const loadSettings = async () => {
   try {
     const s = await invoke('get_settings') as any;
     if (s) {
-      // Merge properties manually to preserve the structure if some keys are missing
       if (s.theme) {
         settings.value.theme = s.theme;
         theme.value = s.theme;
@@ -119,6 +119,9 @@ const loadSettings = async () => {
       if (s.editor) {
         settings.value.editor = { ...settings.value.editor, ...s.editor };
         editorSettings.value = { ...editorSettings.value, ...s.editor };
+      }
+      if (s.remoteMachineConfigs) {
+        remoteMachineConfigs.value = s.remoteMachineConfigs;
       }
     }
   } catch (e) {
@@ -147,11 +150,40 @@ const chooseDictionaryFile = async () => {
 
 const saveSettings = async () => {
   try {
-    theme.value = settings.value.theme; // Update global theme immediately
-    await invoke('save_settings', { settings: settings.value });
+    theme.value = settings.value.theme;
+    await invoke('save_settings', { settings: { ...settings.value, remoteMachineConfigs: remoteMachineConfigs.value } });
     emit('theme-changed', settings.value.theme);
   } catch (e) {
     console.error('Failed to save settings', e);
+  }
+};
+
+const addRemoteConfig = () => {
+  remoteMachineConfigs.value.push({ 
+    enabled: true, label: 'New Server', 
+    host: '', port: 22, username: '', password: '',
+    remotePathPrefix: '', localPathPrefix: '' 
+  });
+  saveSettings();
+};
+
+const removeRemoteConfig = (i: number) => {
+  remoteMachineConfigs.value.splice(i, 1);
+  saveSettings();
+};
+
+// Test TCP connection for a machine config
+const testStatus = ref<Record<number, { status: 'idle'|'testing'|'ok'|'fail'; msg: string }>>({});
+
+const testConnection = async (i: number) => {
+  const cfg = remoteMachineConfigs.value[i];
+  if (!cfg.host) { testStatus.value[i] = { status: 'fail', msg: 'Host is required.' }; return; }
+  testStatus.value[i] = { status: 'testing', msg: 'Testing...' };
+  try {
+    const msg = await invoke<string>('test_tcp_connection', { host: cfg.host, port: cfg.port || 22 });
+    testStatus.value[i] = { status: 'ok', msg };
+  } catch (e: any) {
+    testStatus.value[i] = { status: 'fail', msg: String(e) };
   }
 };
 
@@ -455,6 +487,85 @@ onMounted(() => {
           <span class="hint-text" style="margin-left:10px;">Stored locally in browser.</span>
         </div>
       </div>
+      <!-- SQL Helper Settings -->
+      <div v-if="currentCategory === 'sqlhelper'" class="settings-section">
+        <div class="ai-settings-header">
+          <h3 style="margin:0;font-size:1rem;">SQL Helper — Remote Machine Config</h3>
+          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Configure SSH/server connections. Paste a remote log path in SQL Helper to auto-map it to a local path.</p>
+        </div>
+
+        <div v-if="remoteMachineConfigs.length === 0" class="remote-empty">
+          No remote machines configured. Click "Add" below to create one.
+        </div>
+
+        <div v-for="(cfg, i) in remoteMachineConfigs" :key="i" class="remote-config-block">
+          <!-- Header row -->
+          <div class="remote-config-header">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <label class="checkbox-container" style="font-size:0.85rem;">
+                <input type="checkbox" v-model="cfg.enabled" @change="saveSettings" />
+                <span class="checkmark"></span>
+              </label>
+              <input v-model="cfg.label" @blur="saveSettings" class="text-input remote-label-input" placeholder="Server name..." />
+            </div>
+            <button class="remove-remote-btn" @click="removeRemoteConfig(i)" title="Remove">✕</button>
+          </div>
+
+          <!-- Connection fields in a grid -->
+          <div class="remote-fields-grid">
+            <div class="remote-field">
+              <label>Host / IP</label>
+              <input v-model="cfg.host" @blur="saveSettings" class="text-input" placeholder="192.168.1.100" />
+            </div>
+            <div class="remote-field remote-field-sm">
+              <label>Port</label>
+              <input v-model.number="cfg.port" @blur="saveSettings" class="text-input" type="number" placeholder="22" min="1" max="65535" />
+            </div>
+            <div class="remote-field">
+              <label>Username</label>
+              <input v-model="cfg.username" @blur="saveSettings" class="text-input" placeholder="admin" autocomplete="off" />
+            </div>
+            <div class="remote-field">
+              <label>Password</label>
+              <input v-model="cfg.password" @blur="saveSettings" class="text-input" type="password" placeholder="••••••••" autocomplete="new-password" />
+            </div>
+          </div>
+
+          <!-- Path mapping -->
+          <div class="remote-field">
+            <label>Remote Log Path Prefix <span style="opacity:0.5;font-size:0.75rem;">(on the server)</span></label>
+            <input v-model="cfg.remotePathPrefix" @blur="saveSettings" class="text-input" placeholder="/data/logs  or  D:\logs" />
+          </div>
+          <div class="remote-field">
+            <label>Local / UNC Path Prefix <span style="opacity:0.5;font-size:0.75rem;">(accessible from this PC)</span></label>
+            <input v-model="cfg.localPathPrefix" @blur="saveSettings" class="text-input" placeholder="\\server\share\logs  or  Z:\logs" />
+          </div>
+
+          <!-- Test button + status -->
+          <div class="remote-test-row">
+            <button 
+              class="test-conn-btn" 
+              @click="testConnection(i)" 
+              :disabled="testStatus[i]?.status === 'testing'"
+            >
+              <span v-if="testStatus[i]?.status === 'testing'">Testing...</span>
+              <span v-else>⚡ Test Connection</span>
+            </button>
+            <span 
+              v-if="testStatus[i]?.status" 
+              class="test-result" 
+              :class="testStatus[i].status"
+            >
+              {{ testStatus[i].msg }}
+            </span>
+          </div>
+        </div>
+
+        <button class="add-remote-btn" @click="addRemoteConfig">
+          <span>＋ Add Remote Machine</span>
+        </button>
+      </div>
+
     </main>
   </div>
 </template>
@@ -868,4 +979,115 @@ onMounted(() => {
 .provider-dot.openai { background: #10a37f; }
 .provider-dot.claude { background: #d97706; }
 .provider-dot.ollama { background: #a78bfa; }
+/* Remote Machine Config */
+.remote-empty {
+  padding: 20px;
+  text-align: center;
+  opacity: 0.5;
+  font-size: 0.85rem;
+  border: 1px dashed rgba(128,128,128,0.3);
+  border-radius: 8px;
+}
+
+.remote-config-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+}
+
+.remote-config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.remote-label-input { font-weight: 600; flex: 1; }
+
+.remote-fields-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr 1fr;
+  gap: 12px;
+}
+
+.remote-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remote-field label {
+  font-size: 0.78rem;
+  opacity: 0.65;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.remote-field-sm { min-width: 80px; max-width: 100px; }
+
+.remote-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.test-conn-btn {
+  padding: 7px 16px;
+  background: rgba(99,102,241,0.15);
+  border: 1px solid rgba(99,102,241,0.4);
+  border-radius: 6px;
+  color: var(--accent-color);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.test-conn-btn:hover:not(:disabled) { background: rgba(99,102,241,0.25); }
+.test-conn-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.test-result {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 5px;
+  flex: 1;
+}
+
+.test-result.ok { background: rgba(34,197,94,0.1); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+.test-result.fail { background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.test-result.testing { background: rgba(234,179,8,0.1); color: #ca8a04; border: 1px solid rgba(234,179,8,0.3); }
+
+.remote-enabled-toggle { display: flex; align-items: center; }
+
+.remove-remote-btn {
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.2);
+  color: #ef4444;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.2s;
+}
+
+.remove-remote-btn:hover { background: rgba(239,68,68,0.2); }
+
+.add-remote-btn {
+  width: 100%;
+  padding: 10px;
+  background: rgba(99,102,241,0.1);
+  border: 1px dashed rgba(99,102,241,0.4);
+  border-radius: 8px;
+  color: var(--accent-color);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.add-remote-btn:hover { background: rgba(99,102,241,0.2); }
 </style>

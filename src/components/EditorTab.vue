@@ -4,11 +4,10 @@ import * as monaco from 'monaco-editor';
 import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import ExplorerNode from './ExplorerNode.vue';
 import SourceControl from './SourceControl.vue';
 import ExplorerContextMenu from './ExplorerContextMenu.vue';
-import { projectRootPath, triggerOpenDiff } from '../store';
+import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme } from '../store';
 
 // --- Common Icons ---
 const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -89,7 +88,6 @@ const activeTabLeft = computed(() => tabs.value.find(t => t.id === activeTabIdLe
 const activeTabRight = computed(() => tabs.value.find(t => t.id === activeTabIdRight.value) || tabs.value[0]);
 const activeFilePath = computed(() => activeTabLeft.value?.path || '');
 
-const currentTab = computed(() => focusedPane.value === 'left' ? activeTabLeft.value : (activeTabRight.value || activeTabLeft.value));
 
 const currentActiveId = computed({
   get: () => focusedPane.value === 'left' ? activeTabIdLeft.value : (activeTabIdRight.value || activeTabIdLeft.value),

@@ -2,7 +2,6 @@
 import { ref, onMounted, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { projectRootPath, gitStatus, triggerOpenDiff, type GitFile } from '../store';
-import { readTextFile } from '@tauri-apps/plugin-fs';
 
 const commitMessage = ref('');
 const isLoading = ref(false);
@@ -145,7 +144,6 @@ watch(projectRootPath, (val) => {
 const PlusIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
 const MinusIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
 const RefreshIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>';
-const CheckIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 </script>
 
 <template>

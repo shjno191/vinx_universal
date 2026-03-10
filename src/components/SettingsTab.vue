@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, remoteMachineConfigs, type RemoteMachineConfig } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, remoteMachineConfigs } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -83,7 +83,7 @@ const handleShortcutKey = (key: string, e: KeyboardEvent) => {
   const newShortcut = parts.join('+');
   
   if (!settings.value.shortcuts) {
-    settings.value.shortcuts = { focus_search: 'ctrl+f', open_settings: 'ctrl+shift+s' };
+    settings.value.shortcuts = { focus_search: 'ctrl+f', open_settings: 'ctrl+shift+s', open_file: 'ctrl+o' };
   }
   
   // 1. Update component state
@@ -150,7 +150,7 @@ const chooseDictionaryFile = async () => {
 
 const saveSettings = async () => {
   try {
-    theme.value = settings.value.theme;
+    theme.value = settings.value.theme as any;
     await invoke('save_settings', { settings: { ...settings.value, remoteMachineConfigs: remoteMachineConfigs.value } });
     emit('theme-changed', settings.value.theme);
   } catch (e) {

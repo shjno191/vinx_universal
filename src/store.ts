@@ -1,6 +1,6 @@
 ﻿import { ref } from 'vue';
 
-export const theme = ref<'light' | 'dark'>('dark');
+export const theme = ref<'light' | 'dark' | '95'>('dark');
 
 export const sharedInput = ref('');
 export const sharedOutput = ref('');

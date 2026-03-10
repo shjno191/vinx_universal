@@ -12,7 +12,6 @@ watch(sharedInput, (val) => originalText.value = val);
 watch(sharedOutput, (val) => modifiedText.value = val);
 
 // Sidebar state (removed analysis items)
-const isSidebarOpen = ref(false); 
 
 // Monaco instance for theme definition
 const monacoRef = ref<any>(null);
@@ -66,17 +65,6 @@ const DIFF_OPTIONS = computed(() => ({
 const showCopyToast = ref(false);
 const copyPos = ref({ x: 0, y: 0 });
 
-const copyToClipboard = async (text: string, event: MouseEvent) => {
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    copyPos.value = { x: event.clientX, y: event.clientY };
-    showCopyToast.value = true;
-    setTimeout(() => { showCopyToast.value = false; }, 1200);
-  } catch (e) {
-    console.error('Copy failed:', e);
-  }
-};
 
 const swapInputs = () => {
   const temp = originalText.value;

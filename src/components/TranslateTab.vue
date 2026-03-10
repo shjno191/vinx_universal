@@ -182,10 +182,6 @@ const openExcel = async () => {
   }
 };
 
-const syncAndClean = async () => {
-  await loadDictionary();
-  alert('Dictionary synchronized.');
-};
 
 const copyToClipboard = async (text: string, event: MouseEvent) => {
   const cleanText = text ? text.replace(/<[^>]*>/g, '').trim() : '';

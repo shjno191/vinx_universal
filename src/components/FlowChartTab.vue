@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import mermaid from 'mermaid';
 import { currentFlowCode, aiSettings, mermaidCode, analysisMode, showRawFlowCode } from '../store';
 import { analyzeCode } from './AstAnalyzer';
@@ -330,6 +330,14 @@ const generate = async () => {
 const copyCode = async () => {
   if (!mermaidCode.value) return;
   await navigator.clipboard.writeText(mermaidCode.value);
+};
+
+const setMode = (mode: 'code' | 'ai') => {
+  analysisMode.value = mode;
+};
+
+const toggleRawCode = () => {
+  showRawFlowCode.value = !showRawFlowCode.value;
 };
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────

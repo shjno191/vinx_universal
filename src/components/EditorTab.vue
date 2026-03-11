@@ -4,10 +4,12 @@ import * as monaco from 'monaco-editor';
 import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import ExplorerNode from './ExplorerNode.vue';
-import SourceControl from './SourceControl.vue';
 import ExplorerContextMenu from './ExplorerContextMenu.vue';
-import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme } from '../store';
+import TabContextMenu from './TabContextMenu.vue';
+import GitSelectionModal from './GitSelectionModal.vue';
+import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme, activeTabContextMenu, gitTabRepoPath, gitBranches } from '../store';
 
 // --- Common Icons ---
 const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -20,8 +22,16 @@ const ClearIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" s
 const FileOpenIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
 const ProjectOpenIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>';
 const OpenFolderActionIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>';
+const IconBranch = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
+const SearchIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
 
 // --- Types ---
+interface SearchResult {
+  file_path: string;
+  line_num: number;
+  line_text: string;
+}
+
 interface Tab {
   id: string;
   name: string;
@@ -54,9 +64,99 @@ const showExplorer = ref(true);
 const projectRoot = ref<FileNode | null>(null);
 const expandedPaths = ref<Set<string>>(new Set());
 const searchQuery = ref('');
-const activeSidebar = ref<'explorer' | 'git'>('explorer');
+const activeSidebar = ref<'explorer' | 'search'>('explorer');
 const sidebarWidth = ref(260);
+
+const globalSearchQuery = ref('');
+const isSearching = ref(false);
+const searchResults = ref<SearchResult[]>([]);
 const isResizing = ref(false);
+const selectionModal = ref<{ mode: 'branch' | 'commit', tab: Tab } | null>(null);
+const showBranchSwitcher = ref(false);
+
+const currentBranchName = computed(() => {
+  return gitBranches.value.find(b => b.isCurrent)?.name || '';
+});
+
+const showTabContextMenu = (e: MouseEvent, tab: Tab) => {
+  if (tab.isDiff) return;
+  activeTabContextMenu.value = { x: e.clientX, y: e.clientY, tab };
+};
+
+const handleGitCompare = async (mode: 'branch' | 'local' | 'commit', tab: Tab) => {
+  const repoPath = gitTabRepoPath.value || projectRootPath.value;
+  if (!tab.path || !repoPath) {
+    console.warn('Cannot compare: path or git repo not found');
+    return;
+  }
+  
+  if (mode === 'local') {
+    const relativePath = tab.path.replace(repoPath, '').replace(/^[\\\/]/, '').replace(/\\/g, '/');
+    try {
+      const original = await invoke<string>('git_execute', {
+        args: ['show', `HEAD:${relativePath}`],
+        cwd: repoPath
+      });
+      triggerOpenDiff.value = {
+        path: relativePath,
+        name: tab.name,
+        original,
+        modified: tab.content,
+        label: 'HEAD'
+      };
+    } catch (e) {
+      console.error('Failed to compare with local:', e);
+    }
+  } else {
+    selectionModal.value = { mode, tab };
+  }
+};
+
+const onSelection = async (target: string) => {
+  if (!selectionModal.value) return;
+  const { mode, tab } = selectionModal.value;
+  selectionModal.value = null;
+  
+  const repoPath = gitTabRepoPath.value || projectRootPath.value;
+  if (!tab.path || !repoPath) return;
+  const relativePath = tab.path.replace(repoPath, '').replace(/^[\\\/]/, '').replace(/\\/g, '/');
+  
+  try {
+    const original = await invoke<string>('git_execute', {
+      args: ['show', `${target}:${relativePath}`],
+      cwd: repoPath
+    });
+    triggerOpenDiff.value = {
+        path: relativePath,
+        name: tab.name,
+        original,
+        modified: tab.content,
+        label: target.substring(0, 7)
+    };
+  } catch (e) {
+    console.error(`Failed to compare with ${mode}:`, e);
+  }
+};
+
+const switchBranchFromModal = async (branchName: string) => {
+  const repoPath = gitTabRepoPath.value || projectRootPath.value;
+  if (!repoPath) return;
+  showBranchSwitcher.value = false;
+  
+  try {
+    await invoke<string>('git_execute', {
+      args: ['checkout', branchName],
+      cwd: repoPath
+    });
+    // Trigger a refresh of git branches to update Vue state in store
+    invoke('git_get_branches', { path: repoPath }).then(res => {
+        gitBranches.value = res as any;
+    });
+  } catch (e: any) {
+    console.error('Failed to switch branch:', e);
+    alert('Failed to switch branch. You may have uncommitted changes.\n' + String(e));
+  }
+};
 
 const initResize = (e: MouseEvent) => {
   isResizing.value = true;
@@ -100,6 +200,13 @@ const currentActiveId = computed({
   }
 });
 
+// Watch for project path changes from other tabs or on initial load
+watch(projectRootPath, (newVal) => {
+  if (newVal) {
+    refreshTree();
+  }
+}, { immediate: true });
+
 // Watch for diff requests from SourceControl
 watch(triggerOpenDiff, (val) => {
   if (!val) return;
@@ -142,6 +249,9 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
     generateFlowChart();
   });
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    saveFile();
+  });
 };
 
 const openProject = async () => {
@@ -178,8 +288,12 @@ const refreshTree = async () => {
   if (!projectRootPath.value) return;
   try {
     projectRoot.value = await invoke('read_dir_tree', { path: projectRootPath.value, depth: 8 }) as FileNode;
-    if (projectRoot.value && expandedPaths.value.size === 0) {
-      expandedPaths.value = new Set([projectRoot.value.path]);
+    if (projectRoot.value) {
+      // Always ensure the root is expanded if we are loading/refreshing this project
+      if (!expandedPaths.value.has(projectRoot.value.path)) {
+        expandedPaths.value.add(projectRoot.value.path);
+        expandedPaths.value = new Set(expandedPaths.value);
+      }
     }
   } catch (e) { console.error(e); }
 };
@@ -255,17 +369,27 @@ const handleKeyDown = (e: KeyboardEvent) => {
         activeSidebar.value = 'explorer';
         showExplorer.value = true;
       }
-      if (e.key.toLowerCase() === 'g') {
+      if (e.key.toLowerCase() === 'f') {
         e.preventDefault();
-        activeSidebar.value = 'git';
+        activeSidebar.value = 'search';
         showExplorer.value = true;
       }
+    }
+    if (e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      saveFile();
     }
   }
 };
 
-onMounted(() => { window.addEventListener('keydown', handleKeyDown); });
-onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
+onMounted(() => { 
+  window.addEventListener('keydown', handleKeyDown); 
+  if (projectRootPath.value) refreshTree();
+});
+onUnmounted(() => { 
+  window.removeEventListener('keydown', handleKeyDown);
+  if (searchUnlisten) { searchUnlisten(); searchUnlisten = null; }
+});
 
 const addTab = () => {
   tabs.value.push({ id: Date.now().toString(), name: 'untitled.txt', content: '', language: 'plaintext' });
@@ -290,6 +414,77 @@ const generateFlowChart = () => {
   currentFlowCode.value = code || '';
   triggerFlowChart.value = true;
 };
+
+const saveFile = async () => {
+  const curTab = focusedPane.value === 'left' ? activeTabLeft.value : activeTabRight.value;
+  if (!curTab || !curTab.path || curTab.isDiff) return;
+  
+  try {
+    const data = new TextEncoder().encode(curTab.content);
+    await invoke('write_file_binary', { path: curTab.path, data: Array.from(data) });
+    
+    // Visual feedback
+    const originalName = curTab.name;
+    if (!originalName.includes('(Saved)')) {
+        curTab.name = `${originalName} (Saved)`;
+        setTimeout(() => {
+            curTab.name = originalName;
+        }, 1500);
+    }
+  } catch (e: any) {
+    console.error('Failed to save file:', e);
+    alert('Failed to save file: ' + String(e));
+  }
+};
+
+let searchUnlisten: (() => void) | null = null;
+
+const executeGlobalSearch = async () => {
+    if (!projectRootPath.value || !globalSearchQuery.value.trim()) return;
+    isSearching.value = true;
+    searchResults.value = [];
+
+    // Cleanup previous listener
+    if (searchUnlisten) { searchUnlisten(); searchUnlisten = null; }
+
+    // Subscribe to streaming result events
+    searchUnlisten = await listen<{ results: SearchResult[]; done: boolean; total: number }>('search:batch', (event) => {
+        const { results, done } = event.payload;
+        // Append incoming batch immediately so user sees results as found
+        if (results.length > 0) {
+            searchResults.value = [...searchResults.value, ...results];
+        }
+        if (done) {
+            isSearching.value = false;
+            if (searchUnlisten) { searchUnlisten(); searchUnlisten = null; }
+        }
+    });
+
+    try {
+        // This now returns immediately - results come via events
+        await invoke('search_in_files', {
+            path: projectRootPath.value,
+            query: globalSearchQuery.value.trim()
+        });
+    } catch (e) {
+        console.error('Search error:', e);
+        alert('Search failed: ' + String(e));
+        isSearching.value = false;
+        if (searchUnlisten) { searchUnlisten(); searchUnlisten = null; }
+    }
+};
+
+const jumpToSearchResult = async (res: SearchResult) => {
+    await resolveAndOpenPath(res.file_path);
+    setTimeout(() => {
+        const editor = editors[focusedPane.value];
+        if (editor) {
+            editor.setPosition({ lineNumber: res.line_num, column: 1 });
+            editor.revealLineInCenter(res.line_num);
+            editor.focus();
+        }
+    }, 150);
+};
 </script>
 
 <template>
@@ -306,11 +501,11 @@ const generateFlowChart = () => {
       </div>
       <div 
         class="activity-item" 
-        :class="{ active: activeSidebar === 'git' && showExplorer }" 
-        @click="activeSidebar = 'git'; showExplorer = true"
-        title="Source Control (Ctrl+Shift+G)"
+        :class="{ active: activeSidebar === 'search' && showExplorer }" 
+        @click="activeSidebar = 'search'; showExplorer = true"
+        title="Search (Ctrl+Shift+F)"
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="6" r="3"></circle><line x1="18" y1="9" x2="18" y2="12"></line><line x1="6" y1="9" x2="6" y2="12"></line><line x1="12" y1="15" x2="18" y2="12"></line><line x1="12" y1="15" x2="6" y2="12"></line></svg>
+        <span v-html="SearchIcon"></span>
       </div>
     </div>
 
@@ -364,9 +559,56 @@ const generateFlowChart = () => {
               <button class="open-folder-btn-minimal" @click="openProject">Open Folder</button>
             </div>
           </div>
+
+          <div class="explorer-footer" v-if="currentBranchName" title="Switch Branch" @click="showBranchSwitcher = true">
+            <span class="footer-icon" v-html="IconBranch"></span>
+            <span class="footer-branch">{{ currentBranchName }}</span>
+          </div>
         </template>
-        <template v-else-if="activeSidebar === 'git'">
-          <SourceControl />
+        
+        <template v-else-if="activeSidebar === 'search'">
+          <div class="explorer-header" style="justify-content: flex-start;">
+            <span class="explorer-title">GLOBAL SEARCH</span>
+          </div>
+          
+          <div class="explorer-search-box">
+            <form @submit.prevent="executeGlobalSearch" class="search-input-wrapper">
+              <input 
+                v-model="globalSearchQuery" 
+                type="text" 
+                placeholder="Search text in project..." 
+                class="explorer-search-input"
+                spellcheck="false"
+                style="padding-right: 30px;"
+                autofocus
+              />
+              <button type="submit" v-if="globalSearchQuery && !isSearching" class="clear-search" style="right: 6px; top: 50%; transform: translateY(-50%); opacity:0.8" title="Search">
+                <span style="font-size: 13px;">⏎</span>
+              </button>
+            </form>
+          </div>
+
+          <div class="explorer-body search-results-body">
+            <div v-if="isSearching" class="explorer-empty">
+              Searching...
+            </div>
+            <div v-else-if="searchResults.length > 0">
+               <div class="search-results-info">{{ searchResults.length }} results found</div>
+               <div class="search-items-container">
+                  <div v-for="(res, idx) in searchResults" :key="idx" class="search-result-item" @click="jumpToSearchResult(res)">
+                     <div class="sr-file">{{ res.file_path.split(/[/\\]/).pop() }}</div>
+                     <div class="sr-path-sub">{{ res.file_path }}</div>
+                     <div class="sr-line"><span class="sr-lnum">{{ res.line_num }}:</span> <span class="sr-text">{{ res.line_text }}</span></div>
+                  </div>
+               </div>
+            </div>
+            <div v-else-if="globalSearchQuery && !isSearching && searchResults.length === 0" class="explorer-empty">
+               No results found.
+            </div>
+            <div v-else class="explorer-empty">
+               Enter a search term and press Enter.
+            </div>
+          </div>
         </template>
       </div>
     </transition>
@@ -374,6 +616,21 @@ const generateFlowChart = () => {
     <div v-if="showExplorer" class="sidebar-resizer" @mousedown="initResize"></div>
 
     <ExplorerContextMenu @open="openFileFromExplorer" />
+    <TabContextMenu @compare="handleGitCompare" />
+    <GitSelectionModal 
+      v-if="selectionModal" 
+      :mode="selectionModal.mode" 
+      :file-path="selectionModal.tab.path?.replace(gitTabRepoPath || projectRootPath, '').replace(/^[\\\/]/, '').replace(/\\/g, '/') || ''"
+      @select="onSelection" 
+      @close="selectionModal = null" 
+    />
+    <GitSelectionModal 
+      v-if="showBranchSwitcher" 
+      mode="branch" 
+      file-path=""
+      @select="switchBranchFromModal" 
+      @close="showBranchSwitcher = false" 
+    />
 
     <div class="editor-main-area">
       <div class="editor-tabs-bar" @dblclick="addTab">
@@ -385,6 +642,7 @@ const generateFlowChart = () => {
             :class="{ active: tab.id === currentActiveId, 'is-diff': tab.isDiff }" 
             @click="currentActiveId = tab.id"
             @mouseup.middle.prevent="removeTab(tab.id)"
+            @contextmenu.prevent.stop="showTabContextMenu($event, tab)"
           >
             <span class="tab-name">{{ tab.name }}</span>
             <span class="tab-close" @click.stop="removeTab(tab.id)">&times;</span>
@@ -540,6 +798,32 @@ const generateFlowChart = () => {
 .explorer-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; opacity: 0.5; padding: 20px; text-align: center; font-size: 0.8rem; }
 .open-folder-btn-minimal { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-color); padding: 6px 14px; border-radius: 4px; cursor: pointer; margin-top: 10px; font-size: 0.75rem; }
 .open-folder-btn-minimal:hover { background: rgba(255,255,255,0.1); }
+
+.search-results-info { padding: 10px 14px; font-size: 0.7rem; font-weight: 700; opacity: 0.5; text-transform: uppercase; background: rgba(0,0,0,0.1); border-bottom: var(--border-style); }
+.search-result-item { padding: 8px 14px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.1s; }
+.search-result-item:hover { background: rgba(255,255,255,0.05); }
+.sr-file { font-size: 0.8rem; font-weight: 600; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-path-sub { font-size: 0.6rem; opacity: 0.4; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+.sr-line { font-family: monospace; font-size: 0.75rem; color: var(--text-color); opacity: 0.8; word-break: break-all; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
+.sr-lnum { color: #f59e0b; font-weight: 600; margin-right: 4px; }
+
+.explorer-footer {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.2s;
+}
+.explorer-footer:hover { opacity: 0.8; }
+.footer-icon { display: flex; align-items: center; opacity: 0.9; }
+.footer-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .editor-tabs-bar { height: 35px; background: rgba(0,0,0,0.15); display: flex; align-items: center; border-bottom: var(--border-style); padding: 0 10px; flex-shrink: 0; }
 .tabs-scroll-area { display: flex; gap: 2px; flex: 1; overflow-x: auto; height: 100%; align-items: center; }

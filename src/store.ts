@@ -83,8 +83,21 @@ export interface GitFile {
     staged: boolean;
 }
 
+export interface GitBranch {
+    name: string;
+    isCurrent: boolean;
+    isRemote: boolean;
+    upstream?: string;
+    ahead?: number;
+    behind?: number;
+}
+
 export const gitStatus = ref<GitFile[]>([]);
 export const triggerOpenDiff = ref<{ path: string; name: string; original: string; modified: string; label: string } | null>(null);
+
+// Standalone GIT Tab state
+export const gitBranches = ref<GitBranch[]>([]);
+export const gitTabRepoPath = ref<string>('');
 
 export interface ContextMenuState {
     x: number;
@@ -93,6 +106,21 @@ export interface ContextMenuState {
 }
 export const activeContextMenu = ref<ContextMenuState | null>(null);
 
+
+// Editor: compare file with git   
+export interface GitCompareRequest {
+    filePath: string;
+    fileName: string;
+    mode: 'branch' | 'local' | 'commit';
+    target?: string; // branch name or commit hash
+}
+export const gitCompareRequest = ref<GitCompareRequest | null>(null);
+export interface TabContextMenuState {
+    x: number;
+    y: number;
+    tab: any;
+}
+export const activeTabContextMenu = ref<TabContextMenuState | null>(null);
 // Remote Machine Config (for SQL Helper)
 export interface RemoteMachineConfig {
     enabled: boolean;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
-import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart } from "./store";
+import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -11,6 +11,7 @@ import CompareTab from "./components/CompareTab.vue";
 import EditorTab from "./components/EditorTab.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 import FlowChartTab from "./components/FlowChartTab.vue";
+import GitTab from "./components/GitTab.vue";
 
 const currentTab = ref("SQL-Helper");
 const currentTheme = ref("dark");
@@ -72,12 +73,15 @@ watch(triggerFlowChart, (val) => {
 
 const loadInitialSettings = async () => {
   try {
-    const s = await invoke("get_settings") as any;
-    currentTheme.value = s.theme;
+    const raw = await invoke("get_settings") as string;
+    const s = JSON.parse(raw || "{}");
+    currentTheme.value = s.theme || 'dark';
     if (s.shortcuts) {
       globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
     }
-    applyTheme(s.theme);
+    if (s.last_project_root) projectRootPath.value = s.last_project_root;
+    if (s.last_git_repo) gitTabRepoPath.value = s.last_git_repo;
+    applyTheme(s.theme || 'dark');
   } catch (e) {
     console.error("Failed to load initial settings", e);
   }
@@ -129,6 +133,26 @@ const checkForUpdates = async () => {
   }
 };
 
+// Global persistence for paths
+watch([projectRootPath, gitTabRepoPath], async ([newRoot, newGit]) => {
+  try {
+    const raw = await invoke("get_settings") as string;
+    const s = JSON.parse(raw || "{}");
+    
+    // Only save if something actually changed to avoid redundant writes
+    if (s.last_project_root === newRoot && s.last_git_repo === newGit) return;
+    
+    const newSettings = { 
+      ...s, 
+      last_project_root: newRoot,
+      last_git_repo: newGit 
+    };
+    await invoke("save_settings", { settings: JSON.stringify(newSettings, null, 2) });
+  } catch (e) {
+    console.error("Failed to auto-save paths:", e);
+  }
+}, { flush: 'post' });
+
 onMounted(() => {
   loadInitialSettings();
   checkForUpdates();
@@ -168,6 +192,12 @@ onMounted(() => {
           Editor
         </button>
         <button 
+          @click="currentTab = 'Git'" 
+          :class="{ 'active': currentTab === 'Git', 'win95-button': currentTheme === '95', 'git-tab-btn': true }"
+        >
+          GIT
+        </button>
+        <button 
           @click="currentTab = 'FlowChart'" 
           :class="{ 'active': currentTab === 'FlowChart', 'win95-button': currentTheme === '95', 'flow-tab': true }"
         >
@@ -180,8 +210,8 @@ onMounted(() => {
     </nav>
 
     <!-- Main Content Area (Scrollable) -->
-    <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' }">
-      <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' }">
+    <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' || currentTab === 'Git' }">
+      <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' || currentTab === 'Git' }">
         <div v-show="currentTab === 'SQL-Helper'" class="full-height-vif">
           <SQLHelper :theme="currentTheme" />
         </div>
@@ -193,6 +223,9 @@ onMounted(() => {
         </div>
         <div v-show="currentTab === 'Editor'" class="full-height-vif">
           <EditorTab />
+        </div>
+        <div v-show="currentTab === 'Git'" class="full-height-vif">
+          <GitTab />
         </div>
         <div v-show="currentTab === 'FlowChart'" class="full-height-vif">
           <FlowChartTab />
@@ -307,6 +340,15 @@ html, body {
 .tabs-nav .flow-tab.active {
   border-bottom-color: #a78bfa;
   color: #a78bfa;
+}
+
+.tabs-nav .git-tab-btn {
+  color: #34d399;
+}
+
+.tabs-nav .git-tab-btn.active {
+  border-bottom-color: #34d399;
+  color: #34d399;
 }
 
 .content-wrapper {

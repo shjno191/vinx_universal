@@ -2,6 +2,7 @@
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
+use tauri::Emitter;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileNode {
@@ -10,6 +11,20 @@ pub struct FileNode {
     pub is_dir: bool,
     pub children: Vec<FileNode>,
     pub extension: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SearchResult {
+    pub file_path: String,
+    pub line_num: usize,
+    pub line_text: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct SearchBatch {
+    pub results: Vec<SearchResult>,
+    pub done: bool,
+    pub total: usize,
 }
 
 #[tauri::command]
@@ -131,18 +146,17 @@ fn build_node(path: &Path, depth: u32, max_depth: u32) -> Result<FileNode, Strin
 fn git_execute(args: Vec<String>, cwd: String) -> Result<String, String> {
     use std::process::Command;
     #[cfg(target_os = "windows")]
-    let mut command = Command::new("cmd");
-    #[cfg(target_os = "windows")]
-    command.args(&["/C", "git"]);
+    let mut command = Command::new("git");
     
     #[cfg(not(target_os = "windows"))]
     let mut command = Command::new("git");
 
+    let full_command = format!("git {}", args.join(" "));
     let output = command
-        .args(args)
-        .current_dir(cwd)
+        .args(&args)
+        .current_dir(&cwd)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Failed to execute '{}': {}", full_command, e))?;
 
     let decode_output = |bytes: &[u8]| -> String {
         // Try UTF-8 first
@@ -185,6 +199,84 @@ fn test_tcp_connection(host: String, port: u16) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn search_in_files(app: tauri::AppHandle, path: String, query: String) -> Result<(), String> {
+    use ignore::WalkBuilder;
+    use std::thread;
+
+    let query_lower = query.to_lowercase();
+    let root_path = std::path::PathBuf::from(&path);
+
+    if !root_path.exists() || !root_path.is_dir() {
+        return Err("Invalid search directory".to_string());
+    }
+
+    // Run in background thread to avoid blocking the UI
+    thread::spawn(move || {
+        let walker = WalkBuilder::new(&root_path)
+            .hidden(true)
+            .ignore(true)
+            .git_ignore(true)
+            .build();
+
+        let mut batch: Vec<SearchResult> = Vec::new();
+        let mut total = 0usize;
+        const BATCH_SIZE: usize = 20;
+        const MAX_RESULTS: usize = 500;
+
+        for entry in walker.flatten() {
+            if total >= MAX_RESULTS { break; }
+            if !entry.file_type().map_or(false, |ft| ft.is_file()) { continue; }
+            let file_path = entry.path().to_path_buf();
+
+            if let Ok(bytes) = fs::read(&file_path) {
+                let check_len = std::cmp::min(1024, bytes.len());
+                if bytes[..check_len].contains(&0) { continue; }
+
+                let content = {
+                    let (res, _, has_errors) = encoding_rs::UTF_8.decode(&bytes);
+                    if !has_errors {
+                        res.into_owned()
+                    } else {
+                        let (res, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
+                        res.into_owned()
+                    }
+                };
+
+                for (i, line) in content.lines().enumerate() {
+                    if total >= MAX_RESULTS { break; }
+                    if line.to_lowercase().contains(&query_lower) {
+                        batch.push(SearchResult {
+                            file_path: file_path.to_string_lossy().to_string(),
+                            line_num: i + 1,
+                            line_text: line.trim().to_string(),
+                        });
+                        total += 1;
+
+                        // Emit a batch when it's full
+                        if batch.len() >= BATCH_SIZE {
+                            let _ = app.emit("search:batch", SearchBatch {
+                                results: batch.drain(..).collect(),
+                                done: false,
+                                total,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Emit remaining and signal done
+        let _ = app.emit("search:batch", SearchBatch {
+            results: batch,
+            done: true,
+            total,
+        });
+    });
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -203,7 +295,8 @@ pub fn run() {
             open_file_path,
             read_dir_tree,
             git_execute,
-            test_tcp_connection
+            test_tcp_connection,
+            search_in_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

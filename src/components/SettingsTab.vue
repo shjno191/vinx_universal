@@ -29,7 +29,9 @@ const settings = ref({
     middleClickClose: true,
     doubleClickNewTab: true,
     mouseNavHistory: true
-  }
+  },
+  last_project_root: '',
+  last_git_repo: ''
 });
 
 const isRecording = ref<string | null>(null);
@@ -105,7 +107,8 @@ const updateEditorSettings = () => {
 
 const loadSettings = async () => {
   try {
-    const s = await invoke('get_settings') as any;
+    const raw = await invoke('get_settings') as string;
+    const s = JSON.parse(raw || "{}");
     if (s) {
       if (s.theme) {
         settings.value.theme = s.theme;
@@ -123,6 +126,8 @@ const loadSettings = async () => {
       if (s.remoteMachineConfigs) {
         remoteMachineConfigs.value = s.remoteMachineConfigs;
       }
+      if (s.last_project_root) settings.value.last_project_root = s.last_project_root;
+      if (s.last_git_repo) settings.value.last_git_repo = s.last_git_repo;
     }
   } catch (e) {
     console.error('Failed to load settings', e);
@@ -151,7 +156,8 @@ const chooseDictionaryFile = async () => {
 const saveSettings = async () => {
   try {
     theme.value = settings.value.theme as any;
-    await invoke('save_settings', { settings: { ...settings.value, remoteMachineConfigs: remoteMachineConfigs.value } });
+    const toSave = { ...settings.value, remoteMachineConfigs: remoteMachineConfigs.value };
+    await invoke('save_settings', { settings: JSON.stringify(toSave, null, 2) });
     emit('theme-changed', settings.value.theme);
   } catch (e) {
     console.error('Failed to save settings', e);
@@ -358,6 +364,14 @@ onMounted(() => {
                 {{ isRecording === 'open_file' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.open_file) }}
               </span>
               <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('open_file', $event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" style="pointer-events:none; opacity:0.7;">
+              <span class="shortcut-desc">Global Text Search</span>
+              <span class="shortcut-key">CTRL + SHIFT + F</span>
+            </div>
+            <div class="shortcut-row" style="pointer-events:none; opacity:0.7;">
+              <span class="shortcut-desc">Save File</span>
+              <span class="shortcut-key">CTRL + S</span>
             </div>
           </div>
           <p class="shortcut-hint">These shortcuts only work within the Editor tab.</p>

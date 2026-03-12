@@ -9,7 +9,7 @@ import ExplorerNode from './ExplorerNode.vue';
 import ExplorerContextMenu from './ExplorerContextMenu.vue';
 import TabContextMenu from './TabContextMenu.vue';
 import GitSelectionModal from './GitSelectionModal.vue';
-import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme, activeTabContextMenu, gitTabRepoPath, gitBranches } from '../store';
+import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme, activeTabContextMenu, gitTabRepoPath, gitBranches, triggerGitRefresh, triggerEditorReload, triggerCloseModals } from '../store';
 
 // --- Common Icons ---
 const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -24,6 +24,7 @@ const ProjectOpenIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="n
 const OpenFolderActionIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>';
 const IconBranch = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
 const SearchIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
+const SaveIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>';
 
 // --- Types ---
 interface SearchResult {
@@ -234,6 +235,30 @@ watch(triggerOpenDiff, (val) => {
   nextTick(() => { triggerOpenDiff.value = null; });
 });
 
+// Watch for external file changes (e.g. Git revert/checkout)
+watch(triggerEditorReload, async () => {
+    console.log('[EditorTab] Reloading open tabs from disk...');
+    for (const tab of tabs.value) {
+        if (tab.path && !tab.isDiff) {
+            try {
+                const refreshed = await invoke('read_file_content', { path: tab.path }) as string;
+                tab.content = refreshed;
+                // If it was marked as (Saved), we can keep it, but if it had unsaved changes logic, we'd reset it here.
+                // Currently saving just appends (Saved) to name temporarily.
+            } catch (e) {
+                console.warn(`[EditorTab] Failed to reload ${tab.path}:`, e);
+            }
+        }
+    }
+});
+
+// Watch for global ESC (close all modals/menus)
+watch(triggerCloseModals, () => {
+    activeTabContextMenu.value = null;
+    selectionModal.value = null;
+    showBranchSwitcher.value = false;
+});
+
 const editors = { left: null as any, right: null as any };
 
 // --- Logic ---
@@ -246,7 +271,7 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
     const other = editors[pane === 'left' ? 'right' : 'left'];
     if (other) { other.setScrollTop(e.scrollTop); other.setScrollLeft(e.scrollLeft); }
   });
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => {
     generateFlowChart();
   });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -423,6 +448,9 @@ const saveFile = async () => {
     const data = new TextEncoder().encode(curTab.content);
     await invoke('write_file_binary', { path: curTab.path, data: Array.from(data) });
     
+    // Trigger Git Tab status reload
+    triggerGitRefresh.value++;
+    
     // Visual feedback
     const originalName = curTab.name;
     if (!originalName.includes('(Saved)')) {
@@ -492,6 +520,7 @@ const jumpToSearchResult = async (res: SearchResult) => {
     <!-- Activity Bar (VS Code style) -->
     <div class="activity-bar">
       <div 
+        key="explorer-item"
         class="activity-item" 
         :class="{ active: activeSidebar === 'explorer' && showExplorer }" 
         @click="activeSidebar = 'explorer'; showExplorer = true"
@@ -500,6 +529,7 @@ const jumpToSearchResult = async (res: SearchResult) => {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
       </div>
       <div 
+        key="search-item"
         class="activity-item" 
         :class="{ active: activeSidebar === 'search' && showExplorer }" 
         @click="activeSidebar = 'search'; showExplorer = true"
@@ -509,10 +539,9 @@ const jumpToSearchResult = async (res: SearchResult) => {
       </div>
     </div>
 
-    <transition name="explorer-slide">
-      <div v-if="showExplorer" class="sidebar-panel" :style="{ width: sidebarWidth + 'px' }">
-        <template v-if="activeSidebar === 'explorer'">
-          <div class="explorer-header">
+    <div v-if="showExplorer" class="sidebar-panel" :style="{ width: sidebarWidth + 'px' }">
+      <template v-if="activeSidebar === 'explorer'">
+        <div class="explorer-header">
             <span class="explorer-title">EXPLORER</span>
             <div class="explorer-actions">
               <button class="explorer-icon-btn" @click="openProject" title="Open Folder (Ctrl+Shift+O)" v-html="OpenFolderActionIcon"></button>
@@ -564,10 +593,10 @@ const jumpToSearchResult = async (res: SearchResult) => {
             <span class="footer-icon" v-html="IconBranch"></span>
             <span class="footer-branch">{{ currentBranchName }}</span>
           </div>
-        </template>
-        
-        <template v-else-if="activeSidebar === 'search'">
-          <div class="explorer-header" style="justify-content: flex-start;">
+      </template>
+      
+      <template v-else-if="activeSidebar === 'search'">
+        <div class="explorer-header" style="justify-content: flex-start;">
             <span class="explorer-title">GLOBAL SEARCH</span>
           </div>
           
@@ -592,10 +621,10 @@ const jumpToSearchResult = async (res: SearchResult) => {
             <div v-if="isSearching" class="explorer-empty">
               Searching...
             </div>
-            <div v-else-if="searchResults.length > 0">
+            <div v-else-if="searchResults.length > 0" key="has-results">
                <div class="search-results-info">{{ searchResults.length }} results found</div>
                <div class="search-items-container">
-                  <div v-for="(res, idx) in searchResults" :key="idx" class="search-result-item" @click="jumpToSearchResult(res)">
+                  <div v-for="res in searchResults" :key="res.file_path + ':' + res.line_num" class="search-result-item" @click="jumpToSearchResult(res)">
                      <div class="sr-file">{{ res.file_path.split(/[/\\]/).pop() }}</div>
                      <div class="sr-path-sub">{{ res.file_path }}</div>
                      <div class="sr-line"><span class="sr-lnum">{{ res.line_num }}:</span> <span class="sr-text">{{ res.line_text }}</span></div>
@@ -609,9 +638,8 @@ const jumpToSearchResult = async (res: SearchResult) => {
                Enter a search term and press Enter.
             </div>
           </div>
-        </template>
-      </div>
-    </transition>
+      </template>
+    </div>
 
     <div v-if="showExplorer" class="sidebar-resizer" @mousedown="initResize"></div>
 
@@ -627,6 +655,7 @@ const jumpToSearchResult = async (res: SearchResult) => {
     <GitSelectionModal 
       v-if="showBranchSwitcher" 
       mode="branch" 
+      action="checkout"
       file-path=""
       @select="switchBranchFromModal" 
       @close="showBranchSwitcher = false" 
@@ -649,9 +678,10 @@ const jumpToSearchResult = async (res: SearchResult) => {
           </div>
         </div>
         <div class="tab-bar-actions">
+          <button class="action-btn" @click="saveFile" title="Save File (Ctrl+S)" v-html="SaveIcon"></button>
           <button class="action-btn" @click="openFile" title="Open File (Ctrl+O)" v-html="FileOpenIcon"></button>
           <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Open Project (Ctrl+Shift+O)" v-html="ProjectOpenIcon"></button>
-          <button class="action-btn" @click="generateFlowChart" title="Flow Chart">
+          <button class="action-btn" @click="generateFlowChart" title="Flow Chart (Ctrl+Shift+G)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
           </button>
           <button class="action-btn" @click="showSplit = !showSplit" :class="{ active: showSplit }" title="Split Screen">

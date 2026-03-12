@@ -303,7 +303,7 @@ onMounted(() => {
     </aside>
 
     <main class="settings-content">
-      <div v-if="currentCategory === 'general'" class="settings-section">
+      <div v-if="currentCategory === 'general'" key="cat-general" class="settings-section">
         <div class="setting-item">
           <label>Theme</label>
           <select v-model="settings.theme" @change="saveSettings" class="theme-select">
@@ -314,7 +314,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="currentCategory === 'translate'" class="settings-section">
+      <div v-if="currentCategory === 'translate'" key="cat-translate" class="settings-section">
         <div class="setting-item-vertical">
           <label>Dictionary Excel File (JP, EN, VI)</label>
           <div class="path-picker">
@@ -327,7 +327,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="currentCategory === 'editor'" class="settings-section">
+      <div v-if="currentCategory === 'editor'" key="cat-editor" class="settings-section">
         <div class="setting-item-vertical">
           <label>Mouse Features</label>
           <div class="setting-checkbox-list">
@@ -370,6 +370,10 @@ onMounted(() => {
               <span class="shortcut-key">CTRL + SHIFT + F</span>
             </div>
             <div class="shortcut-row" style="pointer-events:none; opacity:0.7;">
+              <span class="shortcut-desc">Generate Flow Chart</span>
+              <span class="shortcut-key">CTRL + SHIFT + G</span>
+            </div>
+            <div class="shortcut-row" style="pointer-events:none; opacity:0.7;">
               <span class="shortcut-desc">Save File</span>
               <span class="shortcut-key">CTRL + S</span>
             </div>
@@ -378,7 +382,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="currentCategory === 'shortcut'" class="settings-section">
+      <div v-if="currentCategory === 'shortcut'" key="cat-shortcut" class="settings-section">
         <div class="setting-item-vertical">
           <label>Global Shortcuts (Click to change)</label>
           <div class="shortcut-list">

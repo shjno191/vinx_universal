@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
-import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath } from "./store";
+import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -37,6 +37,7 @@ const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
 const handleKeyDown = (e: KeyboardEvent) => {
   if (e.key === "Escape") {
     showSettingsModal.value = false;
+    triggerCloseModals.value++;
   }
   
   if (matchShortcut(e, globalShortcuts.value.focus_search)) {

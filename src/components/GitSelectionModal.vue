@@ -5,6 +5,7 @@ import { gitBranches, gitTabRepoPath, projectRootPath } from '../store';
 
 const props = defineProps<{
     mode: 'branch' | 'commit';
+    action?: 'compare' | 'checkout';
     filePath: string;
     onSelect: (value: string) => void;
     onClose: () => void;
@@ -56,7 +57,8 @@ onMounted(() => {
     <div class="modal-backdrop" @click.self="onClose">
         <div class="modal-content">
             <div class="modal-header">
-                <span>Select {{ mode === 'branch' ? 'Branch' : 'Commit' }} to Compare</span>
+                <span v-if="action === 'checkout'">Select Branch to Switch To</span>
+                <span v-else>Select {{ mode === 'branch' ? 'Branch' : 'Commit' }} to Compare</span>
                 <button class="close-btn" @click="onClose">&times;</button>
             </div>
             <div class="modal-body">

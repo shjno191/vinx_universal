@@ -3,7 +3,7 @@ import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus } from '../store';
+import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals } from '../store';
 
 const subTab = ref('dictionary'); // dictionary | quick-translate
 const dictionaryData = ref<any[]>([]);
@@ -327,6 +327,10 @@ watch(triggerDictionaryFocus, async () => {
     dictionarySearchInput.value.focus();
     dictionarySearchInput.value.select();
   }
+});
+
+watch(triggerCloseModals, () => {
+  showDictModal.value = false;
 });
 </script>
 

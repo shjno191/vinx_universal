@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { open, message, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { gitBranches, gitTabRepoPath, type GitBranch } from '../store';
+import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload } from '../store';
 import { theme as globalTheme } from '../store';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -46,6 +46,7 @@ const commitMenu      = ref<{ x: number, y: number, commit: GraphCommit } | null
 
 // Context menu (Branch)
 const ctxMenu         = ref<{ x: number; y: number; branch: GitBranch } | null>(null);
+const fileCtxMenu    = ref<{ x: number, y: number, file: GitFile } | null>(null);
 // Create branch modal
 const createModal     = ref<{ fromBranch: string } | null>(null);
 const newBranchName   = ref('');
@@ -419,6 +420,7 @@ const checkoutCommit = async (hash: string) => {
       }
       
       setStatus('✓ Checked out ' + hash);
+      triggerEditorReload.value++; 
       await refresh();
     } catch(e) {
       await message(String(e), { title: 'Checkout Failed', kind: 'error' });
@@ -445,6 +447,7 @@ const openCommitMenu = (e: MouseEvent, c: GraphCommit) => {
 const closeMenus = () => {
   commitMenu.value = null;
   ctxMenu.value = null;
+  fileCtxMenu.value = null;
 };
 
 const cmCheckout = () => {
@@ -549,6 +552,10 @@ const onBranchClick = async (branch: GitBranch) => {
 // ─── Toolbar ──────────────────────────────────────────────────────────
 const doCommit = async () => {
   if (!commitMessage.value.trim()) return;
+  if (stagedFiles.value.length === 0) {
+    setStatus('✗ No files staged for commit', 5000);
+    return;
+  }
   isLoading.value = true;
   try {
     await git(['commit', '-m', commitMessage.value]);
@@ -560,6 +567,38 @@ const doCommit = async () => {
 const stageFile   = async (f: GitFile) => { try { await git(['add', f.path]); await loadStatus(); } catch (e) { setStatus(''+e,5000); } };
 const unstageFile = async (f: GitFile) => { try { await git(['reset', 'HEAD', f.path]); await loadStatus(); } catch (e) { setStatus(''+e,5000); } };
 const stageAll    = async () => { try { await git(['add', '.']); await loadStatus(); setStatus('✓ Staged all'); } catch (e) { setStatus(''+e,5000); } };
+const unstageAll  = async () => { try { await git(['reset', 'HEAD', '.']); await loadStatus(); setStatus('✓ Unstaged all'); } catch (e) { setStatus(''+e,5000); } };
+
+const revertFile = async (f: GitFile) => {
+  const ok = await ask(`Are you sure you want to discard changes in "${f.name}"? This cannot be undone.`, {
+    title: 'Discard Changes',
+    kind: 'warning'
+  });
+  if (!ok) return;
+  
+  isLoading.value = true;
+  try {
+    await git(['checkout', '--', f.path]);
+    setStatus('✓ Reverted ' + f.name);
+    triggerEditorReload.value++;
+    await loadStatus();
+  } catch (e) {
+    await message(String(e), { title: 'Revert Failed', kind: 'error' });
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const openFileCtxMenu = (e: MouseEvent, file: GitFile) => {
+  e.preventDefault(); e.stopPropagation();
+  let x = e.clientX;
+  let y = e.clientY;
+  const menuW = 180;
+  const menuH = 120;
+  if (x + menuW > window.innerWidth) x = window.innerWidth - menuW - 10;
+  if (y + menuH > window.innerHeight) y = window.innerHeight - menuH - 10;
+  fileCtxMenu.value = { x, y, file };
+};
 
 // ─── Switch branch ─────────────────────────────────────────────────────
 const switchBranch = async (branch: GitBranch) => {
@@ -592,6 +631,7 @@ const switchBranch = async (branch: GitBranch) => {
       }
 
       setStatus('✓ Switched to ' + branch.name);
+      triggerEditorReload.value++;
       await refresh();
     } catch (e) {
       await message(String(e), { title: 'Checkout Failed', kind: 'error' });
@@ -724,8 +764,14 @@ onMounted(async () => {
   if (gitTabRepoPath.value) refresh();
 });
 watch(gitTabRepoPath, (v) => { if (v) refresh(); });
+watch(triggerGitRefresh, () => {
+  if (gitTabRepoPath.value && expandedSections.value.has('changes')) {
+    loadStatus();
+  }
+});
+watch(triggerCloseModals, closeMenus);
 import { onUnmounted } from 'vue';
-import { projectRootPath } from '../store';
+import { projectRootPath, triggerCloseModals } from '../store';
 const closeOnClickOutside = () => { if (ctxMenu.value) ctxMenu.value = null; };
 onMounted(() => document.addEventListener('click', closeOnClickOutside));
 onUnmounted(() => document.removeEventListener('click', closeOnClickOutside));
@@ -782,8 +828,13 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
             <div v-if="expandedSections.has('changes')" class="sec-content">
               <!-- Staged -->
               <div v-if="stagedFiles.length > 0" class="fgroup-sidebar">
-                <div class="fgroup-hdr-sb">STAGED ({{ stagedFiles.length }})</div>
-                <div v-for="f in stagedFiles" :key="'s'+f.path" class="file-row-sb" @click="openFileDiff(f)" :title="f.path">
+                <div class="fgroup-hdr-sb">
+                  STAGED ({{ stagedFiles.length }})
+                  <button class="stage-all-sb" @click="unstageAll" title="Unstage All" style="transform: rotate(180deg)">
+                    <span v-html="IconPlus"></span>
+                  </button>
+                </div>
+                <div v-for="f in stagedFiles" :key="'s'+f.path" class="file-row-sb" @click="openFileDiff(f)" @contextmenu.prevent="openFileCtxMenu($event, f)" :title="f.path">
                   <span class="fbadge" :class="f.status">{{ f.status }}</span>
                   <span class="fname">{{ f.name }}</span>
                   <button class="fact-sb" @click.stop="unstageFile(f)" title="Unstage" v-html="IconMinus"></button>
@@ -795,7 +846,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                   CHANGES ({{ unstagedFiles.length }})
                   <button class="stage-all-sb" @click="stageAll" v-html="IconPlus" title="Stage All"></button>
                 </div>
-                <div v-for="f in unstagedFiles" :key="'u'+f.path" class="file-row-sb" @click="openFileDiff(f)" :title="f.path">
+                <div v-for="f in unstagedFiles" :key="'u'+f.path" class="file-row-sb" @click="openFileDiff(f)" @contextmenu.prevent="openFileCtxMenu($event, f)" :title="f.path">
                   <span class="fbadge" :class="f.status">{{ f.status }}</span>
                   <span class="fname">{{ f.name }}</span>
                   <button class="fact-sb" @click.stop="stageFile(f)" title="Stage" v-html="IconPlus"></button>
@@ -996,6 +1047,30 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               <button class="btn-ok" @click="doCreateBranch" :disabled="!newBranchName.trim()">Create & Switch</button>
             </div>
           </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ══ FILE CONTEXT MENU ══════════════════════════════════════════ -->
+    <Teleport to="body">
+      <div v-if="fileCtxMenu" class="ctx-menu" :style="{ top: fileCtxMenu.y + 'px', left: fileCtxMenu.x + 'px' }" @click.stop>
+        <div class="ctx-label">{{ fileCtxMenu.file.name }}</div>
+        <div class="ctx-div"></div>
+        
+        <div v-if="!fileCtxMenu.file.staged" class="ctx-item" @click="stageFile(fileCtxMenu.file); fileCtxMenu = null">
+          <span v-html="IconPlus"></span> Stage File
+        </div>
+        <div v-if="fileCtxMenu.file.staged" class="ctx-item" @click="unstageFile(fileCtxMenu.file); fileCtxMenu = null">
+          <span v-html="IconMinus"></span> Unstage File
+        </div>
+        
+        <div v-if="!fileCtxMenu.file.staged" class="ctx-item ctx-danger" @click="revertFile(fileCtxMenu.file); fileCtxMenu = null">
+          <span v-html="IconUndo"></span> Discard Changes (Revert)
+        </div>
+        
+        <div class="ctx-div"></div>
+        <div class="ctx-item" @click="openFileDiff(fileCtxMenu.file); fileCtxMenu = null">
+          <span v-html="IconCommit"></span> View Changes (Diff)
         </div>
       </div>
     </Teleport>

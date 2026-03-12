@@ -98,6 +98,9 @@ export const triggerOpenDiff = ref<{ path: string; name: string; original: strin
 // Standalone GIT Tab state
 export const gitBranches = ref<GitBranch[]>([]);
 export const gitTabRepoPath = ref<string>('');
+export const triggerGitRefresh = ref(0);
+export const triggerEditorReload = ref(0);
+export const triggerCloseModals = ref(0);
 
 export interface ContextMenuState {
     x: number;

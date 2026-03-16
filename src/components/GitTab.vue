@@ -1,15 +1,11 @@
 ﻿<script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { open, message, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload } from '../store';
-import { theme as globalTheme } from '../store';
+import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload, type GitFile, triggerCloseModals, theme as globalTheme, projectRootPath } from '../store';
 
-// ─── Types ────────────────────────────────────────────────────────────
-interface GitFile {
-  path: string; name: string; status: 'M' | 'A' | 'D' | '??'; staged: boolean;
-}
+// ─── State ────────────────────────────────────────────────────────────
 // ─── State ────────────────────────────────────────────────────────────
 const isLoading       = ref(false);
 const statusMessage   = ref('');
@@ -770,8 +766,6 @@ watch(triggerGitRefresh, () => {
   }
 });
 watch(triggerCloseModals, closeMenus);
-import { onUnmounted } from 'vue';
-import { projectRootPath, triggerCloseModals } from '../store';
 const closeOnClickOutside = () => { if (ctxMenu.value) ctxMenu.value = null; };
 onMounted(() => document.addEventListener('click', closeOnClickOutside));
 onUnmounted(() => document.removeEventListener('click', closeOnClickOutside));

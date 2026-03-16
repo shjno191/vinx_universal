@@ -400,6 +400,14 @@ onMounted(() => {
               </span>
               <input v-if="isRecording === 'open_settings'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('open_settings', $event)" @blur="isRecording = null" />
             </div>
+            <div class="shortcut-row disabled">
+              <span class="shortcut-desc">Back Navigation (Global)</span>
+              <span class="shortcut-key">MOUSE BUTTON 4</span>
+            </div>
+            <div class="shortcut-row disabled">
+              <span class="shortcut-desc">Forward Navigation (Global)</span>
+              <span class="shortcut-key">MOUSE BUTTON 5</span>
+            </div>
           </div>
           <p class="shortcut-hint">Tip: Press Escape to cancel recording.</p>
         </div>
@@ -1094,6 +1102,17 @@ onMounted(() => {
 }
 
 .remove-remote-btn:hover { background: rgba(239,68,68,0.2); }
+
+.shortcut-row.disabled {
+  opacity: 0.6;
+  cursor: default;
+  pointer-events: none;
+}
+
+.shortcut-row.disabled .shortcut-key {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
 
 .add-remote-btn {
   width: 100%;

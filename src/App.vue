@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, watch, nextTick } from "vue";
 import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
@@ -17,6 +17,47 @@ const currentTab = ref("SQL-Helper");
 const currentTheme = ref("dark");
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
+
+// Tab History for Mouse 4/5
+const tabHistory = ref<string[]>(["SQL-Helper"]);
+const tabHistoryIndex = ref(0);
+let isNavigatingHistory = false;
+
+watch(currentTab, (newTab) => {
+  if (isNavigatingHistory) return;
+  
+  // If we were in the middle of history and clicked a new tab, truncate forward history
+  if (tabHistoryIndex.value < tabHistory.value.length - 1) {
+    tabHistory.value = tabHistory.value.slice(0, tabHistoryIndex.value + 1);
+  }
+  
+  // Don't add if it's the same as current (redundant)
+  if (tabHistory.value[tabHistoryIndex.value] === newTab) return;
+  
+  tabHistory.value.push(newTab);
+  tabHistoryIndex.value = tabHistory.value.length - 1;
+});
+
+const handleMouseUp = (e: MouseEvent) => {
+  // Mouse buttons: 3 = Back, 4 = Forward
+  if (e.button === 3) {
+    // Back
+    if (tabHistoryIndex.value > 0) {
+      tabHistoryIndex.value--;
+      isNavigatingHistory = true;
+      currentTab.value = tabHistory.value[tabHistoryIndex.value];
+      nextTick(() => { isNavigatingHistory = false; });
+    }
+  } else if (e.button === 4) {
+    // Forward
+    if (tabHistoryIndex.value < tabHistory.value.length - 1) {
+      tabHistoryIndex.value++;
+      isNavigatingHistory = true;
+      currentTab.value = tabHistory.value[tabHistoryIndex.value];
+      nextTick(() => { isNavigatingHistory = false; });
+    }
+  }
+};
 
 const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
   if (!shortcutStr) return false;
@@ -158,6 +199,7 @@ onMounted(() => {
   loadInitialSettings();
   checkForUpdates();
   window.addEventListener("keydown", handleKeyDown);
+  window.addEventListener("mouseup", handleMouseUp);
 });
 </script>
 

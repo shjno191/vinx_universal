@@ -9,7 +9,7 @@ import ExplorerNode from './ExplorerNode.vue';
 import ExplorerContextMenu from './ExplorerContextMenu.vue';
 import TabContextMenu from './TabContextMenu.vue';
 import GitSelectionModal from './GitSelectionModal.vue';
-import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme, activeTabContextMenu, gitTabRepoPath, gitBranches, triggerGitRefresh, triggerEditorReload, triggerCloseModals } from '../store';
+import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme, activeTabContextMenu, gitTabRepoPath, gitBranches, triggerGitRefresh, triggerEditorReload, triggerCloseModals, cursorHistory, cursorHistoryIndex, editorSettings } from '../store';
 
 // --- Common Icons ---
 const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -262,21 +262,91 @@ watch(triggerCloseModals, () => {
 const editors = { left: null as any, right: null as any };
 
 // --- Logic ---
+let isNavigatingCursorHistory = false;
+
 const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   editors[pane] = editor;
-  setupCtrlClick(editor);
+  if (pane === 'left') {
+    setupCtrlClick(editor);
+  }
+  
   editor.onDidFocusEditorText(() => { focusedPane.value = pane; });
+  
+  // Track cursor history
+  editor.onDidChangeCursorPosition((e: any) => {
+    if (isNavigatingCursorHistory) return;
+    
+    const tabId = pane === 'left' ? activeTabIdLeft.value : activeTabIdRight.value;
+    const newPos = { tabId, line: e.position.lineNumber, column: e.position.column };
+    
+    // Only save if different from current history head
+    const current = cursorHistory.value[cursorHistoryIndex.value];
+    if (current && current.tabId === newPos.tabId && Math.abs(current.line - newPos.line) < 5) return;
+    
+    // Truncate forward history if we were in the middle
+    if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
+      cursorHistory.value = cursorHistory.value.slice(0, cursorHistoryIndex.value + 1);
+    }
+    
+    cursorHistory.value.push(newPos);
+    if (cursorHistory.value.length > 50) cursorHistory.value.shift();
+    cursorHistoryIndex.value = cursorHistory.value.length - 1;
+  });
+
   editor.onDidScrollChange((e: any) => {
     if (!syncScroll.value) return;
     const other = editors[pane === 'left' ? 'right' : 'left'];
     if (other) { other.setScrollTop(e.scrollTop); other.setScrollLeft(e.scrollLeft); }
   });
+  
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => {
     generateFlowChart();
   });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     saveFile();
   });
+};
+
+const jumpToHistory = (pos: any) => {
+    isNavigatingCursorHistory = true;
+    
+    // Switch tab if needed
+    if (activeTabIdLeft.value !== pos.tabId) {
+        activeTabIdLeft.value = pos.tabId;
+    }
+    
+    nextTick(() => {
+        const editor = editors.left; // Default to left for now as primary
+        if (editor) {
+            editor.setPosition({ lineNumber: pos.line, column: pos.column });
+            editor.revealPositionInCenter(
+                { lineNumber: pos.line, column: pos.column },
+                monaco.editor.ScrollType.Smooth
+            );
+            editor.focus();
+        }
+        setTimeout(() => { isNavigatingCursorHistory = false; }, 100);
+    });
+};
+
+const handleEditorMouseUp = (e: MouseEvent) => {
+    if (!editorSettings.value.mouseNavHistory) return;
+    
+    if (e.button === 3) {
+        // Back
+        if (cursorHistoryIndex.value > 0) {
+            e.stopPropagation();
+            cursorHistoryIndex.value--;
+            jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
+        }
+    } else if (e.button === 4) {
+        // Forward
+        if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
+            e.stopPropagation();
+            cursorHistoryIndex.value++;
+            jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
+        }
+    }
 };
 
 const openProject = async () => {
@@ -690,7 +760,7 @@ const jumpToSearchResult = async (res: SearchResult) => {
         </div>
       </div>
 
-      <div class="editor-view-area" :class="{ 'split-view': showSplit }">
+      <div class="editor-view-area" :class="{ 'split-view': showSplit }" @mouseup="handleEditorMouseUp">
         <!-- Diff Editor: always shown in left pane based on activeTabLeft -->
         <template v-if="activeTabLeft?.isDiff && activeTabLeft.diffData">
           <div class="diff-editor-pane">

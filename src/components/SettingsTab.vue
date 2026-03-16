@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, remoteMachineConfigs } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, remoteConfigs } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -123,8 +123,17 @@ const loadSettings = async () => {
         settings.value.editor = { ...settings.value.editor, ...s.editor };
         editorSettings.value = { ...editorSettings.value, ...s.editor };
       }
-      if (s.remoteMachineConfigs) {
-        remoteMachineConfigs.value = s.remoteMachineConfigs;
+      if (s.remoteConfigs) {
+        remoteConfigs.value = s.remoteConfigs;
+      } else if (s.proxyConfigs) {
+        // Migration from Proxy to Remote
+        remoteConfigs.value = s.proxyConfigs;
+      } else if (s.remoteMachineConfigs) {
+        // Legacy migration
+        remoteConfigs.value = s.remoteMachineConfigs.map((c: any) => ({
+            ...c,
+            targetPath: c.localPathPrefix || c.targetPath || ''
+        }));
       }
       if (s.last_project_root) settings.value.last_project_root = s.last_project_root;
       if (s.last_git_repo) settings.value.last_git_repo = s.last_git_repo;
@@ -156,7 +165,7 @@ const chooseDictionaryFile = async () => {
 const saveSettings = async () => {
   try {
     theme.value = settings.value.theme as any;
-    const toSave = { ...settings.value, remoteMachineConfigs: remoteMachineConfigs.value };
+    const toSave = { ...settings.value, remoteConfigs: remoteConfigs.value };
     await invoke('save_settings', { settings: JSON.stringify(toSave, null, 2) });
     emit('theme-changed', settings.value.theme);
   } catch (e) {
@@ -165,16 +174,16 @@ const saveSettings = async () => {
 };
 
 const addRemoteConfig = () => {
-  remoteMachineConfigs.value.push({ 
-    enabled: true, label: 'New Server', 
+  remoteConfigs.value.push({ 
+    enabled: true, label: 'New Remote', 
     host: '', port: 22, username: '', password: '',
-    remotePathPrefix: '', localPathPrefix: '' 
+    targetPath: '' 
   });
   saveSettings();
 };
 
 const removeRemoteConfig = (i: number) => {
-  remoteMachineConfigs.value.splice(i, 1);
+  remoteConfigs.value.splice(i, 1);
   saveSettings();
 };
 
@@ -182,12 +191,19 @@ const removeRemoteConfig = (i: number) => {
 const testStatus = ref<Record<number, { status: 'idle'|'testing'|'ok'|'fail'; msg: string }>>({});
 
 const testConnection = async (i: number) => {
-  const cfg = remoteMachineConfigs.value[i];
+  const cfg = remoteConfigs.value[i];
   if (!cfg.host) { testStatus.value[i] = { status: 'fail', msg: 'Host is required.' }; return; }
-  testStatus.value[i] = { status: 'testing', msg: 'Testing...' };
+  testStatus.value[i] = { status: 'testing', msg: 'Testing (SSH/SFTP)...' };
   try {
-    const msg = await invoke<string>('test_tcp_connection', { host: cfg.host, port: cfg.port || 22 });
+    const config = {
+      host: cfg.host,
+      port: cfg.port || 22,
+      username: cfg.username,
+      password: cfg.password || null
+    };
+    const msg = await invoke<string>('test_ssh_connection', { config });
     testStatus.value[i] = { status: 'ok', msg };
+    saveSettings();
   } catch (e: any) {
     testStatus.value[i] = { status: 'fail', msg: String(e) };
   }
@@ -513,18 +529,18 @@ onMounted(() => {
           <span class="hint-text" style="margin-left:10px;">Stored locally in browser.</span>
         </div>
       </div>
-      <!-- SQL Helper Settings -->
+      <!-- SQL Helper Settings (Remote Access) -->
       <div v-if="currentCategory === 'sqlhelper'" class="settings-section">
         <div class="ai-settings-header">
-          <h3 style="margin:0;font-size:1rem;">SQL Helper — Remote Machine Config</h3>
-          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Configure SSH/server connections. Paste a remote log path in SQL Helper to auto-map it to a local path.</p>
+          <h3 style="margin:0;font-size:1rem;">SQL Helper — Remote Settings</h3>
+          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Configure SSH Remote connections. Access logs directly from other machines using SSH.</p>
         </div>
 
-        <div v-if="remoteMachineConfigs.length === 0" class="remote-empty">
+        <div v-if="remoteConfigs.length === 0" class="remote-empty">
           No remote machines configured. Click "Add" below to create one.
         </div>
 
-        <div v-for="(cfg, i) in remoteMachineConfigs" :key="i" class="remote-config-block">
+        <div v-for="(cfg, i) in remoteConfigs" :key="i" class="remote-config-block">
           <!-- Header row -->
           <div class="remote-config-header">
             <div style="display:flex;align-items:center;gap:10px;">
@@ -532,7 +548,7 @@ onMounted(() => {
                 <input type="checkbox" v-model="cfg.enabled" @change="saveSettings" />
                 <span class="checkmark"></span>
               </label>
-              <input v-model="cfg.label" @blur="saveSettings" class="text-input remote-label-input" placeholder="Server name..." />
+              <input v-model="cfg.label" @blur="saveSettings" class="text-input remote-label-input" placeholder="Remote name..." />
             </div>
             <button class="remove-remote-btn" @click="removeRemoteConfig(i)" title="Remove">✕</button>
           </div>
@@ -559,24 +575,23 @@ onMounted(() => {
 
           <!-- Path mapping -->
           <div class="remote-field">
-            <label>Remote Log Path Prefix <span style="opacity:0.5;font-size:0.75rem;">(on the server)</span></label>
-            <input v-model="cfg.remotePathPrefix" @blur="saveSettings" class="text-input" placeholder="/data/logs  or  D:\logs" />
-          </div>
-          <div class="remote-field">
-            <label>Local / UNC Path Prefix <span style="opacity:0.5;font-size:0.75rem;">(accessible from this PC)</span></label>
-            <input v-model="cfg.localPathPrefix" @blur="saveSettings" class="text-input" placeholder="\\server\share\logs  or  Z:\logs" />
+            <label>Remote Log Path <span style="opacity:0.5;font-size:0.75rem;">(The path on the server)</span></label>
+            <input v-model="cfg.targetPath" @blur="saveSettings" class="text-input" placeholder="/var/log/tomcat/catalina.out" />
+            <p class="field-hint">Đường dẫn đầy đủ tới tệp log (hoặc thư mục chứa log) trên máy chủ từ xa.</p>
           </div>
 
           <!-- Test button + status -->
           <div class="remote-test-row">
-            <button 
-              class="test-conn-btn" 
-              @click="testConnection(i)" 
-              :disabled="testStatus[i]?.status === 'testing'"
-            >
-              <span v-if="testStatus[i]?.status === 'testing'">Testing...</span>
-              <span v-else>⚡ Test Connection</span>
-            </button>
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <button 
+                class="test-conn-btn" 
+                @click="testConnection(i)" 
+                :disabled="testStatus[i]?.status === 'testing'"
+              >
+                <span v-if="testStatus[i]?.status === 'testing'">Testing...</span>
+                <span v-else>⚡ Test Connection</span>
+              </button>
+            </div>
             <span 
               v-if="testStatus[i]?.status" 
               class="test-result" 

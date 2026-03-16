@@ -3,6 +3,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri::Emitter;
+use std::net::TcpStream;
+use ssh2::Session;
+use std::io::Read;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileNode {
@@ -98,6 +101,29 @@ fn read_dir_tree(path: String, depth: u32) -> Result<FileNode, String> {
         return Err("Path does not exist".to_string());
     }
     build_node(root_path, 0, depth)
+}
+
+#[tauri::command]
+fn list_directory_files(path: String) -> Result<Vec<String>, String> {
+    let root_path = Path::new(&path);
+    if !root_path.exists() || !root_path.is_dir() {
+        return Err("Path does not exist or is not a directory".to_string());
+    }
+    
+    let mut files = vec![];
+    if let Ok(entries) = fs::read_dir(root_path) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_file() {
+                if let Some(name) = entry_path.file_name() {
+                    files.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    
+    files.sort();
+    Ok(files)
 }
 
 fn build_node(path: &Path, depth: u32, max_depth: u32) -> Result<FileNode, String> {
@@ -197,6 +223,99 @@ fn test_tcp_connection(host: String, port: u16) -> Result<String, String> {
             }
         }
     }
+}
+
+#[tauri::command]
+fn test_ssh_connection(config: RemoteConfig) -> Result<String, String> {
+    let tcp = TcpStream::connect(format!("{}:{}", config.host, config.port))
+        .map_err(|e| format!("TCP connection failed: {}. Ensure the Host and Port are correct.", e))?;
+    
+    let mut sess = Session::new().map_err(|e| e.to_string())?;
+    sess.set_tcp_stream(tcp);
+    sess.set_timeout(10000); // 10s timeout
+    
+    sess.handshake().map_err(|e| {
+        if e.to_string().contains("Failed getting banner") {
+            format!("Handshake failed: Giao thức trên cổng {} không phải là SSH (Có thể là RDP hoặc dịch vụ khác).", config.port)
+        } else {
+            format!("SSH Handshake failed: {}", e)
+        }
+    })?;
+    
+    if let Some(pass) = config.password {
+        sess.userauth_password(&config.username, &pass).map_err(|e| format!("Authentication failed: {}", e))?;
+    } else {
+        sess.userauth_agent(&config.username).map_err(|e| format!("SSH Agent authentication failed: {}", e))?;
+    }
+
+    Ok(format!("Connected and authenticated to {} successfully!", config.host))
+}
+
+#[derive(Deserialize)]
+pub struct RemoteConfig {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: Option<String>,
+}
+
+#[tauri::command]
+fn list_remote_files(config: RemoteConfig, path: String) -> Result<Vec<String>, String> {
+    let tcp = TcpStream::connect(format!("{}:{}", config.host, config.port))
+        .map_err(|e| format!("Connection failed: {}", e))?;
+    let mut sess = Session::new().map_err(|e| e.to_string())?;
+    sess.set_tcp_stream(tcp);
+    sess.set_timeout(10000); // 10s timeout to prevent "Failed getting banner"
+    sess.handshake().map_err(|e| format!("SSH Handshake failed: {}. Check connectivity.", e))?;
+    
+    if let Some(pass) = config.password {
+        sess.userauth_password(&config.username, &pass).map_err(|e| e.to_string())?;
+    } else {
+        sess.userauth_agent(&config.username).map_err(|e| e.to_string())?;
+    }
+
+    let sftp = sess.sftp().map_err(|e| e.to_string())?;
+    let remote_path = sftp.readdir(Path::new(&path)).map_err(|e| e.to_string())?;
+    
+    let mut files = vec![];
+    for (path, stat) in remote_path {
+        if stat.is_file() {
+            if let Some(name) = path.file_name() {
+                files.push(name.to_string_lossy().to_string());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+#[tauri::command]
+fn read_remote_file_content(config: RemoteConfig, path: String) -> Result<String, String> {
+    let tcp = TcpStream::connect(format!("{}:{}", config.host, config.port))
+        .map_err(|e| format!("Connection failed: {}", e))?;
+    let mut sess = Session::new().map_err(|e| e.to_string())?;
+    sess.set_tcp_stream(tcp);
+    sess.set_timeout(10000); // 10s timeout to prevent "Failed getting banner"
+    sess.handshake().map_err(|e| format!("SSH Handshake failed: {}. Check connectivity.", e))?;
+    
+    if let Some(pass) = config.password {
+        sess.userauth_password(&config.username, &pass).map_err(|e| e.to_string())?;
+    } else {
+        sess.userauth_agent(&config.username).map_err(|e| e.to_string())?;
+    }
+
+    let mut remote_file = sess.scp_recv(Path::new(&path))
+        .map_err(|e| format!("SCP failed: {}", e))?.0;
+    
+    let mut bytes = Vec::new();
+    remote_file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+
+    let (res, _encoding, has_errors) = encoding_rs::UTF_8.decode(&bytes);
+    if !has_errors {
+        return Ok(res.into_owned());
+    }
+    let (res, _encoding, _has_errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
+    Ok(res.into_owned())
 }
 
 #[tauri::command]
@@ -340,7 +459,11 @@ pub fn run() {
             read_dir_tree,
             git_execute,
             test_tcp_connection,
-            search_in_files
+            search_in_files,
+            list_directory_files,
+            list_remote_files,
+            read_remote_file_content,
+            test_ssh_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

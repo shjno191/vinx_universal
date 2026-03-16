@@ -1,13 +1,27 @@
-<script setup lang="ts">
+# -*- coding: utf-8 -*-
+import os
+
+file_path = r'd:\vinx_tools\vinx_universal\src\components\SQLHelper.vue'
+
+# Wide Plus: \uFF0B
+wide_plus = chr(0xFF0B)
+# Folder: \U0001F4C2
+folder_icon = chr(0x1F4C2)
+# Refresh: \U0001F504
+refresh_icon = chr(0x1F504)
+# File/Page: \U0001F4C4
+file_icon = chr(0x1F4C4)
+
+code_content = r"""<script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { remoteConfigs } from '../store';
+import { remoteConfigs, type RemoteConfig } from '../store';
 
 const logPath = ref('');
 const logContent = ref('');
 const logDisplayRef = ref<HTMLElement | null>(null);
-const currentRemoteSource = ref<any>(null); // To track if current log is from remote
+const currentRemoteSource = ref<RemoteConfig | null>(null);
 
 interface Extraction {
   searchId: string;
@@ -25,86 +39,85 @@ const existingIds = computed(() => {
   return ids;
 });
 
+const getSshConfig = (cfg: RemoteConfig) => ({
+  host: cfg.host,
+  port: cfg.port || 22,
+  username: cfg.username,
+  password: cfg.password || null
+});
+
 const loadFromFile = async () => {
-    const trimmedPath = logPath.value.trim();
-    if (!trimmedPath) return;
-    try {
-      let content = '';
-      if (currentRemoteSource.value) {
-        // Use SSH backend for remote file
-        const config = {
-           host: currentRemoteSource.value.host,
-           port: currentRemoteSource.value.port,
-           username: currentRemoteSource.value.username,
-           password: currentRemoteSource.value.password || null
-        };
-        content = await invoke('read_remote_file_content', { config, path: trimmedPath });
-      } else {
-        // Local file
-        content = await invoke('read_file_content', { path: trimmedPath });
-      }
-      logContent.value = content;
-      nextTick(() => {
-        setTimeout(() => {
-          if (logDisplayRef.value) logDisplayRef.value.scrollTop = logDisplayRef.value.scrollHeight;
-        }, 100);
+  const trimmedPath = logPath.value.trim();
+  if (!trimmedPath) return;
+  try {
+    let content = '';
+    if (currentRemoteSource.value) {
+      content = await invoke('read_remote_file_content', { 
+        config: getSshConfig(currentRemoteSource.value), 
+        path: trimmedPath 
       });
-    } catch (e) {
-      alert(`Error loading file: ${e}`);
+    } else {
+      content = await invoke('read_file_content', { path: trimmedPath });
     }
+    logContent.value = content;
+    nextTick(() => {
+      if (logDisplayRef.value) {
+        logDisplayRef.value.scrollTop = logDisplayRef.value.scrollHeight;
+      }
+    });
+  } catch (e) {
+    alert(`Error loading file: ${e}`);
+  }
 };
 
 const chooseFile = async () => {
-    try {
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: 'Log Files', extensions: ['log', 'txt', 'sql'] }]
-      });
-      if (selected && typeof selected === 'string') {
-        currentRemoteSource.value = null; // Reset to local
-        logPath.value = selected;
-        await loadFromFile();
-      }
-    } catch (e) {
-      console.error('Failed to open file dialog', e);
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: 'Log Files', extensions: ['log', 'txt', 'sql'] }]
+    });
+    if (selected && typeof selected === 'string') {
+      currentRemoteSource.value = null;
+      logPath.value = selected;
+      await loadFromFile();
     }
+  } catch (e) {
+    console.error('Failed to open file dialog', e);
+  }
 };
 
-// --- Remote Logic ---
 const showFileBrowser = ref(false);
 const browserFileList = ref<string[]>([]);
-const currentBrowserRemote = ref<any>(null);
+const currentBrowserRemote = ref<RemoteConfig | null>(null);
 
-const openFileBrowser = async (cfg: any) => {
-    const sanitizedPath = cfg.targetPath ? cfg.targetPath.trim() : '';
-    if (!sanitizedPath) {
-        alert("Please configure a Remote Log Path in Settings first.");
-        return;
-    }
-    try {
-        currentBrowserRemote.value = cfg;
-        const config = {
-           host: cfg.host,
-           port: cfg.port,
-           username: cfg.username,
-           password: cfg.password || null
-        };
-        const files = await invoke<string[]>('list_remote_files', { config, path: sanitizedPath });
-        browserFileList.value = files.filter((f: string) => !f.endsWith('.exe') && !f.endsWith('.dll'));
-        showFileBrowser.value = true;
-    } catch (e) {
-        alert("Failed to list remote files: " + e);
-    }
+const openFileBrowser = async (cfg: RemoteConfig) => {
+  const sanitizedPath = cfg.targetPath?.trim() || '';
+  if (!sanitizedPath) {
+    alert("Please configure a Remote Log Path in Settings first.");
+    return;
+  }
+  try {
+    currentBrowserRemote.value = cfg;
+    const files = await invoke<string[]>('list_remote_files', { 
+      config: getSshConfig(cfg), 
+      path: sanitizedPath 
+    });
+    browserFileList.value = files.filter(f => !f.toLowerCase().endsWith('.exe') && !f.toLowerCase().endsWith('.dll'));
+    showFileBrowser.value = true;
+  } catch (e) {
+    alert("Failed to list remote files: " + e);
+  }
 };
 
 const selectBrowserFile = async (file: string) => {
-    const cfg = currentBrowserRemote.value;
-    const sanitizedPath = (cfg.targetPath || '').trim();
-    const sep = sanitizedPath.includes('/') ? '/' : '\\';
-    logPath.value = sanitizedPath.replace(/[\\\/]+$/, '') + sep + file;
-    currentRemoteSource.value = cfg; // Save source config for reloading
-    showFileBrowser.value = false;
-    await loadFromFile();
+  if (!currentBrowserRemote.value) return;
+  const cfg = currentBrowserRemote.value;
+  const sanitizedPath = (cfg.targetPath || '').trim();
+  const sep = sanitizedPath.includes('/') ? '/' : '\\';
+  logPath.value = sanitizedPath.replace(/[\\\/]+$/, '') + sep + file;
+  currentRemoteSource.value = cfg;
+  showFileBrowser.value = false;
+  await loadFromFile();
 };
 
 const processSql = (index: number) => {
@@ -112,15 +125,18 @@ const processSql = (index: number) => {
   if (!idToFind) return;
   const lines = logContent.value.split(/\r?\n/);
   let foundSql = '', foundParams = '';
+  const idPattern = new RegExp(`id\\s*=\\s*${idToFind}`, 'i');
+  
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].toLowerCase().includes(`id=${idToFind}`)) {
-       const sqlMatch = lines[i].match(/sql\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
-       if (sqlMatch) foundSql = sqlMatch[1];
-       const paramsMatch = lines[i].match(/params\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
-       if (paramsMatch) foundParams = paramsMatch[1];
-       if (foundSql) break;
+    if (idPattern.test(lines[i])) {
+      const sqlMatch = lines[i].match(/sql\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
+      if (sqlMatch) foundSql = sqlMatch[1];
+      const paramsMatch = lines[i].match(/params\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
+      if (paramsMatch) foundParams = paramsMatch[1];
+      if (foundSql) break;
     }
   }
+  
   if (foundSql) {
     let result = foundSql;
     if (foundParams) {
@@ -139,16 +155,21 @@ const handleLogClick = (e: MouseEvent) => {
   if (target.classList.contains('clickable-id')) {
     const id = target.getAttribute('data-id');
     if (id) {
-       let idx = extractions.value.findIndex(ex => !ex.searchId);
-       if (idx === -1) { extractions.value.push({ searchId: '', resultSql: '' }); idx = extractions.value.length - 1; }
-       extractions.value[idx].searchId = id;
-       processSql(idx);
+      let idx = extractions.value.findIndex(ex => !ex.searchId);
+      if (idx === -1) {
+        extractions.value.push({ searchId: id, resultSql: '' });
+        idx = extractions.value.length - 1;
+      } else {
+        extractions.value[idx].searchId = id;
+      }
+      processSql(idx);
     }
   }
 };
 
 const formattedLog = computed(() => {
-  const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]||m));
+  const htmlMap: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  const escapeHtml = (str: string) => str.replace(/[&<>"']/g, m => htmlMap[m]);
   let html = escapeHtml(logContent.value);
   return html.replace(/(id\s*=\s*)([a-zA-Z0-9_-]+)/gi, (_, p, id) => {
     const extra = existingIds.value.has(id.toLowerCase()) ? ' existing-id' : '';
@@ -161,10 +182,9 @@ const formattedLog = computed(() => {
   <div class="sql-helper-container">
     <div class="control-bar">
       <div class="file-picker-group">
-        <button @click="chooseFile" class="theme-button choose-btn">📂 Open Log</button>
+        <button @click="chooseFile" class="theme-button choose-btn">""" + folder_icon + r""" Open Log</button>
         <span v-if="logPath" class="file-path-display">{{ logPath.split(/[\\/]/).pop() }}</span>
         
-        <!-- Inline Remote Hints -->
         <div v-if="remoteConfigs.length > 0" class="remote-hints-inline">
           <span v-for="cfg in remoteConfigs.filter(c => c.enabled)" 
             :key="cfg.label" 
@@ -172,18 +192,18 @@ const formattedLog = computed(() => {
             @click="openFileBrowser(cfg)"
             :title="'Browse Remote SSH: ' + cfg.label"
           >
-            📂 {{ cfg.label }}
+            """ + folder_icon + r""" {{ cfg.label }}
           </span>
         </div>
       </div>
-      <button @click="() => extractions.push({searchId:'', resultSql:''})" class="theme-button add-query-btn">＋ Add Query</button>
+      <button @click="() => extractions.push({searchId:'', resultSql:''})" class="theme-button add-query-btn">""" + wide_plus + r""" Add Query</button>
     </div>
 
     <div class="sql-helper-split">
       <div class="log-viewer-pane">
         <div class="pane-header">
           <span>Log Viewer <span v-if="currentRemoteSource" style="opacity:0.5; font-weight:normal;">(Remote: {{currentRemoteSource.label}})</span></span>
-          <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Reload File">🔄</button>
+          <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Reload File">""" + refresh_icon + r"""</button>
         </div>
         <div class="log-display" ref="logDisplayRef" @click="handleLogClick" v-html="formattedLog"></div>
       </div>
@@ -217,7 +237,7 @@ const formattedLog = computed(() => {
         <div class="modal-body file-list-container">
           <div v-if="browserFileList.length === 0" class="empty-list">No files found on remote server.</div>
           <div v-for="f in browserFileList" :key="f" class="file-item" @click="selectBrowserFile(f)">
-            <span class="file-icon">📄</span> {{ f }}
+            <span class="file-icon">""" + file_icon + r"""</span> {{ f }}
           </div>
         </div>
       </div>
@@ -244,7 +264,7 @@ const formattedLog = computed(() => {
 .pane-header { padding: 8px 15px; background: var(--button-bg); border-bottom: var(--border-style); font-weight: bold; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; }
 .log-display { flex: 1; padding: 15px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: var(--input-bg); }
 .extraction-list { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
-.extraction-unit { border: var(--border-style); border-radius: 8px; padding: 12px; background: var(--main-bg); }
+.extraction-unit { border: var(--border-style); border-radius: 8px; padding: 12px; background: var(--main-bg); cursor: default; }
 .unit-header { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .mini-id { flex: 1; min-width: 0; }
 .remove-btn { background: none; border: none; color: #ef4444; font-size: 1.25rem; cursor: pointer; }
@@ -266,3 +286,8 @@ const formattedLog = computed(() => {
 .theme-input { padding: 6px 10px; border-radius: 4px; border: var(--border-style); background: var(--input-bg); color: var(--text-color); font-size: 0.85rem; }
 .refresh-log-btn { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 0 5px; }
 </style>
+"""
+
+with open(file_path, 'w', encoding='utf-8') as f:
+    f.write(code_content)
+print("Successfully optimized SQLHelper.vue.")

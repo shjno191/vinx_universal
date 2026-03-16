@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, shallowRef } from 'vue';
 import { open, message, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
@@ -48,6 +48,7 @@ const createModal     = ref<{ fromBranch: string } | null>(null);
 const newBranchName   = ref('');
 // File diff modal
 const diffModal       = ref<{ file: GitFile; original: string; modified: string } | null>(null);
+const lastDiffEditor  = shallowRef<any>(null);
 // Inspect commit modal
 const inspectModal    = ref<{ hash: string; message: string; author: string; date: string; files: { path: string, status: string }[] } | null>(null);
 
@@ -69,6 +70,25 @@ const setStatus = (msg: string, ms = 3000) => {
   statusMessage.value = msg;
   if (ms > 0) setTimeout(() => { if (statusMessage.value === msg) statusMessage.value = ''; }, ms);
 };
+
+const handleDiffMount = (editor: any) => {
+  lastDiffEditor.value = editor;
+};
+
+const prevDiff = () => {
+  if (lastDiffEditor.value) {
+    lastDiffEditor.value.goToDiff('previous');
+  }
+};
+
+const nextDiff = () => {
+  if (lastDiffEditor.value) {
+    lastDiffEditor.value.goToDiff('next');
+  }
+};
+
+const IconUp = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>';
+const IconDown = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 
 const parseGraphData = (raw: string) => {
   const rawLines = raw.split('\n').filter(l => l.trim());
@@ -1075,6 +1095,10 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
         <div class="modal-box diff-box">
           <div class="modal-hdr">
             <span>Diff: {{ diffModal.file.path }}</span>
+            <div class="diff-nav-acts">
+              <button class="diff-nav-btn" @click.stop="prevDiff" title="Previous Change" v-html="IconUp"></button>
+              <button class="diff-nav-btn" @click.stop="nextDiff" title="Next Change" v-html="IconDown"></button>
+            </div>
             <button class="modal-close" @click="diffModal = null" v-html="IconClose"></button>
           </div>
           <div class="diff-wrap">
@@ -1084,6 +1108,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               :original="diffModal.original"
               :modified="diffModal.modified"
               :options="{ readOnly: true, renderSideBySide: true, fontSize: 13 }"
+              @mount="handleDiffMount"
             />
           </div>
         </div>
@@ -1411,6 +1436,9 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
 .modal-box { background:var(--container-bg); border:var(--border-style); border-radius:10px; box-shadow:0 16px 48px rgba(0,0,0,.6); display:flex; flex-direction:column; min-width:320px; max-width:460px; overflow:hidden; }
 .diff-box { flex:1; max-width:100%; border-radius:8px; }
 .modal-hdr { display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:rgba(0,0,0,.15); border-bottom:var(--border-style); font-size:.82rem; font-weight:600; }
+.diff-nav-acts { display:flex; gap:6px; margin-right:12px; margin-left:auto; }
+.diff-nav-btn { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); color:var(--text-color); width:28px; height:28px; border-radius:4px; display:flex; align-items:center; justify-content:center; cursor:pointer; opacity:.7; transition:all .2s; }
+.diff-nav-btn:hover { opacity:1; background:rgba(255,255,255,.1); border-color:var(--accent-color); }
 .modal-close { background:transparent; border:none; cursor:pointer; color:var(--text-color); opacity:.5; display:flex; align-items:center; padding:2px; border-radius:4px; }
 .modal-close:hover { opacity:1; }
 .modal-body { padding:14px 16px; display:flex; flex-direction:column; gap:10px; }

@@ -2,11 +2,10 @@
 import { ref, computed, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { remoteMachineConfigs } from '../store';
 
-// defineProps<{
-//   theme: string
-// }>();
+const props = defineProps<{
+  theme: string
+}>();
 
 const logPath = ref('');
 const logContent = ref('');
@@ -44,31 +43,6 @@ const clearAllExtractions = () => {
   ];
 };
 
-
-// Map a remote path to a local path using configured remote machines
-const mapRemotePath = (inputPath: string): string => {
-  const active = remoteMachineConfigs.value.filter(c => c.enabled && c.remotePathPrefix);
-  for (const cfg of active) {
-    const prefix = cfg.remotePathPrefix.replace(/\\/g, '/');
-    const normalized = inputPath.replace(/\\/g, '/');
-    if (normalized.startsWith(prefix)) {
-      const rel = normalized.slice(prefix.length);
-      // Build local path
-      const local = (cfg.localPathPrefix.replace(/\/$/, '').replace(/\\$/,'') + rel).replace(/\//g, '\\');
-      return local;
-    }
-  }
-  return inputPath; // No mapping found, use original
-};
-
-const remotePathInput = ref('');
-
-const loadFromRemotePath = async () => {
-  if (!remotePathInput.value.trim()) return;
-  const mapped = mapRemotePath(remotePathInput.value.trim());
-  logPath.value = mapped;
-  await loadFromFile();
-};
 
 const chooseFile = async () => {
   try {
@@ -230,7 +204,7 @@ const highlightedLog = computed(() => {
 
   // Highlight id=xxxxxxxx (8 hex chars or similar)
   // We'll catch "id=" followed by word characters
-  return escaped.replace(/(id\s*=\s*)([a-zA-Z0-9_-]{4,})/gi, (_, prefix, id) => {
+  return escaped.replace(/(id\s*=\s*)([a-zA-Z0-9_-]{4,})/gi, (match, prefix, id) => {
     const isExisting = existingIds.has(id.toLowerCase());
     const extraClass = isExisting ? ' existing-id' : '';
     return `${prefix}<span class="clickable-id${extraClass}" data-id="${id}">${id}</span>`;
@@ -291,26 +265,11 @@ const isValidId = (id: string) => {
     <!-- Top Control Bar -->
     <div class="control-bar">
       <div class="file-picker-group">
-        <button @click="chooseFile" class="theme-button choose-btn">&#128194; Open Log File</button>
+        <button @click="chooseFile" class="theme-button choose-btn">📂 Open Log File</button>
         <span v-if="logPath" class="file-path-display-full" :title="logPath">{{ logPath }}</span>
         <span v-else class="file-path-placeholder"></span>
       </div>
-      <button @click="addExtraction" class="theme-button add-query-btn">&#10133; Add Query ID</button>
-    </div>
-
-    <!-- Remote path mapper (shows only when remote configs are configured) -->
-    <div v-if="remoteMachineConfigs.length > 0" class="remote-path-bar">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-      <input
-        v-model="remotePathInput"
-        class="remote-path-input"
-        placeholder="Paste remote file path here to auto-map and load..."
-        @keyup.enter="loadFromRemotePath"
-      />
-      <button @click="loadFromRemotePath" class="remote-load-btn">Load</button>
-      <span class="remote-hints">
-        <span v-for="cfg in remoteMachineConfigs.filter(c => c.enabled)" :key="cfg.label" class="remote-tag" :title="cfg.remotePathPrefix + ' �� ' + cfg.localPathPrefix">{{ cfg.label }}</span>
-      </span>
+      <button @click="addExtraction" class="theme-button add-query-btn">➕ Add Query ID</button>
     </div>
 
     <div class="split-workspace">
@@ -318,7 +277,7 @@ const isValidId = (id: string) => {
       <div class="log-viewer-pane">
         <div class="pane-header">
           <span>Log Content</span>
-          <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Refresh Log Content">&#128260;</button>
+          <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Refresh Log Content">🔄</button>
         </div>
         <div 
           ref="logDisplayRef"
@@ -332,7 +291,7 @@ const isValidId = (id: string) => {
       <div class="extraction-pane">
         <div class="pane-header">
           <span>GET SQL</span>
-          <button @click="clearAllExtractions" class="clear-all-btn" title="Clear All Queries">&#128465; Clear All</button>
+          <button @click="clearAllExtractions" class="clear-all-btn" title="Clear All Queries">🗑️ Clear All</button>
         </div>
         <div class="extraction-list">
           <div 
@@ -657,53 +616,6 @@ const isValidId = (id: string) => {
   color: #888; /* Gray color */
   word-break: break-all;
   line-height: 1.2;
-}
-
-.remote-path-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 15px;
-  background: rgba(99,102,241,0.07);
-  border-bottom: var(--border-style);
-  flex-shrink: 0;
-}
-
-.remote-path-input {
-  flex: 1;
-  background: var(--input-bg);
-  border: var(--border-style);
-  border-radius: 4px;
-  padding: 5px 10px;
-  color: var(--text-color);
-  font-size: 0.8rem;
-  outline: none;
-}
-
-.remote-path-input:focus { border-color: var(--accent-color); }
-
-.remote-load-btn {
-  background: var(--accent-color);
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 5px 14px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.remote-hints { display: flex; gap: 4px; flex-wrap: wrap; }
-
-.remote-tag {
-  font-size: 0.7rem;
-  padding: 2px 7px;
-  background: rgba(99,102,241,0.15);
-  border: 1px solid rgba(99,102,241,0.3);
-  border-radius: 10px;
-  color: var(--accent-color);
-  cursor: help;
-  white-space: nowrap;
 }
 
 .get-btn {

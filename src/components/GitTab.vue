@@ -16,6 +16,7 @@ const commitMessage   = ref('');
 // Branch click → show history in right panel
 const selectedBranch  = ref<GitBranch | null>(null);
 const isLoadingLogs   = ref(false);
+const showAllHistory  = ref(false);
 
 interface GraphCommit {
   hash: string;
@@ -340,20 +341,32 @@ const loadStatus = async () => {
   } catch { stagedFiles.value = []; unstagedFiles.value = []; }
 };
 
-const loadBranchHistory = async (branch: GitBranch) => {
+const loadBranchHistory = async (branch?: GitBranch) => {
   if (!gitTabRepoPath.value) return;
   isLoadingLogs.value = true;
   graphCommits.value = [];
   graphPaths.value = [];
   maxLanes.value = 1;
+
+  if (branch) selectedBranch.value = branch;
+  const targetBranch = selectedBranch.value;
+
   try {
-    const target = branch.isCurrent ? 'HEAD' : branch.name;
-    const raw = await git(['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '500', target]);
+    const args = ['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '2000'];
+    if (showAllHistory.value) {
+      args.push('--all');
+    } else if (targetBranch) {
+      args.push(targetBranch.isCurrent ? 'HEAD' : targetBranch.name);
+    } else {
+      args.push('HEAD');
+    }
+
+    const raw = await git(args);
     parseGraphData(raw);
   } catch (e) {
-    console.warn(`Failed history for ${branch.name}, trying generic log...`);
+    console.warn(`Failed history load, trying generic log...`);
     try {
-      const rawHead = await git(['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '500']);
+      const rawHead = await git(['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '2000']);
       parseGraphData(rawHead);
     } catch {
       graphCommits.value = [];
@@ -382,10 +395,19 @@ const undoCommit = async () => {
 
 const gitFetch = async () => {
   isLoading.value = true;
+  // Reset labels immediately for feedback
+  gitBranches.value.forEach(b => {
+    b.ahead = 0;
+    b.behind = 0;
+  });
+  
   try {
     await git(['fetch', '--all', '--prune']);
     setStatus('✓ Fetched all remotes');
     await refresh();
+    if (showAllHistory.value || selectedBranch.value) {
+      await loadBranchHistory();
+    }
   } catch (e) {
     await message(String(e), { title: 'Fetch Failed', kind: 'error' });
   } finally {
@@ -973,10 +995,18 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
 
       <!-- Main History panel -->
       <div class="panel-body">
-        <div class="history-context-bar" v-if="selectedBranch">
-            <span v-html="IconCommit"></span>
-            <b>{{ selectedBranch.name }}</b>
+        <div class="history-context-bar">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span v-html="IconCommit"></span>
+              <b v-if="showAllHistory">All Branches</b>
+              <b v-else-if="selectedBranch">{{ selectedBranch.name }}</b>
+              <b v-else>History</b>
+            </div>
             <span class="h-spacer"></span>
+            <label class="all-history-toggle">
+              <input type="checkbox" v-model="showAllHistory" @change="loadBranchHistory()" />
+              <span>Show All Branches</span>
+            </label>
         </div>
         
         <div v-if="isLoadingLogs" class="panel-loading">
@@ -1234,6 +1264,9 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
 .vbtn:disabled { opacity:.4; cursor:not-allowed; }
 
 .history-context-bar { display:flex; align-items:center; gap:8px; padding:8px 14px; background:rgba(255,255,255,.03); border-bottom:1px solid rgba(255,255,255,.05); font-size:.76rem; }
+.all-history-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; font-size: 0.72rem; }
+.all-history-toggle:hover { opacity: 1; }
+.all-history-toggle input { cursor: pointer; margin: 0; }
 .h-spacer { flex:1; }
 
 .status-pill { font-size:.7rem; opacity:.5; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

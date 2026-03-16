@@ -203,6 +203,8 @@ fn test_tcp_connection(host: String, port: u16) -> Result<String, String> {
 fn search_in_files(app: tauri::AppHandle, path: String, query: String) -> Result<(), String> {
     use ignore::WalkBuilder;
     use std::thread;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let query_lower = query.to_lowercase();
     let root_path = std::path::PathBuf::from(&path);
@@ -211,66 +213,108 @@ fn search_in_files(app: tauri::AppHandle, path: String, query: String) -> Result
         return Err("Invalid search directory".to_string());
     }
 
-    // Run in background thread to avoid blocking the UI
     thread::spawn(move || {
         let walker = WalkBuilder::new(&root_path)
-            .hidden(true)
-            .ignore(true)
-            .git_ignore(true)
-            .build();
+            .hidden(false) // Don't skip hidden files
+            .ignore(false) // Don't skip ignored files for global search
+            .git_ignore(false)
+            .threads(std::cmp::min(8, num_cpus::get()))
+            .build_parallel();
 
-        let mut batch: Vec<SearchResult> = Vec::new();
-        let mut total = 0usize;
-        const BATCH_SIZE: usize = 20;
-        const MAX_RESULTS: usize = 500;
+        let total_count = Arc::new(AtomicUsize::new(0));
+        const MAX_RESULTS: usize = 1000;
+        const BATCH_SIZE: usize = 40;
 
-        for entry in walker.flatten() {
-            if total >= MAX_RESULTS { break; }
-            if !entry.file_type().map_or(false, |ft| ft.is_file()) { continue; }
-            let file_path = entry.path().to_path_buf();
+        struct SearchWorker {
+            app: tauri::AppHandle,
+            batch: Vec<SearchResult>,
+            total_count: Arc<AtomicUsize>,
+            query_lower: String,
+        }
 
-            if let Ok(bytes) = fs::read(&file_path) {
-                let check_len = std::cmp::min(1024, bytes.len());
-                if bytes[..check_len].contains(&0) { continue; }
-
-                let content = {
-                    let (res, _, has_errors) = encoding_rs::UTF_8.decode(&bytes);
-                    if !has_errors {
-                        res.into_owned()
-                    } else {
-                        let (res, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
-                        res.into_owned()
-                    }
-                };
-
-                for (i, line) in content.lines().enumerate() {
-                    if total >= MAX_RESULTS { break; }
-                    if line.to_lowercase().contains(&query_lower) {
-                        batch.push(SearchResult {
-                            file_path: file_path.to_string_lossy().to_string(),
-                            line_num: i + 1,
-                            line_text: line.trim().to_string(),
-                        });
-                        total += 1;
-
-                        // Emit a batch when it's full
-                        if batch.len() >= BATCH_SIZE {
-                            let _ = app.emit("search:batch", SearchBatch {
-                                results: batch.drain(..).collect(),
-                                done: false,
-                                total,
-                            });
-                        }
-                    }
+        impl Drop for SearchWorker {
+            fn drop(&mut self) {
+                if !self.batch.is_empty() {
+                    let _ = self.app.emit("search:batch", SearchBatch {
+                        results: self.batch.drain(..).collect(),
+                        done: false,
+                        total: self.total_count.load(Ordering::SeqCst),
+                    });
                 }
             }
         }
 
-        // Emit remaining and signal done
+        walker.run(|| {
+            let mut worker = SearchWorker {
+                app: app.clone(),
+                batch: Vec::new(),
+                total_count: Arc::clone(&total_count),
+                query_lower: query_lower.clone(),
+            };
+
+            Box::new(move |entry| {
+                use ignore::WalkState;
+                if worker.total_count.load(Ordering::Relaxed) >= MAX_RESULTS {
+                    return WalkState::Quit;
+                }
+
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => return WalkState::Continue,
+                };
+
+                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+                    return WalkState::Continue;
+                }
+
+                let file_path = entry.path();
+                if let Ok(bytes) = fs::read(file_path) {
+                    let check_len = std::cmp::min(1024, bytes.len());
+                    if bytes[..check_len].contains(&0) { return WalkState::Continue; }
+
+                    let content = {
+                        let (res, _, has_errors) = encoding_rs::UTF_8.decode(&bytes);
+                        if !has_errors { res.into_owned() }
+                        else {
+                            let (res, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
+                            res.into_owned()
+                        }
+                    };
+
+                    let path_str = file_path.to_string_lossy().to_string();
+                    for (i, line) in content.lines().enumerate() {
+                        if line.to_lowercase().contains(&worker.query_lower) {
+                            worker.batch.push(SearchResult {
+                                file_path: path_str.clone(),
+                                line_num: i + 1,
+                                line_text: line.trim().to_string(),
+                            });
+
+                            let current_total = worker.total_count.fetch_add(1, Ordering::SeqCst);
+                            if worker.batch.len() >= BATCH_SIZE {
+                                let _ = worker.app.emit("search:batch", SearchBatch {
+                                    results: worker.batch.drain(..).collect(),
+                                    done: false,
+                                    total: current_total + 1,
+                                });
+                            }
+
+                            if current_total >= MAX_RESULTS {
+                                return WalkState::Quit;
+                            }
+                        }
+                    }
+                }
+
+                WalkState::Continue
+            })
+        });
+
+        // Final signal
         let _ = app.emit("search:batch", SearchBatch {
-            results: batch,
+            results: Vec::new(),
             done: true,
-            total,
+            total: total_count.load(Ordering::SeqCst),
         });
     });
 

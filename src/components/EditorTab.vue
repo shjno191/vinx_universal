@@ -417,6 +417,30 @@ const getFileLanguage = (ext: string): string => {
 };
 
 const resolveAndOpenPath = async (rawPath: string) => {
+  // First, try as an absolute/direct path (essential for search results)
+  try {
+    const existing = tabs.value.find(t => t.path === rawPath);
+    if (existing) {
+      currentActiveId.value = existing.id;
+      return;
+    }
+    const content = await invoke('read_file_content', { path: rawPath }) as string;
+    const name = rawPath.split(/[/\\]/).pop() || rawPath;
+    const ext = rawPath.split('.').pop() || '';
+    const newTab = { 
+      id: Date.now().toString() + Math.random(), 
+      name: name, 
+      content, 
+      language: getFileLanguage(ext), 
+      path: rawPath 
+    };
+    tabs.value.push(newTab);
+    currentActiveId.value = newTab.id;
+    return;
+  } catch (e) {
+    // If it fails, maybe it's a relative path (for import clicking)
+  }
+
   const cur = tabs.value.find(t => t.id === currentActiveId.value);
   const base = cur?.path ? cur.path.replace(/[/\\][^/\\]+$/, '') : projectRootPath.value;
   if (!base) return;
@@ -689,7 +713,9 @@ const jumpToSearchResult = async (res: SearchResult) => {
 
           <div class="explorer-body search-results-body">
             <div v-if="isSearching" class="explorer-empty">
-              Searching...
+              <div class="search-loader"></div>
+              <div style="margin-top: 12px; font-weight: 500;">Searching Project...</div>
+              <div style="font-size: 0.7rem; opacity: 0.6; margin-top: 4px;">Tận dụng đa luồng Rust</div>
             </div>
             <div v-else-if="searchResults.length > 0" key="has-results">
                <div class="search-results-info">{{ searchResults.length }} results found</div>
@@ -895,7 +921,21 @@ const jumpToSearchResult = async (res: SearchResult) => {
 .explorer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .explorer-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding-bottom: 20px; }
-.explorer-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; opacity: 0.5; padding: 20px; text-align: center; font-size: 0.8rem; }
+.explorer-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; opacity: 0.7; padding: 20px; text-align: center; font-size: 0.8rem; }
+
+.search-loader {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(var(--accent-rgb), 0.1);
+  border-top: 2px solid var(--accent-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
 .open-folder-btn-minimal { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-color); padding: 6px 14px; border-radius: 4px; cursor: pointer; margin-top: 10px; font-size: 0.75rem; }
 .open-folder-btn-minimal:hover { background: rgba(255,255,255,0.1); }
 

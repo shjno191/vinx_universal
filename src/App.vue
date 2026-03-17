@@ -18,6 +18,13 @@ const currentTheme = ref("dark");
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
 
+// Lazy loading tabs
+const initializedTabs = ref(new Set(["SQL-Helper"]));
+
+watch(currentTab, (newTab) => {
+  initializedTabs.value.add(newTab);
+}, { immediate: true });
+
 // Tab History for Mouse 4/5
 const tabHistory = ref<string[]>(["SQL-Helper"]);
 const tabHistoryIndex = ref(0);
@@ -255,22 +262,22 @@ onMounted(() => {
     <!-- Main Content Area (Scrollable) -->
     <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' || currentTab === 'Git' }">
       <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' || currentTab === 'Git' }">
-        <div v-show="currentTab === 'SQL-Helper'" class="full-height-vif">
+        <div v-if="initializedTabs.has('SQL-Helper')" v-show="currentTab === 'SQL-Helper'" class="full-height-vif">
           <SQLHelper :theme="currentTheme" />
         </div>
-        <div v-show="currentTab === 'Translate'" class="full-height-vif">
+        <div v-if="initializedTabs.has('Translate')" v-show="currentTab === 'Translate'" class="full-height-vif">
           <TranslateTab />
         </div>
-        <div v-show="currentTab === 'Compare'" class="full-height-vif">
+        <div v-if="initializedTabs.has('Compare')" v-show="currentTab === 'Compare'" class="full-height-vif">
           <CompareTab />
         </div>
-        <div v-show="currentTab === 'Editor'" class="full-height-vif">
+        <div v-if="initializedTabs.has('Editor')" v-show="currentTab === 'Editor'" class="full-height-vif">
           <EditorTab />
         </div>
-        <div v-show="currentTab === 'Git'" class="full-height-vif">
+        <div v-if="initializedTabs.has('Git')" v-show="currentTab === 'Git'" class="full-height-vif">
           <GitTab />
         </div>
-        <div v-show="currentTab === 'FlowChart'" class="full-height-vif">
+        <div v-if="initializedTabs.has('FlowChart')" v-show="currentTab === 'FlowChart'" class="full-height-vif">
           <FlowChartTab />
         </div>
       </div>

@@ -124,15 +124,3 @@ export interface TabContextMenuState {
     tab: any;
 }
 export const activeTabContextMenu = ref<TabContextMenuState | null>(null);
-// Remote Settings (for SQL Helper)
-export interface RemoteConfig {
-    enabled: boolean;
-    label: string;         // Display name, e.g. "Dev Server"
-    host: string;          // IP or hostname
-    port: number;          // Port (default 22 for SSH)
-    username: string;      // Login name
-    password: string;      // Password (stored locally only)
-    targetPath: string;    // Remote path to logs
-}
-
-export const remoteConfigs = ref<RemoteConfig[]>([]);

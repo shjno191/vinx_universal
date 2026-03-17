@@ -300,7 +300,10 @@ const handleScroll = (side: 'input' | 'result') => {
 const inputHighlighter = ref<HTMLDivElement | null>(null);
 const resultHighlighter = ref<HTMLDivElement | null>(null);
 
-onMounted(loadDictionary);
+onMounted(() => {
+  // Use a small timeout to avoid blocking initial render
+  setTimeout(loadDictionary, 300);
+});
 
 watch(sharedInput, async () => {
   await nextTick();

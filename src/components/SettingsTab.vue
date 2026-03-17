@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, remoteConfigs } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -12,8 +12,7 @@ const categories = [
   { id: 'translate', name: 'Translate', icon: '\u{1F310}' },
   { id: 'editor', name: 'Editor', icon: '\u{1F4DD}' },
   { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' },
-  { id: 'ai', name: 'AI', icon: '\u{1F916}' },
-  { id: 'sqlhelper', name: 'SQL Helper', icon: '\u{1F5A5}\uFE0F' },
+  { id: 'ai', name: 'AI', icon: '🤖' },
 ];
 
 const currentCategory = ref('general');
@@ -123,18 +122,6 @@ const loadSettings = async () => {
         settings.value.editor = { ...settings.value.editor, ...s.editor };
         editorSettings.value = { ...editorSettings.value, ...s.editor };
       }
-      if (s.remoteConfigs) {
-        remoteConfigs.value = s.remoteConfigs;
-      } else if (s.proxyConfigs) {
-        // Migration from Proxy to Remote
-        remoteConfigs.value = s.proxyConfigs;
-      } else if (s.remoteMachineConfigs) {
-        // Legacy migration
-        remoteConfigs.value = s.remoteMachineConfigs.map((c: any) => ({
-            ...c,
-            targetPath: c.localPathPrefix || c.targetPath || ''
-        }));
-      }
       if (s.last_project_root) settings.value.last_project_root = s.last_project_root;
       if (s.last_git_repo) settings.value.last_git_repo = s.last_git_repo;
     }
@@ -165,7 +152,7 @@ const chooseDictionaryFile = async () => {
 const saveSettings = async () => {
   try {
     theme.value = settings.value.theme as any;
-    const toSave = { ...settings.value, remoteConfigs: remoteConfigs.value };
+    const toSave = { ...settings.value };
     await invoke('save_settings', { settings: JSON.stringify(toSave, null, 2) });
     emit('theme-changed', settings.value.theme);
   } catch (e) {
@@ -173,41 +160,6 @@ const saveSettings = async () => {
   }
 };
 
-const addRemoteConfig = () => {
-  remoteConfigs.value.push({ 
-    enabled: true, label: 'New Remote', 
-    host: '', port: 22, username: '', password: '',
-    targetPath: '' 
-  });
-  saveSettings();
-};
-
-const removeRemoteConfig = (i: number) => {
-  remoteConfigs.value.splice(i, 1);
-  saveSettings();
-};
-
-// Test TCP connection for a machine config
-const testStatus = ref<Record<number, { status: 'idle'|'testing'|'ok'|'fail'; msg: string }>>({});
-
-const testConnection = async (i: number) => {
-  const cfg = remoteConfigs.value[i];
-  if (!cfg.host) { testStatus.value[i] = { status: 'fail', msg: 'Host is required.' }; return; }
-  testStatus.value[i] = { status: 'testing', msg: 'Testing (SSH/SFTP)...' };
-  try {
-    const config = {
-      host: cfg.host,
-      port: cfg.port || 22,
-      username: cfg.username,
-      password: cfg.password || null
-    };
-    const msg = await invoke<string>('test_ssh_connection', { config });
-    testStatus.value[i] = { status: 'ok', msg };
-    saveSettings();
-  } catch (e: any) {
-    testStatus.value[i] = { status: 'fail', msg: String(e) };
-  }
-};
 
 // ── AI Settings ────────────────────────────────────────────────────────────────
 const aiSaveStatus = ref<'idle' | 'saving' | 'saved'>('idle');
@@ -528,83 +480,6 @@ onMounted(() => {
           </button>
           <span class="hint-text" style="margin-left:10px;">Stored locally in browser.</span>
         </div>
-      </div>
-      <!-- SQL Helper Settings (Remote Access) -->
-      <div v-if="currentCategory === 'sqlhelper'" class="settings-section">
-        <div class="ai-settings-header">
-          <h3 style="margin:0;font-size:1rem;">SQL Helper — Remote Settings</h3>
-          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Configure SSH Remote connections. Access logs directly from other machines using SSH.</p>
-        </div>
-
-        <div v-if="remoteConfigs.length === 0" class="remote-empty">
-          No remote machines configured. Click "Add" below to create one.
-        </div>
-
-        <div v-for="(cfg, i) in remoteConfigs" :key="i" class="remote-config-block">
-          <!-- Header row -->
-          <div class="remote-config-header">
-            <div style="display:flex;align-items:center;gap:10px;">
-              <label class="checkbox-container" style="font-size:0.85rem;">
-                <input type="checkbox" v-model="cfg.enabled" @change="saveSettings" />
-                <span class="checkmark"></span>
-              </label>
-              <input v-model="cfg.label" @blur="saveSettings" class="text-input remote-label-input" placeholder="Remote name..." />
-            </div>
-            <button class="remove-remote-btn" @click="removeRemoteConfig(i)" title="Remove">✕</button>
-          </div>
-
-          <!-- Connection fields in a grid -->
-          <div class="remote-fields-grid">
-            <div class="remote-field">
-              <label>Host / IP</label>
-              <input v-model="cfg.host" @blur="saveSettings" class="text-input" placeholder="192.168.1.100" />
-            </div>
-            <div class="remote-field remote-field-sm">
-              <label>Port</label>
-              <input v-model.number="cfg.port" @blur="saveSettings" class="text-input" type="number" placeholder="22" min="1" max="65535" />
-            </div>
-            <div class="remote-field">
-              <label>Username</label>
-              <input v-model="cfg.username" @blur="saveSettings" class="text-input" placeholder="admin" autocomplete="off" />
-            </div>
-            <div class="remote-field">
-              <label>Password</label>
-              <input v-model="cfg.password" @blur="saveSettings" class="text-input" type="password" placeholder="••••••••" autocomplete="new-password" />
-            </div>
-          </div>
-
-          <!-- Path mapping -->
-          <div class="remote-field">
-            <label>Remote Log Path <span style="opacity:0.5;font-size:0.75rem;">(The path on the server)</span></label>
-            <input v-model="cfg.targetPath" @blur="saveSettings" class="text-input" placeholder="/var/log/tomcat/catalina.out" />
-            <p class="field-hint">Đường dẫn đầy đủ tới tệp log (hoặc thư mục chứa log) trên máy chủ từ xa.</p>
-          </div>
-
-          <!-- Test button + status -->
-          <div class="remote-test-row">
-            <div style="display:flex; flex-direction:column; gap:4px;">
-              <button 
-                class="test-conn-btn" 
-                @click="testConnection(i)" 
-                :disabled="testStatus[i]?.status === 'testing'"
-              >
-                <span v-if="testStatus[i]?.status === 'testing'">Testing...</span>
-                <span v-else>⚡ Test Connection</span>
-              </button>
-            </div>
-            <span 
-              v-if="testStatus[i]?.status" 
-              class="test-result" 
-              :class="testStatus[i].status"
-            >
-              {{ testStatus[i].msg }}
-            </span>
-          </div>
-        </div>
-
-        <button class="add-remote-btn" @click="addRemoteConfig">
-          <span>＋ Add Remote Machine</span>
-        </button>
       </div>
 
     </main>

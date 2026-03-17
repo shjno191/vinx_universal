@@ -201,63 +201,6 @@ const currentActiveId = computed({
   }
 });
 
-// Watch for project path changes from other tabs or on initial load
-watch(projectRootPath, (newVal) => {
-  if (newVal) {
-    refreshTree();
-  }
-}, { immediate: true });
-
-// Watch for diff requests from SourceControl
-watch(triggerOpenDiff, (val) => {
-  if (!val) return;
-  const { path, name, original, modified, label } = val;
-  const tabId = `diff-${path}-${label}`;
-  const existing = tabs.value.find(t => t.id === tabId);
-  if (existing) {
-    // Always focus left pane so currentTab correctly resolves to this diff tab
-    activeTabIdLeft.value = existing.id;
-    focusedPane.value = 'left';
-  } else {
-    const newTab: Tab = {
-      id: tabId,
-      name: `${name} (${label})`,
-      content: modified,
-      language: getFileLanguage(path.split('.').pop() || ''),
-      path: path,
-      isDiff: true,
-      diffData: { original, modified }
-    };
-    tabs.value.push(newTab);
-    activeTabIdLeft.value = newTab.id;
-    focusedPane.value = 'left';
-  }
-  nextTick(() => { triggerOpenDiff.value = null; });
-});
-
-// Watch for external file changes (e.g. Git revert/checkout)
-watch(triggerEditorReload, async () => {
-    console.log('[EditorTab] Reloading open tabs from disk...');
-    for (const tab of tabs.value) {
-        if (tab.path && !tab.isDiff) {
-            try {
-                const refreshed = await invoke('read_file_content', { path: tab.path }) as string;
-                tab.content = refreshed;
-                // If it was marked as (Saved), we can keep it, but if it had unsaved changes logic, we'd reset it here.
-                // Currently saving just appends (Saved) to name temporarily.
-            } catch (e) {
-                console.warn(`[EditorTab] Failed to reload ${tab.path}:`, e);
-            }
-        }
-    }
-});
-
-// Watch for global ESC (close all modals/menus)
-watch(triggerCloseModals, () => {
-    activeTabContextMenu.value = null;
-    selectionModal.value = null;
-    showBranchSwitcher.value = false;
-});
 
 const editors = { left: null as any, right: null as any };
 
@@ -501,14 +444,6 @@ const handleKeyDown = (e: KeyboardEvent) => {
   }
 };
 
-onMounted(() => { 
-  window.addEventListener('keydown', handleKeyDown); 
-  if (projectRootPath.value) refreshTree();
-});
-onUnmounted(() => { 
-  window.removeEventListener('keydown', handleKeyDown);
-  if (searchUnlisten) { searchUnlisten(); searchUnlisten = null; }
-});
 
 const addTab = () => {
   tabs.value.push({ id: Date.now().toString(), name: 'untitled.txt', content: '', language: 'plaintext' });
@@ -607,6 +542,76 @@ const jumpToSearchResult = async (res: SearchResult) => {
         }
     }, 150);
 };
+
+// --- Lifecycle & Watchers (Moved to bottom to avoid TDZ issues) ---
+
+// Watch for project path changes from other tabs or on initial load
+watch(projectRootPath, (newVal) => {
+  if (newVal) {
+    refreshTree();
+  }
+}, { immediate: true });
+
+// Watch for diff requests from SourceControl
+watch(triggerOpenDiff, (val) => {
+  if (!val) return;
+  const { path, name, original, modified, label } = val;
+  const tabId = `diff-${path}-${label}`;
+  const existing = tabs.value.find(t => t.id === tabId);
+  if (existing) {
+    // Always focus left pane so currentTab correctly resolves to this diff tab
+    activeTabIdLeft.value = existing.id;
+    focusedPane.value = 'left';
+  } else {
+    const newTab: Tab = {
+      id: tabId,
+      name: `${name} (${label})`,
+      content: modified,
+      language: getFileLanguage(path.split('.').pop() || ''),
+      path: path,
+      isDiff: true,
+      diffData: { original, modified }
+    };
+    tabs.value.push(newTab);
+    activeTabIdLeft.value = newTab.id;
+    focusedPane.value = 'left';
+  }
+  nextTick(() => { triggerOpenDiff.value = null; });
+});
+
+// Watch for external file changes (e.g. Git revert/checkout)
+watch(triggerEditorReload, async () => {
+    console.log('[EditorTab] Reloading open tabs from disk...');
+    for (const tab of tabs.value) {
+        if (tab.path && !tab.isDiff) {
+            try {
+                const refreshed = await invoke('read_file_content', { path: tab.path }) as string;
+                tab.content = refreshed;
+                // If it was marked as (Saved), we can keep it, but if it had unsaved changes logic, we'd reset it here.
+                // Currently saving just appends (Saved) to name temporarily.
+            } catch (e) {
+                console.warn(`[EditorTab] Failed to reload ${tab.path}:`, e);
+            }
+        }
+    }
+});
+
+// Watch for global ESC (close all modals/menus)
+watch(triggerCloseModals, () => {
+    activeTabContextMenu.value = null;
+    selectionModal.value = null;
+    showBranchSwitcher.value = false;
+});
+
+onMounted(() => { 
+  window.addEventListener('keydown', handleKeyDown); 
+  if (projectRootPath.value) refreshTree();
+});
+
+onUnmounted(() => { 
+  window.removeEventListener('keydown', handleKeyDown);
+  if (searchUnlisten) { searchUnlisten(); searchUnlisten = null; }
+});
 </script>
 
 <template>

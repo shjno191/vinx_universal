@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from "vue";
+import { ref, reactive, onMounted, watch, nextTick } from "vue";
+
 import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
@@ -18,11 +19,15 @@ const currentTheme = ref("dark");
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
 
-// Lazy loading tabs
-const initializedTabs = ref(new Set(["SQL-Helper"]));
+// Lazy loading tabs: using reactive object for better stability than Set patching
+const initializedTabs = reactive<Record<string, boolean>>({
+  "SQL-Helper": true
+});
 
 watch(currentTab, (newTab) => {
-  initializedTabs.value.add(newTab);
+  if (!initializedTabs[newTab]) {
+    initializedTabs[newTab] = true;
+  }
 }, { immediate: true });
 
 // Tab History for Mouse 4/5
@@ -259,46 +264,50 @@ onMounted(() => {
       </div>
     </nav>
 
-    <!-- Main Content Area (Scrollable) -->
-    <main class="content-wrapper" :class="{ 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' || currentTab === 'Git' }">
-      <div class="content-scroll-area" :class="{ 'win95-border': currentTheme === '95', 'no-padding': currentTab === 'SQL-Helper' || currentTab === 'Editor' || currentTab === 'FlowChart' || currentTab === 'Git' }">
-        <div v-if="initializedTabs.has('SQL-Helper')" v-show="currentTab === 'SQL-Helper'" class="full-height-vif">
-          <SQLHelper :theme="currentTheme" />
+    <!-- Main Content Area: Simplified and stabilized structure to avoid patching conflicts -->
+    <main class="content-wrapper full-bleed">
+      <div class="content-scroll-area full-bleed" :class="{ 'win95-border': currentTheme === '95' }">
+        <!-- Permanent containers for all tabs to ensure DOM stability -->
+        <!-- Static containers: Removing keys as they are stable by position and avoid patching overhead -->
+        <div v-show="currentTab === 'SQL-Helper'" class="full-height-vif">
+          <SQLHelper v-if="initializedTabs['SQL-Helper']" :theme="currentTheme" />
         </div>
-        <div v-if="initializedTabs.has('Translate')" v-show="currentTab === 'Translate'" class="full-height-vif">
-          <TranslateTab />
+        <div v-show="currentTab === 'Translate'" class="full-height-vif">
+          <TranslateTab v-if="initializedTabs['Translate']" />
         </div>
-        <div v-if="initializedTabs.has('Compare')" v-show="currentTab === 'Compare'" class="full-height-vif">
-          <CompareTab />
+        <div v-show="currentTab === 'Compare'" class="full-height-vif">
+          <CompareTab v-if="initializedTabs['Compare']" />
         </div>
-        <div v-if="initializedTabs.has('Editor')" v-show="currentTab === 'Editor'" class="full-height-vif">
-          <EditorTab />
+        <div v-show="currentTab === 'Editor'" class="full-height-vif">
+          <EditorTab v-if="initializedTabs['Editor']" />
         </div>
-        <div v-if="initializedTabs.has('Git')" v-show="currentTab === 'Git'" class="full-height-vif">
-          <GitTab />
+        <div v-show="currentTab === 'Git'" class="full-height-vif">
+          <GitTab v-if="initializedTabs['Git']" />
         </div>
-        <div v-if="initializedTabs.has('FlowChart')" v-show="currentTab === 'FlowChart'" class="full-height-vif">
-          <FlowChartTab />
+        <div v-show="currentTab === 'FlowChart'" class="full-height-vif">
+          <FlowChartTab v-if="initializedTabs['FlowChart']" />
         </div>
       </div>
     </main>
 
-    <!-- Settings Modal -->
-    <div v-if="showSettingsModal" class="modal-overlay">
-      <div class="modal-content settings-modal-content" :class="{ 'win95-border': currentTheme === '95' }">
-        <div class="modal-header">
-          <span>Settings</span>
-          <div class="header-tools">
-            <button @click="settingsRef?.refreshSettings()" class="tool-btn" title="Refresh Settings">&#128260;</button>
-            <button @click="settingsRef?.openSettingsFile()" class="tool-btn" title="Open Config File">&#128194;</button>
-            <button @click="showSettingsModal = false" class="close-btn">&times;</button>
+    <!-- Settings Modal: Teleported to body for stability -->
+    <Teleport to="body">
+      <div v-if="showSettingsModal" class="modal-overlay" @mousedown.self="showSettingsModal = false">
+        <div class="modal-content settings-modal-content" :class="{ 'win95-border': currentTheme === '95' }">
+          <div class="modal-header">
+            <span>Settings</span>
+            <div class="header-tools">
+              <button @click="settingsRef?.refreshSettings()" class="tool-btn" title="Refresh Settings">&#128260;</button>
+              <button @click="settingsRef?.openSettingsFile()" class="tool-btn" title="Open Config File">&#128194;</button>
+              <button @click="showSettingsModal = false" class="close-btn">&times;</button>
+            </div>
+          </div>
+          <div class="modal-body settings-modal-body">
+            <SettingsTab ref="settingsRef" @theme-changed="handleThemeChanged" />
           </div>
         </div>
-        <div class="modal-body settings-modal-body">
-          <SettingsTab ref="settingsRef" @theme-changed="handleThemeChanged" />
-        </div>
       </div>
-    </div>
+    </Teleport>
 
   </div>
 </template>
@@ -422,7 +431,7 @@ html, body {
   border-radius: var(--border-radius);
 }
 
-.content-scroll-area.no-padding {
+.content-scroll-area.full-bleed {
   padding: 0;
   overflow: hidden;
   border: none;

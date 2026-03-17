@@ -265,10 +265,16 @@ const currentOptions = computed(() => ({
 
 /* Theme specific overrides for glass and sidebar */
 .compare-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 10px 15px;
+  box-sizing: border-box;
   --glass-bg: rgba(30, 30, 30, 0.4);
   --glass-border: rgba(255, 255, 255, 0.05);
   --sidebar-header-bg: rgba(255, 255, 255, 0.05);
   background: var(--bg-color);
+  overflow: hidden;
 }
 
 :root.theme-light .compare-container {

@@ -271,7 +271,7 @@ onMounted(() => {
     </aside>
 
     <main class="settings-content">
-      <div v-if="currentCategory === 'general'" key="cat-general" class="settings-section">
+      <div v-show="currentCategory === 'general'" class="settings-section">
         <div class="setting-item">
           <label>Theme</label>
           <select v-model="settings.theme" @change="saveSettings" class="theme-select">
@@ -282,7 +282,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="currentCategory === 'translate'" key="cat-translate" class="settings-section">
+      <div v-show="currentCategory === 'translate'" class="settings-section">
         <div class="setting-item-vertical">
           <label>Dictionary Excel File (JP, EN, VI)</label>
           <div class="path-picker">
@@ -295,7 +295,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="currentCategory === 'editor'" key="cat-editor" class="settings-section">
+      <div v-show="currentCategory === 'editor'" class="settings-section">
         <div class="setting-item-vertical">
           <label>Mouse Features</label>
           <div class="setting-checkbox-list">
@@ -350,7 +350,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="currentCategory === 'shortcut'" key="cat-shortcut" class="settings-section">
+      <div v-show="currentCategory === 'shortcut'" class="settings-section">
         <div class="setting-item-vertical">
           <label>Global Shortcuts (Click to change)</label>
           <div class="shortcut-list">
@@ -382,7 +382,7 @@ onMounted(() => {
       </div>
 
       <!-- AI Provider Settings -->
-      <div v-if="currentCategory === 'ai'" class="settings-section">
+      <div v-show="currentCategory === 'ai'" class="settings-section">
         <div class="ai-settings-header">
           <h3 style="margin:0;font-size:1rem;">AI Provider Settings</h3>
           <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Used by the Flow Chart feature to generate diagrams from code.</p>

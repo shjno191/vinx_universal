@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch, nextTick } from "vue";
 
-import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals } from "./store";
+import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals, chillSettings, triggerFlick } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -13,6 +13,9 @@ import EditorTab from "./components/EditorTab.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 import FlowChartTab from "./components/FlowChartTab.vue";
 import GitTab from "./components/GitTab.vue";
+import SmokeTab from "./components/SmokeTab.vue";
+import Cigarette from "./components/Cigarette.vue";
+import { isGlobalSmoking } from "./store";
 
 const currentTab = ref("SQL-Helper");
 const currentTheme = ref("dark");
@@ -29,6 +32,33 @@ watch(currentTab, (newTab) => {
     initializedTabs[newTab] = true;
   }
 }, { immediate: true });
+
+const chillWidgetRef = ref<any>(null);
+
+const handleChillShortcuts = (e: KeyboardEvent, isDown: boolean) => {
+  const activeEl = document.activeElement;
+  const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+  if (isInput) return;
+
+  // Flick Ash: Ctrl + Space
+  if (e.ctrlKey && e.code === 'Space') {
+    e.preventDefault();
+    if (isDown) {
+      triggerFlick.value++;
+    }
+    return;
+  }
+
+  // Smoke: Space (Hold)
+  if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    if (isDown) {
+      isGlobalSmoking.value = true;
+    } else {
+      isGlobalSmoking.value = false;
+    }
+  }
+};
 
 // Tab History for Mouse 4/5
 const tabHistory = ref<string[]>(["SQL-Helper"]);
@@ -87,7 +117,7 @@ const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
          e.metaKey === meta;
 };
 
-const handleKeyDown = (e: KeyboardEvent) => {
+const handleGlobalKeyDown = (e: KeyboardEvent) => {
   if (e.key === "Escape") {
     showSettingsModal.value = false;
     triggerCloseModals.value++;
@@ -105,11 +135,17 @@ const handleKeyDown = (e: KeyboardEvent) => {
     if (currentTab.value === 'Translate') cat = 'translate';
     
     showSettingsModal.value = true;
-    // We'll let SettingsTab handle the category via a prop or we can sets it here if we can access it
-    // But since it's a ref in SettingsTab, we'll use a shared state or just wait for it to mount
     showSettingsTrigger.value = { category: cat };
   }
+
+  handleChillShortcuts(e, true);
 };
+
+const handleKeyUpGlobal = (e: KeyboardEvent) => {
+  handleChillShortcuts(e, false);
+};
+
+
 
 watch(showSettingsTrigger, (val) => {
   if (val && val.category) {
@@ -210,7 +246,8 @@ watch([projectRootPath, gitTabRepoPath], async ([newRoot, newGit]) => {
 onMounted(() => {
   loadInitialSettings();
   checkForUpdates();
-  window.addEventListener("keydown", handleKeyDown);
+  window.addEventListener("keydown", handleGlobalKeyDown);
+  window.addEventListener("keyup", handleKeyUpGlobal);
   window.addEventListener("mouseup", handleMouseUp);
 });
 </script>
@@ -258,6 +295,12 @@ onMounted(() => {
         >
           Flow Chart
         </button>
+        <button 
+          @click="currentTab = 'Chill'" 
+          :class="{ 'active': currentTab === 'Chill', 'win95-button': currentTheme === '95', 'chill-tab': true }"
+        >
+          Chill ?
+        </button>
       </div>
       <div class="nav-actions">
         <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
@@ -287,6 +330,9 @@ onMounted(() => {
         <div v-show="currentTab === 'FlowChart'" class="full-height-vif">
           <FlowChartTab v-if="initializedTabs['FlowChart']" />
         </div>
+        <div v-show="currentTab === 'Chill'" class="full-height-vif">
+          <SmokeTab v-if="initializedTabs['Chill']" />
+        </div>
       </div>
     </main>
 
@@ -309,6 +355,13 @@ onMounted(() => {
       </div>
     </Teleport>
 
+    <!-- Chill Widget: Global smoking session -->
+    <Teleport to="body">
+      <div v-if="chillSettings.enableWidget" class="chill-widget-container">
+        <Cigarette ref="chillWidgetRef" :is-widget="true" :force-smoking="isGlobalSmoking" />
+      </div>
+    </Teleport>
+
   </div>
 </template>
 
@@ -323,6 +376,15 @@ html, body {
 
 #app {
   height: 100%;
+}
+/* Chill Widget Styles */
+.chill-widget-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  pointer-events: none; /* Let clicks pass through if not interacting directly */
+  filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));
 }
 </style>
 
@@ -408,6 +470,15 @@ html, body {
 .tabs-nav .git-tab-btn.active {
   border-bottom-color: #34d399;
   color: #34d399;
+}
+
+.tabs-nav .chill-tab {
+  color: #f43f5e;
+}
+
+.tabs-nav .chill-tab.active {
+  border-bottom-color: #f43f5e;
+  color: #f43f5e;
 }
 
 .content-wrapper {

@@ -124,3 +124,22 @@ export interface TabContextMenuState {
     tab: any;
 }
 export const activeTabContextMenu = ref<TabContextMenuState | null>(null);
+
+//  Chill / Smoking Settings 
+export interface ChillSettings {
+    shortcutSmoke: string;
+    shortcutFlick: string;
+    burnTimeMinutes: number;
+    enableWidget: boolean;
+}
+
+export const chillSettings = ref<ChillSettings>({
+    shortcutSmoke: 'ctrl+space',
+    shortcutFlick: 'ctrl+space+space',
+    burnTimeMinutes: 5,
+    enableWidget: false
+});
+
+export const isGlobalSmoking = ref(false);
+export const triggerFlick = ref(0);
+export const smokedCount = ref(0);

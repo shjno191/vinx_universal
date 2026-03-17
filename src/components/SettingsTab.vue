@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, chillSettings } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -13,6 +13,7 @@ const categories = [
   { id: 'editor', name: 'Editor', icon: '\u{1F4DD}' },
   { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' },
   { id: 'ai', name: 'AI', icon: '🤖' },
+  { id: 'chill', name: 'Chill', icon: '🚬' },
 ];
 
 const currentCategory = ref('general');
@@ -30,7 +31,13 @@ const settings = ref({
     mouseNavHistory: true
   },
   last_project_root: '',
-  last_git_repo: ''
+  last_git_repo: '',
+  chill: {
+    shortcutSmoke: 'ctrl+space',
+    shortcutFlick: 'ctrl+space+space',
+    burnTimeMinutes: 5,
+    enableWidget: false
+  }
 });
 
 const isRecording = ref<string | null>(null);
@@ -87,11 +94,17 @@ const handleShortcutKey = (key: string, e: KeyboardEvent) => {
     settings.value.shortcuts = { focus_search: 'ctrl+f', open_settings: 'ctrl+shift+s', open_file: 'ctrl+o' };
   }
   
-  // 1. Update component state
-  (settings.value.shortcuts as any)[key] = newShortcut;
-  
-  // 2. Sync to global store immediately for real-time app update
-  (globalShortcuts.value as any)[key] = newShortcut;
+  if (isRecording.value.startsWith('chill_')) {
+    const key = isRecording.value.replace('chill_', '');
+    (settings.value.chill as any)[key] = newShortcut;
+    (chillSettings.value as any)[key] = newShortcut;
+  } else {
+    // 1. Update component state
+    (settings.value.shortcuts as any)[key] = newShortcut;
+    
+    // 2. Sync to global store immediately for real-time app update
+    (globalShortcuts.value as any)[key] = newShortcut;
+  }
   
   // 3. Save to persistent storage
   saveSettings();
@@ -124,6 +137,10 @@ const loadSettings = async () => {
       }
       if (s.last_project_root) settings.value.last_project_root = s.last_project_root;
       if (s.last_git_repo) settings.value.last_git_repo = s.last_git_repo;
+      if (s.chill) {
+        settings.value.chill = { ...settings.value.chill, ...s.chill };
+        chillSettings.value = { ...chillSettings.value, ...s.chill };
+      }
     }
   } catch (e) {
     console.error('Failed to load settings', e);
@@ -472,13 +489,45 @@ onMounted(() => {
             <span class="hint-text">e.g.: llama3, mistral, codellama, deepseek-coder</span>
           </div>
         </div>
-
         <div class="setting-item">
           <button class="save-all-btn" @click="saveAISettings" :disabled="aiSaveStatus === 'saving'">
             <span v-if="aiSaveStatus === 'saved'">Saved!</span>
             <span v-else>Save AI Settings</span>
           </button>
           <span class="hint-text" style="margin-left:10px;">Stored locally in browser.</span>
+        </div>
+      </div>
+
+      <div v-show="currentCategory === 'chill'" class="settings-section">
+        <div class="setting-item-vertical">
+          <label>Chill Activation (Fixed Shortcuts)</label>
+          <div class="shortcut-list">
+            <div class="shortcut-row disabled">
+              <span class="shortcut-desc">Smoke (Hold)</span>
+              <span class="shortcut-key">Space</span>
+            </div>
+            <div class="shortcut-row disabled">
+              <span class="shortcut-desc">Flick Ash</span>
+              <span class="shortcut-key">Ctrl + Space</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <label>Burn Time (Minutes)</label>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <input type="range" v-model.number="settings.chill.burnTimeMinutes" min="1" max="20" @change="saveSettings" />
+            <span style="min-width: 50px; font-weight: bold;">{{ settings.chill.burnTimeMinutes }}m</span>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <label>Widget Mode</label>
+          <label class="checkbox-container">
+            <input type="checkbox" v-model="settings.chill.enableWidget" @change="saveSettings" />
+            <span class="checkmark"></span>
+            Show as bottom-right widget in all tabs
+          </label>
         </div>
       </div>
 

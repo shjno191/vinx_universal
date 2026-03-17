@@ -58,19 +58,40 @@ const processSql = (index: number) => {
   if (!idToFind) return;
   const lines = logContent.value.split(/\r?\n/);
   let foundSql = '', foundParams = '';
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].toLowerCase().includes(`id=${idToFind}`)) {
-       const sqlMatch = lines[i].match(/sql\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
-       if (sqlMatch) foundSql = sqlMatch[1];
-       const paramsMatch = lines[i].match(/params\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
-       if (paramsMatch) foundParams = paramsMatch[1];
-       if (foundSql) break;
+
+  // Look for SQL and Params associated with the ID
+  // We scan all lines because SQL and Params might be on different lines
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.toLowerCase().includes(`id=${idToFind}`)) {
+      const sqlMatch = line.match(/sql\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
+      if (sqlMatch) foundSql = sqlMatch[1];
+      
+      const paramsMatch = line.match(/params\s*=\s*\[(.+?)\](?=\s*,\s*\w+\s*=|$)/i);
+      if (paramsMatch) foundParams = paramsMatch[1];
     }
   }
+
   if (foundSql) {
     let result = foundSql;
     if (foundParams) {
-      foundParams.split(',').map(p => p.trim()).forEach(p => { result = result.replace('?', `'${p}'`); });
+      // Split parameters by '][' or ',' (depending on log format)
+      // The user's example: [STRING:1:jp.co...][STRING:2:INFO]
+      const paramParts = foundParams.match(/\[?([^\]\[]+)\]?/g) || foundParams.split(',');
+      
+      const formattedParams = paramParts.map(p => {
+        let clean = p.replace(/[\[\]]/g, '').trim();
+        // Handle [TYPE:INDEX:VALUE] format
+        const parts = clean.split(':');
+        if (parts.length >= 3) {
+          return parts.slice(2).join(':'); // The value
+        }
+        return clean;
+      });
+
+      formattedParams.forEach(p => {
+        result = result.replace('?', `'${p}'`);
+      });
     }
     extractions.value[index].resultSql = result;
   } else {
@@ -85,10 +106,21 @@ const handleLogClick = (e: MouseEvent) => {
   if (target.classList.contains('clickable-id')) {
     const id = target.getAttribute('data-id');
     if (id) {
-       let idx = extractions.value.findIndex(ex => !ex.searchId);
-       if (idx === -1) { extractions.value.push({ searchId: '', resultSql: '' }); idx = extractions.value.length - 1; }
-       extractions.value[idx].searchId = id;
-       processSql(idx);
+       // Search for existing ID in extractions and remove it if found
+       const existingIdx = extractions.value.findIndex(ex => ex.searchId.toLowerCase() === id.toLowerCase());
+       if (existingIdx !== -1) {
+         extractions.value.splice(existingIdx, 1);
+       }
+       
+       // Try to find an empty slot first to avoid growing the list indefinitely
+       let emptyIdx = extractions.value.findIndex(ex => !ex.searchId);
+       if (emptyIdx === -1) {
+         extractions.value.push({ searchId: id, resultSql: '' });
+         emptyIdx = extractions.value.length - 1;
+       } else {
+         extractions.value[emptyIdx].searchId = id;
+       }
+       processSql(emptyIdx);
     }
   }
 };
@@ -157,7 +189,7 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
 .file-path-display { font-size: 0.85rem; opacity: 0.7; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sql-helper-split { display: flex; flex: 1; overflow: hidden; }
-.log-viewer-pane { flex: 1.5; display: flex; flex-direction: column; border-right: var(--border-style); }
+.log-viewer-pane { flex: 1; display: flex; flex-direction: column; border-right: var(--border-style); }
 .extraction-pane { flex: 1; display: flex; flex-direction: column; background: var(--container-bg); }
 .pane-header { padding: 8px 15px; background: var(--button-bg); border-bottom: var(--border-style); font-weight: bold; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; }
 .log-display { flex: 1; padding: 15px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: var(--input-bg); position: relative; }

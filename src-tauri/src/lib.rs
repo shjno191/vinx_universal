@@ -66,14 +66,35 @@ fn open_settings_file(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn read_file_content(path: String) -> Result<String, String> {
     let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    
+    // Support BOM detection for UTF-8, UTF-16BE/LE
+    if bytes.len() >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf {
+        return Ok(String::from_utf8_lossy(&bytes[3..]).to_string());
+    }
+    if bytes.len() >= 2 {
+        if bytes[0] == 0xff && bytes[1] == 0xfe {
+             let (res, _, _) = encoding_rs::UTF_16LE.decode(&bytes[2..]);
+             return Ok(res.into_owned());
+        }
+        if bytes[0] == 0xfe && bytes[1] == 0xff {
+             let (res, _, _) = encoding_rs::UTF_16BE.decode(&bytes[2..]);
+             return Ok(res.into_owned());
+        }
+    }
+
+    // No BOM, try UTF-8
     let (res, _encoding, has_errors) = encoding_rs::UTF_8.decode(&bytes);
     if !has_errors {
         return Ok(res.into_owned());
     }
+
+    // Try Shift-JIS (Common for Japanese logs)
     let (res, _encoding, has_errors) = encoding_rs::SHIFT_JIS.decode(&bytes);
     if !has_errors {
         return Ok(res.into_owned());
     }
+
+    // Fallback to lossy UTF-8
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 

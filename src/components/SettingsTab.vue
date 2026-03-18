@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, chillSettings } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, chillSettings, triggerSettingsRefresh } from '../store';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -171,6 +171,7 @@ const saveSettings = async () => {
     theme.value = settings.value.theme as any;
     const toSave = { ...settings.value };
     await invoke('save_settings', { settings: JSON.stringify(toSave, null, 2) });
+    triggerSettingsRefresh.value++;
     emit('theme-changed', settings.value.theme);
   } catch (e) {
     console.error('Failed to save settings', e);

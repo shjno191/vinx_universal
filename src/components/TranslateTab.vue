@@ -3,7 +3,7 @@ import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals } from '../store';
+import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh } from '../store';
 
 const subTab = ref('dictionary'); // dictionary | quick-translate
 const dictionaryData = ref<any[]>([]);
@@ -50,8 +50,9 @@ const syncScroll = (side: 'input' | 'result') => {
 const loadDictionary = async () => {
   try {
     isLoading.value = true;
-    const s = await invoke('get_settings') as any;
-    dictionaryPath.value = s.dictionary_path;
+    const raw = await invoke('get_settings') as string;
+    const s = JSON.parse(raw || "{}");
+    dictionaryPath.value = s?.dictionary_path || '';
 
     if (!dictionaryPath.value) {
       dictionaryData.value = [];
@@ -334,6 +335,10 @@ watch(triggerDictionaryFocus, async () => {
 
 watch(triggerCloseModals, () => {
   showDictModal.value = false;
+});
+
+watch(triggerSettingsRefresh, () => {
+  loadDictionary();
 });
 </script>
 

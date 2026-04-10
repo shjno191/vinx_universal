@@ -35,7 +35,7 @@ const existingIds = computed(() => {
 
 const highlightSql = (sql: string) => {
   if (!sql || sql.startsWith('--')) return sql;
-  const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'#039;'}[m]||m));
+  const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]||m));
   let h = escapeHtml(sql);
   const keywords = /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|IN|ORDER BY|GROUP BY|LIMIT|OFFSET|AS|TRIM|INSERT INTO|UPDATE|DELETE|SET|VALUES|COUNT|AVG|SUM|MIN|MAX|HAVING|DISTINCT|UNION|ALL|EXISTS|IS|NULL|NOT|BETWEEN|CASE|WHEN|THEN|ELSE|END)\b/gi;
   h = h.replace(keywords, '<span class="sql-kwd">$1</span>');
@@ -117,8 +117,9 @@ const processSql = (index: number) => {
         result = result.replace('?', `'${p}'`);
       });
     }
-    // Collapse multiple whitespaces and newlines
-    extractions.value[index].resultSql = result.replace(/\s+/g, ' ').trim();
+    // Decode common entities and collapse multiple whitespaces
+    let decoded = result.replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/#039;/g, "'");
+    extractions.value[index].resultSql = decoded.replace(/\s+/g, ' ').trim();
   } else {
     extractions.value[index].resultSql = '-- No SQL found for this ID';
   }
@@ -204,8 +205,9 @@ const handleLogClick = (e: MouseEvent) => {
 };
 
 const formattedLog = computed(() => {
-  const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'#039;'}[m]||m));
-  let html = escapeHtml(logContent.value);
+  const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]||m));
+  let decoded = logContent.value.replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/#039;/g, "'");
+  let html = escapeHtml(decoded);
   if (logContent.value.length > 500000) return html;
   // Support id=..., id=(...), and uniq_id=(...)
   return html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (match, uniqPre, uniqId, uniqPost, idPre, idVal) => {

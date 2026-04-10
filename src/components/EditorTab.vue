@@ -9,7 +9,7 @@ import ExplorerNode from './ExplorerNode.vue';
 import ExplorerContextMenu from './ExplorerContextMenu.vue';
 import TabContextMenu from './TabContextMenu.vue';
 import GitSelectionModal from './GitSelectionModal.vue';
-import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme, activeTabContextMenu, gitTabRepoPath, gitBranches, triggerGitRefresh, triggerEditorReload, triggerCloseModals, cursorHistory, cursorHistoryIndex, editorSettings } from '../store';
+import { projectRootPath, triggerOpenDiff, currentFlowCode, triggerFlowChart, theme as globalTheme, activeTabContextMenu, gitTabRepoPath, gitBranches, triggerGitRefresh, triggerEditorReload, triggerCloseModals, cursorHistory, cursorHistoryIndex, editorSettings, globalSearchQuery } from '../store';
 
 // --- Common Icons ---
 const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -68,7 +68,7 @@ const searchQuery = ref('');
 const activeSidebar = ref<'explorer' | 'search'>('explorer');
 const sidebarWidth = ref(260);
 
-const globalSearchQuery = ref('');
+// globalSearchQuery is now imported from store
 const isSearching = ref(false);
 const searchResults = ref<SearchResult[]>([]);
 const isResizing = ref(false);
@@ -204,6 +204,27 @@ const currentActiveId = computed({
 
 
 const editors = { left: null as any, right: null as any };
+const editorDecorations = { left: [] as string[], right: [] as string[] };
+
+const updateEditorSearchHighlights = (pane?: 'left' | 'right') => {
+  const query = globalSearchQuery.value;
+  const panes = pane ? [pane] : (['left', 'right'] as const);
+
+  panes.forEach(p => {
+    const editor = editors[p];
+    if (!editor || !editor.getModel()) return;
+    
+    const matches = query ? editor.getModel().findMatches(query, false, false, false, null, false) : [];
+    const newDecorations = matches.map((m: any) => ({
+      range: m.range,
+      options: { inlineClassName: 'global-search-match' }
+    }));
+    
+    editorDecorations[p] = editor.deltaDecorations(editorDecorations[p], newDecorations);
+  });
+};
+
+watch(globalSearchQuery, () => updateEditorSearchHighlights());
 
 // --- Logic ---
 let isNavigatingCursorHistory = false;
@@ -242,6 +263,13 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
     const other = editors[pane === 'left' ? 'right' : 'left'];
     if (other) { other.setScrollTop(e.scrollTop); other.setScrollLeft(e.scrollLeft); }
   });
+
+  editor.onDidChangeModelContent(() => {
+    nextTick(() => updateEditorSearchHighlights(pane));
+  });
+
+  // Initial highlight
+  nextTick(() => updateEditorSearchHighlights(pane));
   
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => {
     generateFlowChart();

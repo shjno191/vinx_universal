@@ -2,6 +2,7 @@
 import { ref, computed, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { globalSearchQuery } from '../store';
 
 const logPath = ref('');
 const logContent = ref('');
@@ -59,6 +60,16 @@ const highlightSql = (sql: string) => {
   h = h.replace(keywords, '<span class="sql-kwd">$1</span>');
   h = h.replace(/\b(FROM|JOIN)\b\s+([a-zA-Z0-9_]+)/gi, '$1 <span class="sql-tbl">$2</span>');
   h = h.replace(/'([^']*)'/g, '<span class="sql-str">\'$1\'</span>');
+  
+  if (globalSearchQuery.value) {
+    const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const qRegex = new RegExp(`(${q})`, "gi");
+    h = h.split(/(<[^>]+>)/).map(part => {
+      if (part.startsWith('<')) return part;
+      return part.replace(qRegex, '<mark class="global-search-match">$1</mark>');
+    }).join('');
+  }
+  
   return h;
 };
 
@@ -228,8 +239,9 @@ const formattedLog = computed(() => {
   let decoded = logContent.value.replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/#039;/g, "'");
   let html = escapeHtml(decoded);
   if (logContent.value.length > 500000) return html;
-  // Support id=..., id=(...), and uniq_id=(...)
-  return html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
+
+  // 1. Linkify IDs
+  html = html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
     const actualId = uniqId || idVal;
     const extra = existingIds.value.has(actualId.toLowerCase()) ? ' existing-id' : '';
     if (uniqId) {
@@ -237,6 +249,18 @@ const formattedLog = computed(() => {
     }
     return `${idPre}<span class="clickable-id${extra}" data-id="${idVal}">${idVal}</span>`;
   });
+
+  // 2. Global search highlighting
+  if (globalSearchQuery.value) {
+    const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const qRegex = new RegExp(`(${q})`, "gi");
+    html = html.split(/(<[^>]+>)/).map(part => {
+      if (part.startsWith('<')) return part;
+      return part.replace(qRegex, '<mark class="global-search-match">$1</mark>');
+    }).join('');
+  }
+
+  return html;
 });
 
 const isLogTooLarge = computed(() => logContent.value.length > 500000);

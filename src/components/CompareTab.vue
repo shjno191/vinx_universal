@@ -6,10 +6,78 @@ import { sharedInput, sharedOutput, theme as globalTheme } from '../store';
 // The two sides of the diff
 const originalText = ref(sharedInput.value);
 const modifiedText = ref(sharedOutput.value);
+const diffEditorRef = ref<any>(null);
 
-// Sync with shared store
-watch(sharedInput, (val) => originalText.value = val);
-watch(sharedOutput, (val) => modifiedText.value = val);
+// Sync with shared store (from store to local)
+watch(sharedInput, (val) => {
+  if (originalText.value !== val) originalText.value = val;
+});
+watch(sharedOutput, (val) => {
+  if (modifiedText.value !== val) modifiedText.value = val;
+});
+
+// Sync local changes back to store (two-way)
+watch(originalText, (val) => {
+  if (sharedInput.value !== val) sharedInput.value = val;
+});
+watch(modifiedText, (val) => {
+  if (sharedOutput.value !== val) sharedOutput.value = val;
+});
+
+const handleEditorMount = (editor: any, _monaco: any) => {
+  diffEditorRef.value = editor;
+  
+  const original = editor.getOriginalEditor();
+  const modified = editor.getModifiedEditor();
+
+  // Robust synchronization from Monaco directly back to our refs
+  original.onDidChangeModelContent(() => {
+    const val = original.getValue();
+    if (originalText.value !== val) originalText.value = val;
+    nextTick(() => updateSearchHighlights());
+  });
+
+  modified.onDidChangeModelContent(() => {
+    const val = modified.getValue();
+    if (modifiedText.value !== val) modifiedText.value = val;
+    nextTick(() => updateSearchHighlights());
+  });
+
+  // Initial highlights
+  updateSearchHighlights();
+};
+
+const originalDecorations = ref<string[]>([]);
+const modifiedDecorations = ref<string[]>([]);
+
+const updateSearchHighlights = () => {
+  if (!diffEditorRef.value) return;
+  
+  const originalEditor = diffEditorRef.value.getOriginalEditor();
+  const modifiedEditor = diffEditorRef.value.getModifiedEditor();
+  const query = globalSearchQuery.value;
+  
+  const getDecorations = (model: any, q: string) => {
+    if (!model || !q) return [];
+    const matches = model.findMatches(q, false, false, false, null, false);
+    return matches.map((m: any) => ({
+      range: m.range,
+      options: { inlineClassName: 'global-search-match' }
+    }));
+  };
+
+  originalDecorations.value = originalEditor.deltaDecorations(originalDecorations.value, 
+    query ? getDecorations(originalEditor.getModel(), query) : []
+  );
+  
+  modifiedDecorations.value = modifiedEditor.deltaDecorations(modifiedDecorations.value, 
+    query ? getDecorations(modifiedEditor.getModel(), query) : []
+  );
+};
+
+watch(globalSearchQuery, () => {
+  updateSearchHighlights();
+});
 
 // Sidebar state (removed analysis items)
 
@@ -67,19 +135,21 @@ const copyPos = ref({ x: 0, y: 0 });
 
 
 const swapInputs = () => {
+  console.log('Swapping Compare inputs...');
   const temp = originalText.value;
   originalText.value = modifiedText.value;
   modifiedText.value = temp;
 };
 
 const clearInputs = () => {
+  console.log('Clearing Compare inputs...');
   originalText.value = '';
   modifiedText.value = '';
 };
 
 // Watch for content changes to ensure reactive updates
 watch([originalText, modifiedText], () => {
-  console.log('Content changed, ready for compare.');
+  console.log('Compare Content changed in refs');
 }, { deep: true });
 
 // Toggle inline/split view
@@ -125,12 +195,13 @@ const currentOptions = computed(() => ({
       <!-- Editor Area -->
       <div class="editor-wrapper glass">
         <VueMonacoDiffEditor
-          v-model:original="originalText"
-          v-model:modified="modifiedText"
+          :original="originalText"
+          :modified="modifiedText"
           :theme="globalTheme === 'dark' ? 'app-dark' : 'app-light'"
           language="plaintext"
           :options="currentOptions"
           @before-mount="handleEditorBeforeMount"
+          @mount="handleEditorMount"
           class="diff-instance"
         />
       </div>

@@ -3,11 +3,10 @@ import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh } from '../store';
+import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh, globalSearchQuery } from '../store';
 
-const subTab = ref('dictionary'); // dictionary | quick-translate
+const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
 const dictionaryData = ref<any[]>([]);
-const searchQuery = ref('');
 const isStrict = ref(false);
 const isLoading = ref(false);
 const dictionaryPath = ref('');
@@ -133,8 +132,8 @@ const updateCachedWords = () => {
 };
 
 const filteredDictionary = computed(() => {
-  if (!searchQuery.value) return dictionaryData.value;
-  const q = searchQuery.value.toLowerCase();
+  if (!globalSearchQuery.value) return dictionaryData.value;
+  const q = globalSearchQuery.value.toLowerCase();
   
   return dictionaryData.value.filter(item => {
     if (isStrict.value) {
@@ -160,7 +159,6 @@ const handleQuickTranslate = () => {
   }
 
   const targetKey = sharedTargetLang.value;
-  // Use a map for faster lookup (source -> target)
   const lookup = new Map<string, string>();
   dictionaryData.value.forEach(entry => {
     const tVal = (entry[targetKey] || '').toString().trim();
@@ -238,7 +236,6 @@ const copyToClipboard = async (text: string, event: MouseEvent) => {
   try {
     await navigator.clipboard.writeText(cleanText);
     
-    // Position and show bubble
     copyPos.value = { x: event.clientX, y: event.clientY };
     showCopyToast.value = true;
     setTimeout(() => { showCopyToast.value = false; }, 1200);
@@ -255,8 +252,8 @@ const handleHighlighterClick = (event: MouseEvent) => {
 };
 
 const highlightMatch = (text: string) => {
-  if (!searchQuery.value || isStrict.value) return text;
-  const q = searchQuery.value;
+  if (!globalSearchQuery.value || isStrict.value) return text;
+  const q = globalSearchQuery.value;
   const regex = new RegExp(`(${q})`, 'gi');
   return text.replace(regex, '<mark>$1</mark>');
 };
@@ -298,11 +295,24 @@ const renderHighlighted = (text: string, mode: 'source' | 'target') => {
   if (!text) return '';
   let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const regex = mode === 'source' ? sourceRegex.value : targetRegex.value;
-  if (!regex) return escaped + '\n';
+  
+  let result = escaped;
+  if (regex) {
+    result = escaped.replace(regex, (match) => {
+      return `<mark class="hl-${mode}">${match}</mark>`;
+    });
+  }
 
-  const result = escaped.replace(regex, (match) => {
-    return `<mark class="hl-${mode}">${match}</mark>`;
-  });
+  // Global search highlighting
+  if (globalSearchQuery.value) {
+    const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const qRegex = new RegExp(`(${q})`, "gi");
+    result = result.split(/(<[^>]+>)/).map(part => {
+      if (part.startsWith('<')) return part;
+      return part.replace(qRegex, '<mark class="global-search-match">$1</mark>');
+    }).join('');
+  }
+
   return result + '\n';
 };
 
@@ -344,7 +354,6 @@ watch(subTab, async () => {
   }
 });
 
-// Watch input to trigger translate
 watch(sharedTargetLang, () => {
   updateCachedWords();
   handleQuickTranslate();
@@ -380,30 +389,6 @@ watch(dictionaryData, () => {
       <div class="tabs-pill">
         <button @click="subTab = 'dictionary'" :class="{ active: subTab === 'dictionary' }" class="tab-pill-btn">DICTIONARY</button>
         <button @click="subTab = 'quick-translate'" :class="{ active: subTab === 'quick-translate' }" class="tab-pill-btn">QUICK TRANSLATE</button>
-      </div>
-
-      <div class="search-container">
-        <div class="search-box">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input v-model="searchQuery" ref="dictionarySearchInput" placeholder="Search keywords..." class="header-search-input" />
-        </div>
-        <div class="strict-mode">
-          <input type="checkbox" id="strict-check" v-model="isStrict" />
-          <label for="strict-check">STRICT</label>
-        </div>
-
-        <!-- Quick Search Popup (Only when not in dictionary tab) -->
-        <div v-if="subTab !== 'dictionary' && searchQuery && filteredDictionary.length > 0" class="quick-search-popup glass-modal">
-          <div class="popup-header">DICTIONARY RESULTS ({{ filteredDictionary.length }})</div>
-          <div class="popup-list">
-            <div v-for="(item, idx) in filteredDictionary.slice(0, 10)" :key="idx" class="popup-row" @click="copyToClipboard(item.jp, $event)">
-              <div class="popup-col jp">{{ item.jp }}</div>
-              <div class="popup-col en">{{ item.en }}</div>
-              <div class="popup-col vi">{{ item.vi }}</div>
-            </div>
-            <div v-if="filteredDictionary.length > 10" class="popup-footer" @click="subTab = 'dictionary'">And {{ filteredDictionary.length - 10 }} more... Click to view all.</div>
-          </div>
-        </div>
       </div>
 
       <div class="global-actions">

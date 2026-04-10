@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch, nextTick } from "vue";
 
-import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals, chillSettings, triggerFlick } from "./store";
+import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals, chillSettings, triggerFlick, globalSearchQuery } from "./store";
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -13,15 +13,18 @@ import EditorTab from "./components/EditorTab.vue";
 import SettingsTab from "./components/SettingsTab.vue";
 import FlowChartTab from "./components/FlowChartTab.vue";
 import GitTab from "./components/GitTab.vue";
+import ConvertTab from "./components/ConvertTab.vue";
 import SmokeTab from "./components/SmokeTab.vue";
 import Cigarette from "./components/Cigarette.vue";
 import { isGlobalSmoking } from "./store";
 
 const currentTab = ref("SQL-Helper");
-const allTabs = ["SQL-Helper", "Translate", "Compare", "Editor", "Git", "FlowChart", "Chill"];
+const allTabs = ["SQL-Helper", "Translate", "ConvertUI", "Compare", "Editor", "Git", "FlowChart", "Chill"];
 const currentTheme = ref("dark");
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
+const globalSearchInputRef = ref<HTMLInputElement | null>(null);
+let lastCtrlFTime = 0;
 
 // Lazy loading tabs: using reactive object for better stability than Set patching
 const initializedTabs = reactive<Record<string, boolean>>({
@@ -158,6 +161,38 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   }
 
   handleChillShortcuts(e, true);
+
+  // Ctrl+F+F logic
+  if (e.ctrlKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault(); // Block browser search always when Ctrl+F is pressed
+    const now = Date.now();
+    if (now - lastCtrlFTime < 500) {
+      // Double tap detected
+      globalSearchInputRef.value?.focus();
+      globalSearchInputRef.value?.select();
+      lastCtrlFTime = 0; 
+    } else {
+      // First tap: trigger nothing yet, just mark time
+      lastCtrlFTime = now;
+    }
+    return; // Don't proceed to chill shortcuts etc for this key
+  } else {
+    // Escape to clear global search or blur focused input
+    if (e.key === 'Escape') {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+      
+      if (isInput) {
+        (activeEl as HTMLElement).blur();
+      }
+
+      if (globalSearchQuery.value) {
+        globalSearchQuery.value = '';
+      }
+    }
+    // Any other key reset the timer
+    lastCtrlFTime = 0;
+  }
 };
 
 const handleKeyUpGlobal = (e: KeyboardEvent) => {
@@ -291,6 +326,12 @@ onMounted(() => {
           Translate
         </button>
         <button 
+          @click="currentTab = 'ConvertUI'" 
+          :class="{ 'active': currentTab === 'ConvertUI', 'win95-button': currentTheme === '95' }"
+        >
+          CONVERT UI
+        </button>
+        <button 
           @click="currentTab = 'Compare'" 
           :class="{ 'active': currentTab === 'Compare', 'win95-button': currentTheme === '95' }"
         >
@@ -322,6 +363,16 @@ onMounted(() => {
         </button>
       </div>
       <div class="nav-actions">
+        <div class="global-search-wrapper">
+          <svg class="search-icon-small" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input 
+            v-model="globalSearchQuery" 
+            ref="globalSearchInputRef"
+            placeholder="Search current tab... (Ctrl+F+F)" 
+            class="global-search-input"
+          />
+          <button v-if="globalSearchQuery" @click="globalSearchQuery = ''" class="clear-search-btn">✕</button>
+        </div>
         <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
       </div>
     </nav>
@@ -336,6 +387,9 @@ onMounted(() => {
         </div>
         <div v-show="currentTab === 'Translate'" class="full-height-vif">
           <TranslateTab v-if="initializedTabs['Translate']" />
+        </div>
+        <div v-show="currentTab === 'ConvertUI'" class="full-height-vif">
+          <ConvertTab v-if="initializedTabs['ConvertUI']" />
         </div>
         <div v-show="currentTab === 'Compare'" class="full-height-vif">
           <CompareTab v-if="initializedTabs['Compare']" />

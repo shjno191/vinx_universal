@@ -3,7 +3,15 @@ import { ref, computed, onMounted, onUnmounted, watch, shallowRef } from 'vue';
 import { open, message, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload, type GitFile, triggerCloseModals, theme as globalTheme, projectRootPath } from '../store';
+import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload, type GitFile, triggerCloseModals, theme as globalTheme, projectRootPath, globalSearchQuery } from '../store';
+
+const highlightSearch = (text: string) => {
+  if (!globalSearchQuery.value) return text;
+  const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${q})`, "gi");
+  // Simple highlight for text nodes (not robust for nested HTML, but fine for commit messages)
+  return text.replace(regex, '<mark class="global-search-match">$1</mark>');
+};
 
 // ─── State ────────────────────────────────────────────────────────────
 // ─── State ────────────────────────────────────────────────────────────
@@ -74,7 +82,37 @@ const setStatus = (msg: string, ms = 3000) => {
 
 const handleDiffMount = (editor: any) => {
   lastDiffEditor.value = editor;
+  
+  const original = editor.getOriginalEditor();
+  const modified = editor.getModifiedEditor();
+  
+  original.onDidChangeModelContent(() => nextTick(() => updateDiffSearchHighlights()));
+  modified.onDidChangeModelContent(() => nextTick(() => updateDiffSearchHighlights()));
+  
+  updateDiffSearchHighlights();
 };
+
+const diffDecorations = ref<{ original: string[], modified: string[] }>({ original: [], modified: [] });
+
+const updateDiffSearchHighlights = () => {
+  if (!lastDiffEditor.value) return;
+  const original = lastDiffEditor.value.getOriginalEditor();
+  const modified = lastDiffEditor.value.getModifiedEditor();
+  const query = globalSearchQuery.value;
+
+  const getDecs = (model: any) => {
+    if (!model || !query) return [];
+    return model.findMatches(query, false, false, false, null, false).map((m: any) => ({
+      range: m.range,
+      options: { inlineClassName: 'global-search-match' }
+    }));
+  };
+
+  diffDecorations.value.original = original.deltaDecorations(diffDecorations.value.original, getDecs(original.getModel()));
+  diffDecorations.value.modified = modified.deltaDecorations(diffDecorations.value.modified, getDecs(modified.getModel()));
+};
+
+watch(globalSearchQuery, () => updateDiffSearchHighlights());
 
 const prevDiff = () => {
   if (lastDiffEditor.value) {
@@ -888,7 +926,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                 </div>
                 <div v-for="f in stagedFiles" :key="'s'+f.path" class="file-row-sb" @click="openFileDiff(f)" @contextmenu.prevent="openFileCtxMenu($event, f)" :title="f.path">
                   <span class="fbadge" :class="f.status">{{ f.status }}</span>
-                  <span class="fname">{{ f.name }}</span>
+                  <span class="fname" v-html="highlightSearch(f.name)"></span>
                   <button class="fact-sb" @click.stop="unstageFile(f)" title="Unstage" v-html="IconMinus"></button>
                 </div>
               </div>
@@ -900,7 +938,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                 </div>
                 <div v-for="f in unstagedFiles" :key="'u'+f.path" class="file-row-sb" @click="openFileDiff(f)" @contextmenu.prevent="openFileCtxMenu($event, f)" :title="f.path">
                   <span class="fbadge" :class="f.status">{{ f.status }}</span>
-                  <span class="fname">{{ f.name }}</span>
+                  <span class="fname" v-html="highlightSearch(f.name)"></span>
                   <button class="fact-sb" @click.stop="stageFile(f)" title="Stage" v-html="IconPlus"></button>
                 </div>
               </div>
@@ -936,7 +974,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               >
                 <span class="b-dot" :class="{ on: branch.isCurrent }"></span>
                 <span class="b-icon" v-html="IconBranch"></span>
-                <span class="b-name" :title="branch.name">{{ branch.name }}</span>
+                <span class="b-name" :title="branch.name" v-html="highlightSearch(branch.name)"></span>
                 <span class="b-status" v-if="branch.ahead || branch.behind">
                   <span v-if="branch.ahead" class="ahead">↑{{ branch.ahead }}</span>
                   <span v-if="branch.behind" class="behind">↓{{ branch.behind }}</span>
@@ -953,7 +991,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               >
                 <span class="b-dot"></span>
                 <span class="b-icon" v-html="IconBranch"></span>
-                <span class="b-name" :title="branch.name">{{ branch.name.replace(/^origin\//,'') }}</span>
+                <span class="b-name" :title="branch.name" v-html="highlightSearch(branch.name.replace(/^origin\//,''))"></span>
               </div>
             </div>
           </div>

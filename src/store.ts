@@ -146,3 +146,4 @@ export const isGlobalSmoking = ref(false);
 export const triggerFlick = ref(0);
 export const smokedCount = ref(0);
 export const triggerSettingsRefresh = ref(0);
+export const globalSearchQuery = ref('');

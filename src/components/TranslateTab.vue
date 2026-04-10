@@ -302,8 +302,7 @@ const inputHighlighter = ref<HTMLDivElement | null>(null);
 const resultHighlighter = ref<HTMLDivElement | null>(null);
 
 onMounted(() => {
-  // Use a small timeout to avoid blocking initial render
-  setTimeout(loadDictionary, 300);
+  loadDictionary();
 });
 
 watch(sharedInput, async () => {
@@ -340,6 +339,13 @@ watch(triggerCloseModals, () => {
 watch(triggerSettingsRefresh, () => {
   loadDictionary();
 });
+
+// Important: Watch dictionaryData to re-translate if text was already present
+watch(dictionaryData, () => {
+  if (subTab.value === 'quick-translate' && sharedInput.value) {
+    handleQuickTranslate();
+  }
+}, { deep: true });
 </script>
 
 <template>
@@ -394,7 +400,15 @@ watch(triggerSettingsRefresh, () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in filteredDictionary" :key="idx">
+              <tr v-if="isLoading">
+                <td colspan="5" class="empty-state">Loading dictionary...</td>
+              </tr>
+              <tr v-else-if="filteredDictionary.length === 0">
+                <td colspan="5" class="empty-state">
+                  {{ dictionaryPath ? 'No matches found.' : 'Please configure dictionary path in Settings.' }}
+                </td>
+              </tr>
+              <tr v-for="(item, idx) in filteredDictionary" :key="idx" v-else>
                 <td class="col-index">{{ idx + 1 }}</td>
                 <td @click="copyToClipboard(item.jp, $event)" class="clickable-cell"><span v-html="highlightMatch(item.jp)"></span></td>
                 <td @click="copyToClipboard(item.en, $event)" class="clickable-cell code-text"><span v-html="highlightMatch(item.en)"></span></td>
@@ -634,4 +648,5 @@ textarea {
 .bubble-enter-active, .bubble-leave-active { transition: all 0.2s ease; }
 .bubble-enter-from { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
 .bubble-leave-to { opacity: 0; transform: translate(-50%, -10px) scale(0.8); }
+.empty-state { padding: 40px !important; text-align: center; opacity: 0.5; font-style: italic; }
 </style>

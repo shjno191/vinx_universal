@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -14,11 +14,22 @@ interface Extraction {
 
 const extractions = ref<Extraction[]>([{ searchId: '', resultSql: '' }]);
 
+const removeExtraction = (index: number) => {
+  extractions.value.splice(index, 1);
+  if (extractions.value.length === 0) {
+    extractions.value.push({ searchId: '', resultSql: '' });
+  }
+};
+
+const clearAllExtractions = () => {
+  extractions.value = [{ searchId: '', resultSql: '' }];
+};
+
 const existingIds = computed(() => {
   const ids = new Set<string>();
-  if (logContent.value.length > 500000) return ids;
-  const matches = logContent.value.matchAll(/id\s*=\s*([a-zA-Z0-9_-]+)/gi);
-  for (const m of matches) if (m[1]) ids.add(m[1].toLowerCase());
+  extractions.value.forEach(ex => {
+    if (ex.searchId.trim()) ids.add(ex.searchId.trim().toLowerCase());
+  });
   return ids;
 });
 
@@ -93,7 +104,8 @@ const processSql = (index: number) => {
         result = result.replace('?', `'${p}'`);
       });
     }
-    extractions.value[index].resultSql = result;
+    // Collapse multiple whitespaces and newlines
+    extractions.value[index].resultSql = result.replace(/\s+/g, ' ').trim();
   } else {
     extractions.value[index].resultSql = '-- No SQL found for this ID';
   }
@@ -145,7 +157,10 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
         <button @click="chooseFile" class="theme-button choose-btn">📂 Open Log</button>
         <span v-if="logPath" class="file-path-display">{{ logPath.split(/[\\/]/).pop() }}</span>
       </div>
-      <button @click="() => extractions.push({searchId:'', resultSql:''})" class="theme-button add-query-btn">＋ Add Query</button>
+      <div class="action-group">
+        <button @click="clearAllExtractions" class="theme-button clear-all-btn">🗑 Clear All</button>
+        <button @click="() => extractions.push({searchId:'', resultSql:''})" class="theme-button add-query-btn">＋ Add Query</button>
+      </div>
     </div>
 
     <div class="sql-helper-split">
@@ -167,8 +182,7 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
             <div class="unit-header">
               <input v-model="ext.searchId" @keyup.enter="processSql(i)" class="theme-input mini-id" placeholder="id=..." />
               <div class="unit-actions">
-                <button @click="processSql(i)" class="theme-button get-btn">Extract</button>
-                <button v-if="extractions.length > 1" @click="extractions.splice(i, 1)" class="remove-btn">&times;</button>
+                <button @click="removeExtraction(i)" class="remove-btn" title="Remove">&times;</button>
               </div>
             </div>
             <div v-if="ext.resultSql" class="result-area">
@@ -187,6 +201,9 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
 .control-bar { padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: var(--border-style); }
 .file-picker-group { display: flex; align-items: center; gap: 12px; }
 .file-path-display { font-size: 0.85rem; opacity: 0.7; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-group { display: flex; gap: 10px; }
+.clear-all-btn { border-color: #ef4444; color: #ef4444; }
+.clear-all-btn:hover { background: rgba(239, 68, 68, 0.1); }
 
 .sql-helper-split { display: flex; flex: 1; overflow: hidden; }
 .log-viewer-pane { flex: 1; display: flex; flex-direction: column; border-right: var(--border-style); }
@@ -202,12 +219,12 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
 .extraction-unit { border: var(--border-style); border-radius: 8px; padding: 12px; background: var(--main-bg); }
 .unit-header { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .mini-id { flex: 1; min-width: 0; }
-.remove-btn { background: none; border: none; color: #ef4444; font-size: 1.25rem; cursor: pointer; }
+.remove-btn { background: none; border: none; color: #ef4444; font-size: 1.5rem; cursor: pointer; line-height: 1; padding: 0 5px; }
 .result-area { margin-top: 10px; }
 .result-toolbar { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; opacity: 0.7; }
 .sql-output { margin: 0; padding: 10px; background-color: #1e1e1e; color: #d4d4d4; overflow-x: auto; border-radius: 4px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; }
 :deep(.clickable-id) { color: var(--accent-color); text-decoration: underline; cursor: pointer; }
-:deep(.clickable-id.existing-id) { font-weight: bold; }
+:deep(.clickable-id.existing-id) { font-weight: bold; color: #f59e0b; }
 .theme-button { padding: 6px 12px; border-radius: 4px; border: var(--border-style); background: var(--button-bg); color: var(--text-color); cursor: pointer; font-size: 0.85rem; }
 .choose-btn { background: var(--accent-color); color: white; border: none; }
 .add-query-btn { border-color: var(--accent-color); color: var(--accent-color); }

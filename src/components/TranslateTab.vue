@@ -13,6 +13,14 @@ const isLoading = ref(false);
 const dictionaryPath = ref('');
 const dictionarySearchInput = ref<HTMLInputElement | null>(null);
 
+// Performance optimizations
+const debouncedInput = ref(sharedInput.value);
+let debounceTimer: any = null;
+const sourceRegex = ref<RegExp | null>(null);
+const targetRegex = ref<RegExp | null>(null);
+const sourceWordsList = ref<string[]>([]);
+const targetWordsList = ref<string[]>([]);
+
 // Copy feedback
 const showCopyToast = ref(false);
 const copyPos = ref({ x: 0, y: 0 });
@@ -77,11 +85,50 @@ const loadDictionary = async () => {
         }))
         .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
       dictionaryData.value = rows;
+      updateCachedWords();
     }
   } catch (e) {
     console.error('Failed to load dictionary:', e);
   } finally {
     isLoading.value = false;
+  }
+};
+
+const updateCachedWords = () => {
+  const sourceSet = new Set<string>();
+  const targetSet = new Set<string>();
+  const targetKey = sharedTargetLang.value;
+
+  dictionaryData.value.forEach(d => {
+    const tVal = (d[targetKey] || '').trim();
+    if (tVal && tVal.length > 1) targetSet.add(tVal);
+    
+    ['jp', 'en', 'vi'].forEach(l => {
+      if (l !== targetKey) {
+        const sVal = (d[l as 'jp'|'en'|'vi'] || '').trim();
+        if (sVal && sVal.length > 1) sourceSet.add(sVal);
+      }
+    });
+  });
+
+  const sList = Array.from(sourceSet).sort((a, b) => b.length - a.length);
+  const tList = Array.from(targetSet).sort((a, b) => b.length - a.length);
+  
+  sourceWordsList.value = sList;
+  targetWordsList.value = tList;
+
+  const escape = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  if (sList.length > 0) {
+    sourceRegex.value = new RegExp('(' + sList.map(escape).join('|') + ')', 'g');
+  } else {
+    sourceRegex.value = null;
+  }
+  
+  if (tList.length > 0) {
+    targetRegex.value = new RegExp('(' + tList.map(escape).join('|') + ')', 'g');
+  } else {
+    targetRegex.value = null;
   }
 };
 
@@ -107,29 +154,30 @@ const handleQuickTranslate = () => {
     return;
   }
 
-  if (dictionaryData.value.length === 0) {
+  if (sourceWordsList.value.length === 0) {
     sharedOutput.value = sharedInput.value;
     return;
   }
 
-  const matchPairs: { source: string, target: string }[] = [];
   const targetKey = sharedTargetLang.value;
-
+  // Use a map for faster lookup (source -> target)
+  const lookup = new Map<string, string>();
   dictionaryData.value.forEach(entry => {
-    const targetVal = (entry[targetKey] || '').toString().trim();
-    if (!targetVal) return;
-
-    ['jp', 'en', 'vi'].forEach(lang => {
-      if (lang === targetKey) return;
-      const sourceVal = (entry[lang as 'jp'|'en'|'vi'] || '').toString().trim();
-      if (sourceVal && sourceVal !== targetVal) {
-        matchPairs.push({ source: sourceVal, target: targetVal });
+    const tVal = (entry[targetKey] || '').toString().trim();
+    if (!tVal) return;
+    ['jp', 'en', 'vi'].forEach(l => {
+      if (l !== targetKey) {
+        const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
+        if (sVal && sVal !== tVal) {
+          if (!lookup.has(sVal) || sVal.length > (lookup.get(sVal)?.length || 0)) {
+            lookup.set(sVal, tVal);
+          }
+        }
       }
     });
   });
 
-  const uniquePairs = Array.from(new Map(matchPairs.map(p => [p.source, p])).values());
-  const sortedPairs = uniquePairs.sort((a, b) => b.source.length - a.source.length);
+  const sortedPairs = sourceWordsList.value;
 
   let result = '';
   let i = 0;
@@ -138,10 +186,10 @@ const handleQuickTranslate = () => {
   while (i < text.length) {
     let matchFound = false;
 
-    for (const pair of sortedPairs) {
-      if (text.startsWith(pair.source, i)) {
-        result += pair.target;
-        i += pair.source.length;
+    for (const sourceWord of sortedPairs) {
+      if (text.startsWith(sourceWord, i)) {
+        result += lookup.get(sourceWord) || sourceWord;
+        i += sourceWord.length;
         matchFound = true;
         break;
       }
@@ -246,46 +294,19 @@ const deleteRow = async (item: any) => {
 };
 
 // Highlighting Logic
-const dictionaryWords = computed(() => {
-  const sourceWords = new Set<string>();
-  const targetWords = new Set<string>();
-  dictionaryData.value.forEach(d => {
-    const targetVal = (d[sharedTargetLang.value] || '').trim();
-    if (targetVal) targetWords.add(targetVal);
-    ['jp', 'en', 'vi'].forEach(l => {
-      if (l !== sharedTargetLang.value) {
-        const val = (d[l as 'jp'|'en'|'vi'] || '').trim();
-        if (val) sourceWords.add(val);
-      }
-    });
-  });
-  return {
-    source: Array.from(sourceWords).filter(w => w.length > 1).sort((a, b) => b.length - a.length),
-    target: Array.from(targetWords).filter(w => w.length > 1).sort((a, b) => b.length - a.length)
-  };
-});
-
 const renderHighlighted = (text: string, mode: 'source' | 'target') => {
   if (!text) return '';
   let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const words = mode === 'source' ? dictionaryWords.value.source : dictionaryWords.value.target;
-  if (words.length === 0) return escaped;
+  const regex = mode === 'source' ? sourceRegex.value : targetRegex.value;
+  if (!regex) return escaped + '\n';
 
-  let result = escaped;
-  const map = new Map();
-  words.forEach((word, idx) => {
-    const placeholder = `\x01${idx}\x01`;
-    const regex = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-    if (regex.test(result)) {
-      result = result.replace(regex, placeholder);
-      map.set(placeholder, `<mark class="hl-${mode}">${word}</mark>`);
-    }
+  const result = escaped.replace(regex, (match) => {
+    return `<mark class="hl-${mode}">${match}</mark>`;
   });
-  map.forEach((val, key) => { result = result.replace(new RegExp(key, 'g'), val); });
-  return result + '\n'; // Add extra newline to match textarea scroll behavior
+  return result + '\n';
 };
 
-const highlightedInput = computed(() => renderHighlighted(sharedInput.value, 'source'));
+const highlightedInput = computed(() => renderHighlighted(debouncedInput.value, 'source'));
 const highlightedOutput = computed(() => renderHighlighted(sharedOutput.value, 'target'));
 
 const handleScroll = (side: 'input' | 'result') => {
@@ -305,9 +326,12 @@ onMounted(() => {
   loadDictionary();
 });
 
-watch(sharedInput, async () => {
-  await nextTick();
-  if (subTab.value === 'quick-translate') syncScroll('input');
+watch(sharedInput, (val) => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    debouncedInput.value = val;
+    handleQuickTranslate();
+  }, 300);
 });
 watch(sharedOutput, async () => {
   await nextTick();
@@ -321,8 +345,10 @@ watch(subTab, async () => {
 });
 
 // Watch input to trigger translate
-watch(sharedInput, handleQuickTranslate);
-watch(sharedTargetLang, handleQuickTranslate);
+watch(sharedTargetLang, () => {
+  updateCachedWords();
+  handleQuickTranslate();
+});
 
 watch(triggerDictionaryFocus, async () => {
   await nextTick();
@@ -340,8 +366,8 @@ watch(triggerSettingsRefresh, () => {
   loadDictionary();
 });
 
-// Important: Watch dictionaryData to re-translate if text was already present
 watch(dictionaryData, () => {
+  updateCachedWords();
   if (subTab.value === 'quick-translate' && sharedInput.value) {
     handleQuickTranslate();
   }
@@ -408,7 +434,7 @@ watch(dictionaryData, () => {
                   {{ dictionaryPath ? 'No matches found.' : 'Please configure dictionary path in Settings.' }}
                 </td>
               </tr>
-              <tr v-for="(item, idx) in filteredDictionary" :key="idx" v-else>
+              <tr v-for="(item, idx) in filteredDictionary.slice(0, 100)" :key="idx" v-else>
                 <td class="col-index">{{ idx + 1 }}</td>
                 <td @click="copyToClipboard(item.jp, $event)" class="clickable-cell"><span v-html="highlightMatch(item.jp)"></span></td>
                 <td @click="copyToClipboard(item.en, $event)" class="clickable-cell code-text"><span v-html="highlightMatch(item.en)"></span></td>
@@ -422,6 +448,11 @@ watch(dictionaryData, () => {
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
                   </div>
+                </td>
+              </tr>
+              <tr v-if="filteredDictionary.length > 100">
+                <td colspan="5" class="empty-state" style="padding: 15px !important; font-size: 0.7rem;">
+                  ... showing first 100 of {{ filteredDictionary.length }} results. Use search to find specific items.
                 </td>
               </tr>
             </tbody>

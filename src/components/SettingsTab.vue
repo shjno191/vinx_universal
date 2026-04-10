@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -23,7 +23,9 @@ const settings = ref({
   shortcuts: {
     focus_search: 'ctrl+f',
     open_settings: 'ctrl+shift+s',
-    open_file: 'ctrl+o'
+    open_file: 'ctrl+o',
+    prev_tab: 'ctrl+arrowleft',
+    next_tab: 'ctrl+arrowright'
   },
   editor: {
     middleClickClose: true,
@@ -78,8 +80,13 @@ const handleShortcutKey = (key: string, e: KeyboardEvent) => {
   const modifiers = ['control', 'shift', 'alt', 'meta'];
   if (modifiers.includes(k)) return; // Wait for a non-modifier key
   
-  const forbidden = ['capslock', 'tab', 'enter', 'backspace', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+  const forbidden = ['capslock', 'tab', 'enter', 'backspace'];
   if (forbidden.includes(k)) return;
+  
+  // Only allow arrows for specific shortcuts (prev/next tab)
+  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+    if (!isRecording.value.includes('tab')) return;
+  }
 
   const parts = [];
   if (e.ctrlKey) parts.push('ctrl');
@@ -91,7 +98,13 @@ const handleShortcutKey = (key: string, e: KeyboardEvent) => {
   const newShortcut = parts.join('+');
   
   if (!settings.value.shortcuts) {
-    settings.value.shortcuts = { focus_search: 'ctrl+f', open_settings: 'ctrl+shift+s', open_file: 'ctrl+o' };
+    settings.value.shortcuts = { 
+      focus_search: 'ctrl+f', 
+      open_settings: 'ctrl+shift+s', 
+      open_file: 'ctrl+o',
+      prev_tab: 'ctrl+arrowleft',
+      next_tab: 'ctrl+arrowright'
+    };
   }
   
   if (isRecording.value.startsWith('chill_')) {
@@ -128,8 +141,15 @@ const loadSettings = async () => {
       }
       if (s.dictionary_path) settings.value.dictionary_path = s.dictionary_path;
       if (s.shortcuts) {
-        settings.value.shortcuts = { ...settings.value.shortcuts, ...s.shortcuts };
-        globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
+        // Deep merge to ensure new default keys (like prev_tab) are present even if not in saved file
+        settings.value.shortcuts = { 
+          ...settings.value.shortcuts, 
+          ...s.shortcuts 
+        };
+        globalShortcuts.value = { 
+          ...globalShortcuts.value, 
+          ...s.shortcuts 
+        };
       }
       if (s.editor) {
         settings.value.editor = { ...settings.value.editor, ...s.editor };
@@ -366,12 +386,50 @@ onMounted(() => {
           </div>
           <p class="shortcut-hint">These shortcuts only work within the Editor tab.</p>
         </div>
+
+        <div class="setting-item-vertical">
+          <label>Tab Navigation Shortcuts (Global) <span class="new-badge">NEW</span></label>
+          <div class="shortcut-list">
+            <div class="shortcut-row" @click="startRecording('prev_tab')">
+              <span class="shortcut-desc">Switch to Previous Tab</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
+                {{ isRecording === 'prev_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.prev_tab) }}
+              </span>
+              <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('prev_tab', $event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('next_tab')">
+              <span class="shortcut-desc">Switch to Next Tab</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
+                {{ isRecording === 'next_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.next_tab) }}
+              </span>
+              <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('next_tab', $event)" @blur="isRecording = null" />
+            </div>
+          </div>
+        </div>
       </div>
 
       <div v-show="currentCategory === 'shortcut'" class="settings-section">
         <div class="setting-item-vertical">
-          <label>Global Shortcuts (Click to change)</label>
+          <label>General Shortcuts (Click to change) <span class="new-badge">NEW ITEMS BELOW</span></label>
           <div class="shortcut-list">
+            <!-- Navigation at the top -->
+            <div class="shortcut-row" @click="startRecording('prev_tab')">
+              <span class="shortcut-desc">Switch to Previous Tab</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
+                {{ isRecording === 'prev_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.prev_tab) }}
+              </span>
+              <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('prev_tab', $event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('next_tab')">
+              <span class="shortcut-desc">Switch to Next Tab</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
+                {{ isRecording === 'next_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.next_tab) }}
+              </span>
+              <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('next_tab', $event)" @blur="isRecording = null" />
+            </div>
+            
+            <!-- Separator -->
+            <div style="height: 1px; background: rgba(128,128,128,0.1); margin: 5px 0;"></div>
             <div class="shortcut-row" @click="startRecording('focus_search')">
               <span class="shortcut-desc">Focus Dictionary Search</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'focus_search' }">
@@ -385,10 +443,6 @@ onMounted(() => {
                 {{ isRecording === 'open_settings' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.open_settings) }}
               </span>
               <input v-if="isRecording === 'open_settings'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('open_settings', $event)" @blur="isRecording = null" />
-            </div>
-            <div class="shortcut-row disabled">
-              <span class="shortcut-desc">Back Navigation (Global)</span>
-              <span class="shortcut-key">MOUSE BUTTON 4</span>
             </div>
             <div class="shortcut-row disabled">
               <span class="shortcut-desc">Forward Navigation (Global)</span>
@@ -736,6 +790,17 @@ onMounted(() => {
   margin-top: 10px;
   font-style: italic;
   text-align: center;
+}
+
+.new-badge {
+  background: #f59e0b;
+  color: white;
+  font-size: 0.6rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 10px;
+  text-transform: uppercase;
+  font-weight: bold;
 }
 
 .setting-item {

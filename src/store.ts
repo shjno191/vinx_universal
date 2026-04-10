@@ -1,4 +1,4 @@
-﻿import { ref } from 'vue';
+import { ref } from 'vue';
 
 export const theme = ref<'light' | 'dark' | '95'>('dark');
 
@@ -33,7 +33,9 @@ export const cursorHistoryIndex = ref(-1);
 export const globalShortcuts = ref({
     focus_search: 'ctrl+f',
     open_settings: 'ctrl+shift+s',
-    open_file: 'ctrl+o'
+    open_file: 'ctrl+o',
+    prev_tab: 'ctrl+arrowleft',
+    next_tab: 'ctrl+arrowright'
 });
 
 //  AI / Flow Chart State 

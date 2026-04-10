@@ -18,6 +18,7 @@ import Cigarette from "./components/Cigarette.vue";
 import { isGlobalSmoking } from "./store";
 
 const currentTab = ref("SQL-Helper");
+const allTabs = ["SQL-Helper", "Translate", "Compare", "Editor", "Git", "FlowChart", "Chill"];
 const currentTheme = ref("dark");
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
@@ -136,6 +137,24 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
     
     showSettingsModal.value = true;
     showSettingsTrigger.value = { category: cat };
+  }
+
+  // Tab switching (only if not in input)
+  const activeEl = document.activeElement;
+  const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+  if (!isInput) {
+    if (matchShortcut(e, globalShortcuts.value.prev_tab)) {
+      e.preventDefault();
+      const idx = allTabs.indexOf(currentTab.value);
+      const nextIdx = (idx - 1 + allTabs.length) % allTabs.length;
+      currentTab.value = allTabs[nextIdx];
+    }
+    if (matchShortcut(e, globalShortcuts.value.next_tab)) {
+      e.preventDefault();
+      const idx = allTabs.indexOf(currentTab.value);
+      const nextIdx = (idx + 1) % allTabs.length;
+      currentTab.value = allTabs[nextIdx];
+    }
   }
 
   handleChillShortcuts(e, true);

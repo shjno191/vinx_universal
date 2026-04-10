@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import * as monaco from 'monaco-editor';
 import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
@@ -74,6 +74,7 @@ const searchResults = ref<SearchResult[]>([]);
 const isResizing = ref(false);
 const selectionModal = ref<{ mode: 'branch' | 'commit', tab: Tab } | null>(null);
 const showBranchSwitcher = ref(false);
+const collapsedSearchFiles = ref<Set<string>>(new Set());
 
 const currentBranchName = computed(() => {
   return gitBranches.value.find(b => b.isCurrent)?.name || '';
@@ -299,6 +300,11 @@ const openProject = async () => {
     showExplorer.value = true;
     await refreshTree();
   }
+};
+
+const closeProject = () => {
+  projectRootPath.value = '';
+  projectRoot.value = null;
 };
 
 const openFile = async () => {
@@ -531,6 +537,34 @@ const executeGlobalSearch = async () => {
     }
 };
 
+const clearSearchResults = () => {
+    searchResults.value = [];
+    isSearching.value = false;
+    if (searchUnlisten) { searchUnlisten(); searchUnlisten = null; }
+};
+
+const groupedSearchResults = computed(() => {
+    const groups: Record<string, SearchResult[]> = {};
+    searchResults.value.forEach(res => {
+        if (!groups[res.file_path]) groups[res.file_path] = [];
+        groups[res.file_path].push(res);
+    });
+    return Object.entries(groups).map(([path, matches]) => ({
+        path,
+        name: path.split(/[/\\]/).pop() || path,
+        matches
+    })).sort((a, b) => a.path.localeCompare(b.path));
+});
+
+const totalResultsCount = computed(() => searchResults.value.length);
+const totalFilesCount = computed(() => new Set(searchResults.value.map(r => r.file_path)).size);
+
+const toggleSearchFile = (path: string) => {
+    if (collapsedSearchFiles.value.has(path)) collapsedSearchFiles.value.delete(path);
+    else collapsedSearchFiles.value.add(path);
+    collapsedSearchFiles.value = new Set(collapsedSearchFiles.value);
+};
+
 const jumpToSearchResult = async (res: SearchResult) => {
     await resolveAndOpenPath(res.file_path);
     setTimeout(() => {
@@ -645,7 +679,7 @@ onUnmounted(() => {
             <div class="explorer-actions">
               <button class="explorer-icon-btn" @click="openProject" title="Open Folder (Ctrl+Shift+O)" v-html="OpenFolderActionIcon"></button>
               <button class="explorer-icon-btn" @click="refreshTree" title="Refresh" v-html="RefreshIcon"></button>
-              <button class="explorer-icon-btn" @click="showExplorer = false" title="Close Explorer" v-html="CloseIcon"></button>
+              <button class="explorer-icon-btn danger-hover" @click="closeProject" title="Close Project" v-html="CloseIcon"></button>
             </div>
           </div>
           
@@ -707,12 +741,15 @@ onUnmounted(() => {
                 placeholder="Search text in project..." 
                 class="explorer-search-input"
                 spellcheck="false"
-                style="padding-right: 30px;"
+                style="padding-right: 45px;"
                 autofocus
               />
-              <button type="submit" v-if="globalSearchQuery && !isSearching" class="clear-search" style="right: 6px; top: 50%; transform: translateY(-50%); opacity:0.8" title="Search">
-                <span style="font-size: 13px;">⏎</span>
-              </button>
+              <div class="search-input-actions">
+                <button v-if="globalSearchQuery || searchResults.length > 0" type="button" class="search-action-btn" @click="clearSearchResults" title="Clear results" v-html="ClearIcon"></button>
+                <button type="submit" v-if="globalSearchQuery && !isSearching" class="search-action-btn" title="Search">
+                  <span style="font-size: 13px;">⏎</span>
+                </button>
+              </div>
             </form>
           </div>
 
@@ -720,15 +757,23 @@ onUnmounted(() => {
             <div v-if="isSearching" class="explorer-empty">
               <div class="search-loader"></div>
               <div style="margin-top: 12px; font-weight: 500;">Searching Project...</div>
-              <div style="font-size: 0.7rem; opacity: 0.6; margin-top: 4px;">Tận dụng đa luồng Rust</div>
+              <div style="font-size: 0.7rem; opacity: 0.6; margin-top: 4px;">Found {{ totalResultsCount }} matches</div>
             </div>
-            <div v-else-if="searchResults.length > 0" key="has-results">
-               <div class="search-results-info">{{ searchResults.length }} results found</div>
+            <div v-else-if="groupedSearchResults.length > 0" key="has-results">
+               <div class="search-results-info">{{ totalResultsCount }} results in {{ totalFilesCount }} files</div>
                <div class="search-items-container">
-                  <div v-for="res in searchResults" :key="res.file_path + ':' + res.line_num" class="search-result-item" @click="jumpToSearchResult(res)">
-                     <div class="sr-file">{{ res.file_path.split(/[/\\]/).pop() }}</div>
-                     <div class="sr-path-sub">{{ res.file_path }}</div>
-                     <div class="sr-line"><span class="sr-lnum">{{ res.line_num }}:</span> <span class="sr-text">{{ res.line_text }}</span></div>
+                  <div v-for="group in groupedSearchResults" :key="group.path" class="search-file-group">
+                     <div class="search-file-header" @click="toggleSearchFile(group.path)">
+                        <span class="explorer-folder-arrow" v-html="collapsedSearchFiles.has(group.path) ? ChevronRight : ChevronDown"></span>
+                        <span class="sr-file">{{ group.name }}</span>
+                        <span class="sr-path-sub">{{ group.path }}</span>
+                        <span class="sr-count-badge">{{ group.matches.length }}</span>
+                     </div>
+                     <div v-if="!collapsedSearchFiles.has(group.path)" class="search-file-matches">
+                        <div v-for="res in group.matches" :key="res.line_num" class="search-result-item" @click="jumpToSearchResult(res)">
+                           <div class="sr-line"><span class="sr-lnum">{{ res.line_num }}:</span> <span class="sr-text">{{ res.line_text }}</span></div>
+                        </div>
+                     </div>
                   </div>
                </div>
             </div>
@@ -903,12 +948,19 @@ onUnmounted(() => {
 .explorer-search-box { padding: 8px 10px; border-bottom: var(--border-style); }
 .search-input-wrapper { position: relative; display: flex; align-items: center; }
 .explorer-search-input { width: 100%; background: rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.05); border-radius: 4px; padding: 5px 25px 5px 10px; color: var(--text-color); font-size: 0.75rem; outline: none; transition: border-color 0.2s; }
-.explorer-search-input:focus { border-color: var(--accent-color); }
+.explorer-search-input:focus { border-color: var(--accent-color); outline: none; }
 .clear-search { position: absolute; right: 6px; background: transparent; border: none; color: var(--text-color); opacity: 0.4; cursor: pointer; padding: 0 4px; font-size: 0.9rem; }
 .clear-search:hover { opacity: 1; }
+.search-input-actions { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display: flex; gap: 4px; }
+.search-action-btn { background: none; border: none; color: var(--text-color); cursor: pointer; opacity: 0.6; padding: 2px; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+.search-action-btn:hover { opacity: 1; color: var(--accent-color); transform: scale(1.1); }
 
-.explorer-root-label { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; font-size: 0.85rem; font-weight: 700; background: rgba(255,255,255,0.02); border-bottom: var(--border-style); }
-.explorer-root-label:hover { background: rgba(255,255,255,0.05); }
+.explorer-root-label {
+    padding: 8px 12px; font-weight: 800; font-size: 0.7rem; letter-spacing: 0.05em; 
+    border-bottom: 1px solid rgba(128,128,128,0.1); display: flex; align-items: center; gap: 6px; 
+    cursor: pointer; background: rgba(128,128,128,0.03); color: var(--text-color); text-transform: uppercase;
+}
+.explorer-root-label:hover { background: rgba(128,128,128,0.08); }
 .explorer-folder-arrow { 
   font-size: 0.6rem; 
   opacity: 0.4; 

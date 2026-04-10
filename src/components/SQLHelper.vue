@@ -33,6 +33,17 @@ const existingIds = computed(() => {
   return ids;
 });
 
+const highlightSql = (sql: string) => {
+  if (!sql || sql.startsWith('--')) return sql;
+  const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'#039;'}[m]||m));
+  let h = escapeHtml(sql);
+  const keywords = /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|IN|ORDER BY|GROUP BY|LIMIT|OFFSET|AS|TRIM|INSERT INTO|UPDATE|DELETE|SET|VALUES|COUNT|AVG|SUM|MIN|MAX|HAVING|DISTINCT|UNION|ALL|EXISTS|IS|NULL|NOT|BETWEEN|CASE|WHEN|THEN|ELSE|END)\b/gi;
+  h = h.replace(keywords, '<span class="sql-kwd">$1</span>');
+  h = h.replace(/\b(FROM|JOIN)\b\s+([a-zA-Z0-9_]+)/gi, '$1 <span class="sql-tbl">$2</span>');
+  h = h.replace(/'([^']*)'/g, '<span class="sql-str">\'$1\'</span>');
+  return h;
+};
+
 const loadFromFile = async () => {
     const trimmedPath = logPath.value.trim();
     if (!trimmedPath) return;
@@ -74,7 +85,9 @@ const processSql = (index: number) => {
   // We scan all lines because SQL and Params might be on different lines
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line.toLowerCase().includes(`id=${idToFind}`)) {
+    const isIdMatch = line.toLowerCase().includes(`id=${idToFind}`) || line.toLowerCase().includes(`id=(${idToFind})`);
+    
+    if (isIdMatch) {
       const sqlMatch = line.match(/sql\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/i);
       if (sqlMatch) foundSql = sqlMatch[1];
       
@@ -111,6 +124,59 @@ const processSql = (index: number) => {
   }
 };
 
+const formatSql = (index: number) => {
+  let sql = extractions.value[index].resultSql;
+  if (!sql || sql.startsWith('--')) return;
+
+  // 1. Normalize: space out parentheses and collapse extra whitespace
+  sql = sql.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').replace(/\s+/g, ' ').trim();
+  
+  const tokens = sql.split(' ');
+  const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'AND', 'OR', 'ORDER', 'GROUP', 'SET', 'VALUES', 'LIMIT', 'UPDATE', 'INSERT', 'DELETE', 'UNION', 'HAVING'];
+  
+  let indentLevel = 0;
+  let result = '';
+  const indentStep = '    ';
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const upperToken = token.toUpperCase();
+    
+    if (keywords.includes(upperToken)) {
+      let combinedToken = token;
+      // Handle multi-word keywords
+      if (['ORDER', 'GROUP', 'DELETE'].includes(upperToken)) {
+        const next = tokens[i+1]?.toUpperCase();
+        if ((upperToken === 'DELETE' && next === 'FROM') || (upperToken !== 'DELETE' && next === 'BY')) {
+          combinedToken += ' ' + tokens[++i];
+        }
+      } else if (upperToken === 'INSERT' && tokens[i+1]?.toUpperCase() === 'INTO') {
+        combinedToken += ' ' + tokens[++i];
+      }
+      
+      // Start new line for keywords unless it's the very first token
+      if (result.length > 0) {
+        result = result.trimEnd() + '\n' + indentStep.repeat(indentLevel);
+      }
+      result += combinedToken + ' ';
+    } else if (token === '(') {
+      // Opening paren: increase indent and start new line
+      result = result.trimEnd() + ' (\n' + indentStep.repeat(++indentLevel);
+    } else if (token === ')') {
+      // Closing paren: decrease indent and start new line before paren
+      indentLevel = Math.max(0, indentLevel - 1);
+      result = result.trimEnd() + '\n' + indentStep.repeat(indentLevel) + ') ';
+    } else if (token === ',') {
+      // After comma, just a space (could add newline for multi-field SELECTs if needed later)
+      result = result.trimEnd() + ', ';
+    } else {
+      result += token + ' ';
+    }
+  }
+  
+  extractions.value[index].resultSql = result.trim().replace(/ +\n/g, '\n');
+};
+
 const copyResult = (text: string) => navigator.clipboard.writeText(text);
 
 const handleLogClick = (e: MouseEvent) => {
@@ -141,9 +207,14 @@ const formattedLog = computed(() => {
   const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'#039;'}[m]||m));
   let html = escapeHtml(logContent.value);
   if (logContent.value.length > 500000) return html;
-  return html.replace(/(id\s*=\s*)([a-zA-Z0-9_-]+)/gi, (_, p, id) => {
-    const extra = existingIds.value.has(id.toLowerCase()) ? ' existing-id' : '';
-    return `${p}<span class="clickable-id${extra}" data-id="${id}">${id}</span>`;
+  // Support id=..., id=(...), and uniq_id=(...)
+  return html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
+    const actualId = uniqId || idVal;
+    const extra = existingIds.value.has(actualId.toLowerCase()) ? ' existing-id' : '';
+    if (uniqId) {
+      return `${uniqPre}<span class="clickable-id${extra}" data-id="${uniqId}">${uniqId}</span>${uniqPost}`;
+    }
+    return `${idPre}<span class="clickable-id${extra}" data-id="${idVal}">${idVal}</span>`;
   });
 });
 
@@ -186,8 +257,14 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
               </div>
             </div>
             <div v-if="ext.resultSql" class="result-area">
-              <div class="result-toolbar"><span>Result SQL</span><button @click="copyResult(ext.resultSql)" class="copy-btn">Copy</button></div>
-              <pre class="sql-output"><code>{{ ext.resultSql }}</code></pre>
+              <div class="result-toolbar">
+                <span>Result SQL</span>
+                <div class="toolbar-btns">
+                  <button @click="formatSql(i)" class="format-btn">Format</button>
+                  <button @click="copyResult(ext.resultSql)" class="copy-btn">Copy</button>
+                </div>
+              </div>
+              <pre class="sql-output"><code v-html="highlightSql(ext.resultSql)"></code></pre>
             </div>
           </div>
         </div>
@@ -221,10 +298,19 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
 .mini-id { flex: 1; min-width: 0; }
 .remove-btn { background: none; border: none; color: #ef4444; font-size: 1.5rem; cursor: pointer; line-height: 1; padding: 0 5px; }
 .result-area { margin-top: 10px; }
-.result-toolbar { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; opacity: 0.7; }
+.result-toolbar { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; opacity: 0.7; margin-bottom: 5px; }
+.toolbar-btns { display: flex; gap: 8px; }
+.format-btn, .copy-btn { 
+  background: var(--button-bg); border: 1px solid var(--accent-color); 
+  color: var(--accent-color); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem;
+}
+.format-btn:hover, .copy-btn:hover { background: var(--accent-color); color: white; }
 .sql-output { margin: 0; padding: 10px; background-color: #1e1e1e; color: #d4d4d4; overflow-x: auto; border-radius: 4px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; }
 :deep(.clickable-id) { color: var(--accent-color); text-decoration: underline; cursor: pointer; }
 :deep(.clickable-id.existing-id) { font-weight: bold; color: #f59e0b; }
+:deep(.sql-kwd) { color: #569cd6; font-weight: bold; }
+:deep(.sql-tbl) { color: #4ec9b0; font-weight: bold; text-decoration: underline; }
+:deep(.sql-str) { color: #ce9178; }
 .theme-button { padding: 6px 12px; border-radius: 4px; border: var(--border-style); background: var(--button-bg); color: var(--text-color); cursor: pointer; font-size: 0.85rem; }
 .choose-btn { background: var(--accent-color); color: white; border: none; }
 .add-query-btn { border-color: var(--accent-color); color: var(--accent-color); }

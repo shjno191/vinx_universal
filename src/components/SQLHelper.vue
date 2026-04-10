@@ -6,6 +6,24 @@ import { open } from '@tauri-apps/plugin-dialog';
 const logPath = ref('');
 const logContent = ref('');
 const logDisplayRef = ref<HTMLElement | null>(null);
+const isInputMode = ref(false);
+
+const clearLog = () => {
+  logContent.value = '';
+  logPath.value = '';
+};
+
+const pasteFromClipboard = async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      logContent.value = text;
+      isInputMode.value = false;
+    }
+  } catch (err) {
+    console.error('Failed to read clipboard', err);
+  }
+};
 
 interface Extraction {
   searchId: string;
@@ -50,6 +68,7 @@ const loadFromFile = async () => {
     try {
       const content = await invoke<string>('read_file_content', { path: trimmedPath });
       logContent.value = content;
+      isInputMode.value = false;
       nextTick(() => {
         setTimeout(() => {
           if (logDisplayRef.value) logDisplayRef.value.scrollTop = logDisplayRef.value.scrollHeight;
@@ -239,12 +258,38 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
     <div class="sql-helper-split">
       <div class="log-viewer-pane">
         <div class="pane-header">
-          <span>Log Viewer</span>
-          <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Reload File">🔄</button>
+          <div class="header-left">
+            <span>Log Viewer</span>
+            <div class="mode-toggles">
+              <button @click="isInputMode = false" :class="['mode-btn', !isInputMode ? 'active' : '']" title="Interactive View">👁 View</button>
+              <button @click="isInputMode = true" :class="['mode-btn', isInputMode ? 'active' : '']" title="Edit/Paste">✏️ Edit</button>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button @click="pasteFromClipboard" class="mini-icon-btn" title="Paste from Clipboard">📋</button>
+            <button @click="clearLog" class="mini-icon-btn" title="Clear All">🗑</button>
+            <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Reload File">🔄</button>
+          </div>
         </div>
-        <div class="log-display" ref="logDisplayRef" @click="handleLogClick" v-html="formattedLog"></div>
-        <div v-if="isLogTooLarge" class="log-warning-overlay">
-          ⚠️ Log is too large for interactive highlighting.
+        
+        <div class="log-pane-content">
+          <textarea 
+            v-if="isInputMode" 
+            v-model="logContent" 
+            class="log-editor" 
+            placeholder="Paste your log data here..."
+          ></textarea>
+          <div 
+            v-else 
+            class="log-display" 
+            ref="logDisplayRef" 
+            @click="handleLogClick" 
+            v-html="formattedLog"
+          ></div>
+          
+          <div v-if="!isInputMode && isLogTooLarge" class="log-warning-overlay">
+            ⚠️ Log is too large for interactive highlighting.
+          </div>
         </div>
       </div>
 
@@ -287,8 +332,23 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
 .sql-helper-split { display: flex; flex: 1; overflow: hidden; }
 .log-viewer-pane { flex: 1; display: flex; flex-direction: column; border-right: var(--border-style); }
 .extraction-pane { flex: 1; display: flex; flex-direction: column; background: var(--container-bg); }
-.pane-header { padding: 8px 15px; background: var(--button-bg); border-bottom: var(--border-style); font-weight: bold; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; }
-.log-display { flex: 1; padding: 15px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: var(--input-bg); position: relative; }
+.pane-header { padding: 8px 15px; background: var(--button-bg); border-bottom: var(--border-style); font-weight: bold; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
+.header-left { display: flex; align-items: center; gap: 15px; }
+.mode-toggles { display: flex; background: var(--input-bg); border-radius: 4px; padding: 2px; }
+.mode-btn { 
+  background: none; border: none; font-size: 0.7rem; padding: 2px 8px; color: var(--text-color); opacity: 0.6; cursor: pointer; border-radius: 3px; border: 1px solid transparent; transition: all 0.2s; 
+}
+.mode-btn.active { opacity: 1; background: var(--button-bg); border-color: var(--accent-color); color: var(--accent-color); font-weight: bold; }
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.mini-icon-btn { background: none; border: 1px solid transparent; cursor: pointer; font-size: 1rem; padding: 2px 4px; border-radius: 4px; filter: grayscale(1); opacity: 0.7; }
+.mini-icon-btn:hover { background: var(--input-bg); border-color: var(--border-color); opacity: 1; filter: none; }
+
+.log-pane-content { flex: 1; position: relative; display: flex; flex-direction: column; overflow: hidden; }
+.log-display { flex: 1; padding: 15px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: var(--input-bg); }
+.log-editor { 
+  flex: 1; width: 100%; border: none; background: var(--input-bg); color: var(--text-color); padding: 15px; 
+  font-family: 'Consolas', monospace; font-size: 0.85rem; resize: none; outline: none;
+}
 .log-warning-overlay {
   position: absolute; bottom: 10px; right: 20px; background: rgba(245, 158, 11, 0.9);
   color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold;

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, shallowRef } from 'vue';
 import { open, message, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -228,10 +228,23 @@ const openRepo = async () => {
 };
 
 const refresh = async () => {
-  if (!gitTabRepoPath.value) return;
+  if (!gitTabRepoPath.value) {
+    resetGitState();
+    return;
+  }
   isLoading.value = true;
   try { await Promise.all([loadBranches(), loadStatus()]); }
   finally { isLoading.value = false; }
+};
+
+const resetGitState = () => {
+  stagedFiles.value = [];
+  unstagedFiles.value = [];
+  gitBranches.value = [];
+  graphCommits.value = [];
+  graphPaths.value = [];
+  selectedBranch.value = null;
+  statusMessage.value = '';
 };
 
 const loadBranches = async () => {
@@ -801,7 +814,10 @@ onMounted(async () => {
   }
   if (gitTabRepoPath.value) refresh();
 });
-watch(gitTabRepoPath, (v) => { if (v) refresh(); });
+watch(gitTabRepoPath, (v) => { 
+  if (v) refresh(); 
+  else resetGitState();
+});
 watch(triggerGitRefresh, () => {
   if (gitTabRepoPath.value && expandedSections.value.has('changes')) {
     loadStatus();

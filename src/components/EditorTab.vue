@@ -299,11 +299,26 @@ const openProject = async () => {
     projectRootPath.value = selected;
     showExplorer.value = true;
     await refreshTree();
+
+    // Auto-sync with Git Tab if it's a valid repository
+    try {
+      const toplevel = await invoke<string>('git_execute', { 
+        args: ['rev-parse', '--show-toplevel'], 
+        cwd: selected 
+      });
+      if (toplevel && toplevel.trim()) {
+        gitTabRepoPath.value = toplevel.trim();
+      }
+    } catch (_) {
+      // Not a git repo or error, ensure Git tab is reset
+      gitTabRepoPath.value = '';
+    }
   }
 };
 
 const closeProject = () => {
   projectRootPath.value = '';
+  gitTabRepoPath.value = '';
   projectRoot.value = null;
 };
 

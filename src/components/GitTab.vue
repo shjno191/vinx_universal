@@ -21,7 +21,7 @@ const stagedFiles     = ref<GitFile[]>([]);
 const unstagedFiles   = ref<GitFile[]>([]);
 const commitMessage   = ref('');
 
-// Branch click → show history in right panel
+// Branch click ↁEshow history in right panel
 const selectedBranch  = ref<GitBranch | null>(null);
 const isLoadingLogs   = ref(false);
 const showAllHistory  = ref(false);
@@ -256,7 +256,7 @@ const openRepo = async () => {
 
       gitTabRepoPath.value = selected;
       selectedBranch.value = null;
-      setStatus('✓ Repository opened', 3000);
+      setStatus('✁ERepository opened', 3000);
       await refresh();
     } catch (e) {
       await message('The selected folder is not a valid Git repository root.', { title: 'Git Error', kind: 'error' });
@@ -372,7 +372,7 @@ const loadBranches = async () => {
   } catch (e) { 
     console.error('[GitTab] Load branches FATAL error:', e);
     gitBranches.value = []; 
-    setStatus('✗ Error loading branches', 5000); 
+    setStatus('✁EError loading branches', 5000); 
   }
 };
 
@@ -421,7 +421,7 @@ const loadBranchHistory = async (branch?: GitBranch) => {
       parseGraphData(rawHead);
     } catch {
       graphCommits.value = [];
-      setStatus('✗ Error loading history', 4000);
+      setStatus('✁EError loading history', 4000);
     }
   } finally {
     isLoadingLogs.value = false;
@@ -434,7 +434,7 @@ const undoCommit = async () => {
   isLoading.value = true;
   try {
     await git(['reset', '--soft', 'HEAD~1']);
-    setStatus('✓ Last commit undone');
+    setStatus('✁ELast commit undone');
     await refresh();
     if (selectedBranch.value) await loadBranchHistory(selectedBranch.value);
   } catch (e) {
@@ -454,7 +454,7 @@ const gitFetch = async () => {
   
   try {
     await git(['fetch', '--all', '--prune']);
-    setStatus('✓ Fetched all remotes');
+    setStatus('✁EFetched all remotes');
     await refresh();
     if (showAllHistory.value || selectedBranch.value) {
       await loadBranchHistory();
@@ -470,7 +470,7 @@ const gitStash = async () => {
   isLoading.value = true;
   try {
     await git(['stash', 'push', '-u']);
-    setStatus('✓ Stashed changes');
+    setStatus('✁EStashed changes');
     await refresh();
   } catch (e) {
     await message(String(e), { title: 'Stash Failed', kind: 'error' });
@@ -483,7 +483,7 @@ const gitPop = async () => {
   isLoading.value = true;
   try {
     await git(['stash', 'pop']);
-    setStatus('✓ Popped latest stash');
+    setStatus('✁EPopped latest stash');
     await refresh();
   } catch (e) {
     await message(String(e), { title: 'Pop Failed', kind: 'error' });
@@ -508,7 +508,7 @@ const checkoutCommit = async (hash: string) => {
         try { await git(['stash', 'pop']); } catch (e) { console.warn('Pop failure:', e); }
       }
       
-      setStatus('✓ Checked out ' + hash);
+      setStatus('✁EChecked out ' + hash);
       triggerEditorReload.value++; 
       await refresh();
     } catch(e) {
@@ -553,7 +553,7 @@ const cmCreateBranch = async () => {
   isLoading.value = true;
   try {
     await git(['checkout', '-b', bName, hash]);
-    setStatus('✓ Created branch ' + bName);
+    setStatus('✁ECreated branch ' + bName);
     await refresh();
   } catch(e) {
     await message(String(e), { title: 'Branch Failed', kind: 'error' });
@@ -568,7 +568,7 @@ const cmCopyHash = async () => {
   commitMenu.value = null;
   try {
     await navigator.clipboard.writeText(hash);
-    setStatus('✓ Copied hash: ' + hash);
+    setStatus('✁ECopied hash: ' + hash);
   } catch(e) {
     console.error(e);
   }
@@ -642,21 +642,21 @@ const onBranchClick = async (branch: GitBranch) => {
 const doCommit = async () => {
   if (!commitMessage.value.trim()) return;
   if (stagedFiles.value.length === 0) {
-    setStatus('✗ No files staged for commit', 5000);
+    setStatus('✁ENo files staged for commit', 5000);
     return;
   }
   isLoading.value = true;
   try {
     await git(['commit', '-m', commitMessage.value]);
-    commitMessage.value = ''; setStatus('✓ Committed'); await refresh();
-  } catch (e) { setStatus('✗ Commit: ' + e, 6000); } finally { isLoading.value = false; }
+    commitMessage.value = ''; setStatus('✁ECommitted'); await refresh();
+  } catch (e) { setStatus('✁ECommit: ' + e, 6000); } finally { isLoading.value = false; }
 };
 
 // ─── Stage / Unstage ──────────────────────────────────────────────────
 const stageFile   = async (f: GitFile) => { try { await git(['add', f.path]); await loadStatus(); } catch (e) { setStatus(''+e,5000); } };
 const unstageFile = async (f: GitFile) => { try { await git(['reset', 'HEAD', f.path]); await loadStatus(); } catch (e) { setStatus(''+e,5000); } };
-const stageAll    = async () => { try { await git(['add', '.']); await loadStatus(); setStatus('✓ Staged all'); } catch (e) { setStatus(''+e,5000); } };
-const unstageAll  = async () => { try { await git(['reset', 'HEAD', '.']); await loadStatus(); setStatus('✓ Unstaged all'); } catch (e) { setStatus(''+e,5000); } };
+const stageAll    = async () => { try { await git(['add', '.']); await loadStatus(); setStatus('✁EStaged all'); } catch (e) { setStatus(''+e,5000); } };
+const unstageAll  = async () => { try { await git(['reset', 'HEAD', '.']); await loadStatus(); setStatus('✁EUnstaged all'); } catch (e) { setStatus(''+e,5000); } };
 
 const revertFile = async (f: GitFile) => {
   const ok = await ask(`Are you sure you want to discard changes in "${f.name}"? This cannot be undone.`, {
@@ -668,7 +668,7 @@ const revertFile = async (f: GitFile) => {
   isLoading.value = true;
   try {
     await git(['checkout', '--', f.path]);
-    setStatus('✓ Reverted ' + f.name);
+    setStatus('✁EReverted ' + f.name);
     triggerEditorReload.value++;
     await loadStatus();
   } catch (e) {
@@ -719,7 +719,7 @@ const switchBranch = async (branch: GitBranch) => {
         try { await git(['stash', 'pop']); } catch (e) { console.warn('Pop failure (expected if no files changed):', e); }
       }
 
-      setStatus('✓ Switched to ' + branch.name);
+      setStatus('✁ESwitched to ' + branch.name);
       triggerEditorReload.value++;
       await refresh();
     } catch (e) {
@@ -783,7 +783,7 @@ const doCreateBranch = async () => {
   if (!createModal.value || !newBranchName.value.trim()) return;
   const { fromBranch } = createModal.value; const name = newBranchName.value.trim();
   createModal.value = null; isLoading.value = true;
-  try { await git(['checkout', '-b', name, fromBranch]); setStatus('✓ Created "' + name + '"'); await loadBranches(); }
+  try { await git(['checkout', '-b', name, fromBranch]); setStatus('✁ECreated "' + name + '"'); await loadBranches(); }
   catch (e) { await message(String(e), { title: 'Create Branch Failed', kind: 'error' }); } finally { isLoading.value = false; }
 };
 
@@ -815,7 +815,7 @@ const ctxDeleteBranch = async () => {
     } else {
       await git(['branch', '-D', branch.name]);
     }
-    setStatus('✓ Deleted ' + branch.name);
+    setStatus('✁EDeleted ' + branch.name);
     await refresh();
   } catch (e) {
     await message(String(e), { title: 'Delete Failed', kind: 'error' });
@@ -832,7 +832,7 @@ const pushCurrentBranch = async () => {
   isLoading.value = true;
   try {
     await git(['push']);
-    setStatus('✓ Pushed to remote');
+    setStatus('✁EPushed to remote');
     await refresh();
   } catch (e) {
     await message(String(e), { title: 'Push Failed', kind: 'error' });
@@ -887,9 +887,9 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
 <template>
   <div class="git-tab">
 
-    <!-- ══ LEFT: Sidebar (Changes & Branches) ══════════════════════════ -->
+    
     <div class="git-left">
-      <!-- Repo Bar -->
+      
       <div class="repo-bar" :class="{ empty: !gitTabRepoPath }" @click="!gitTabRepoPath && openRepo()">
         <template v-if="gitTabRepoPath">
           <span class="icon-green" v-html="IconFolder"></span>
@@ -908,7 +908,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
             <button class="open-repo-btn" @click="openRepo">Open Repository</button>
         </div>
         <template v-else>
-          <!-- SECTION 1: SOURCE CONTROL -->
+          
           <div class="sidebar-sec">
             <div class="sec-hdr" @click="toggleSection('changes')">
               <span class="chevron" :class="{ open: expandedSections.has('changes') }" v-html="ChevronRight"></span>
@@ -916,7 +916,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               <span class="sec-badge" v-if="changesCount > 0">{{ changesCount }}</span>
             </div>
             <div v-if="expandedSections.has('changes')" class="sec-content">
-              <!-- Staged -->
+              
               <div v-if="stagedFiles.length > 0" class="fgroup-sidebar">
                 <div class="fgroup-hdr-sb">
                   STAGED ({{ stagedFiles.length }})
@@ -930,7 +930,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                   <button class="fact-sb" @click.stop="unstageFile(f)" title="Unstage" v-html="IconMinus"></button>
                 </div>
               </div>
-              <!-- Unstaged -->
+              
               <div v-if="unstagedFiles.length > 0" class="fgroup-sidebar">
                 <div class="fgroup-hdr-sb">
                   CHANGES ({{ unstagedFiles.length }})
@@ -944,7 +944,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               </div>
               <div v-if="changesCount === 0" class="empty-hint-sb">No changes detected</div>
               
-              <!-- Commit Box in Sidebar -->
+              
               <div class="commit-sidebar">
                 <textarea v-model="commitMessage" placeholder="Message… (Ctrl+Enter)" @keydown.ctrl.enter="doCommit" class="commit-ta-sb"></textarea>
                 <button class="commit-btn-sb" @click="doCommit" :disabled="!commitMessage.trim() || isLoading">
@@ -954,7 +954,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
             </div>
           </div>
 
-          <!-- SECTION 2: BRANCHES -->
+          
           <div class="sidebar-sec">
             <div class="sec-hdr" @click="toggleSection('branches')">
               <span class="chevron" :class="{ open: expandedSections.has('branches') }" v-html="ChevronRight"></span>
@@ -962,7 +962,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               <span class="sec-badge">{{ gitBranches.length }}</span>
             </div>
             <div v-if="expandedSections.has('branches')" class="sec-content">
-              <!-- Local -->
+              
               <div class="sec-label-sb">LOCAL</div>
               <div
                 v-for="branch in localBranches" :key="branch.name"
@@ -980,7 +980,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                   <span v-if="branch.behind" class="behind">↓{{ branch.behind }}</span>
                 </span>
               </div>
-              <!-- Remote -->
+              
               <div class="sec-label-sb" style="margin-top: 8px;">REMOTE (origin)</div>
               <div
                 v-for="branch in remoteBranches" :key="branch.name"
@@ -999,20 +999,20 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       </div>
     </div>
 
-    <!-- ══ RIGHT: History / Details ═══════════════════════════════════ -->
+    
     <div class="git-right">
 
-      <!-- Main Toolbar (History) -->
+      
       <div class="git-toolbar">
         <div class="t-title">Commit History</div>
         <div class="t-spacer"></div>
-        <span class="status-pill" :class="{ err: statusMessage.startsWith('✗') }">
+        <span class="status-pill" :class="{ err: statusMessage.includes('Error') || statusMessage.includes('ERR') || statusMessage.includes('Failed') }">
           {{ statusMessage || (isLoading ? 'Updating...' : 'Ready') }}
           <span v-if="isLoading" class="spin"></span>
         </span>
       </div>
 
-      <!-- Advanced Operations Bar (GitKraken Style) -->
+      
       <div class="git-ops-bar">
         <button class="op-btn" @click="undoCommit" :disabled="isLoading" title="Undo Last Commit">
           <span class="op-icon" v-html="IconUndo"></span>
@@ -1047,7 +1047,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
         </button>
       </div>
 
-      <!-- Main History panel -->
+      
       <div class="panel-body">
         <div class="history-context-bar">
             <div style="display:flex; align-items:center; gap:8px;">
@@ -1097,7 +1097,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       </div>
     </div>
 
-    <!-- ══ CONTEXT MENU ════════════════════════════════════════════════ -->
+    
     <Teleport to="body">
       <div v-if="commitMenu" class="ctx-menu" :style="{ top: commitMenu.y+'px', left: commitMenu.x+'px' }" @click.stop>
         <div class="ctx-label">{{ commitMenu.commit.hash.substring(0, 7) }}</div>
@@ -1129,7 +1129,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       </div>
     </Teleport>
 
-    <!-- ══ CREATE BRANCH MODAL ════════════════════════════════════════ -->
+    
     <Teleport to="body">
       <div v-if="createModal" class="modal-bg" @click.self="createModal = null">
         <div class="modal-box">
@@ -1149,7 +1149,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       </div>
     </Teleport>
 
-    <!-- ══ FILE CONTEXT MENU ══════════════════════════════════════════ -->
+    
     <Teleport to="body">
       <div v-if="fileCtxMenu" class="ctx-menu" :style="{ top: fileCtxMenu.y + 'px', left: fileCtxMenu.x + 'px' }" @click.stop>
         <div class="ctx-label">{{ fileCtxMenu.file.name }}</div>
@@ -1173,7 +1173,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       </div>
     </Teleport>
 
-    <!-- ══ DIFF MODAL ══════════════════════════════════════════════════ -->
+    
     <Teleport to="body">
       <div v-if="diffModal" class="modal-bg diff-bg" @click.self="diffModal = null">
         <div class="modal-box diff-box">
@@ -1199,7 +1199,7 @@ const IconPop     = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       </div>
     </Teleport>
 
-    <!-- ══ INSPECT COMMIT MODAL ════════════════════════════════════════ -->
+    
     <Teleport to="body">
       <div v-if="inspectModal" class="modal-bg" @click.self="inspectModal = null">
         <div class="modal-box inspect-box">

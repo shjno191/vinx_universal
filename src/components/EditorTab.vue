@@ -693,7 +693,7 @@ onUnmounted(() => {
 
 <template>
   <div class="editor-tab-container">
-    <!-- Activity Bar (VS Code style) -->
+    
     <div class="activity-bar">
       <div 
         key="explorer-item"
@@ -790,7 +790,7 @@ onUnmounted(() => {
               <div class="search-input-actions">
                 <button v-if="globalSearchQuery || searchResults.length > 0" type="button" class="search-action-btn" @click="clearSearchResults" title="Clear results" v-html="ClearIcon"></button>
                 <button type="submit" v-if="globalSearchQuery && !isSearching" class="search-action-btn" title="Search">
-                  <span style="font-size: 13px;">⏎</span>
+                  <span style="font-size: 13px;">🔍</span>
                 </button>
               </div>
             </form>
@@ -880,7 +880,7 @@ onUnmounted(() => {
       </div>
 
       <div class="editor-view-area" :class="{ 'split-view': showSplit }" @mouseup="handleEditorMouseUp">
-        <!-- Diff Editor: always shown in left pane based on activeTabLeft -->
+        
         <template v-if="activeTabLeft?.isDiff && activeTabLeft.diffData">
           <div class="diff-editor-pane">
             <VueMonacoDiffEditor

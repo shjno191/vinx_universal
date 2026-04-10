@@ -308,9 +308,6 @@ onMounted(() => {
 
 <template>
   <div class="app-container" :class="{ 'win95-bg': currentTheme === '95' }">
-    <!-- Navbar / Header -->
-
-    <!-- Tabs Navigation -->
     <nav class="tabs-nav" :class="{ 'win95-tabs': currentTheme === '95' }">
       <div class="tabs-list">
         <button 
@@ -359,57 +356,58 @@ onMounted(() => {
           @click="currentTab = 'Chill'" 
           :class="{ 'active': currentTab === 'Chill', 'win95-button': currentTheme === '95', 'chill-tab': true }"
         >
-          Chill ?
+          Chill
         </button>
       </div>
       <div class="nav-actions">
         <div class="global-search-wrapper">
-          <svg class="search-icon-small" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           <input 
-            v-model="globalSearchQuery" 
             ref="globalSearchInputRef"
-            placeholder="Search current tab... (Ctrl+F+F)" 
+            v-model="globalSearchQuery" 
+            placeholder="Global search (Ctrl+F+F)" 
             class="global-search-input"
           />
-          <button v-if="globalSearchQuery" @click="globalSearchQuery = ''" class="clear-search-btn">✕</button>
+          <button 
+            v-if="globalSearchQuery" 
+            class="clear-search-btn" 
+            @click="globalSearchQuery = ''"
+          >
+            &times;
+          </button>
         </div>
         <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
       </div>
     </nav>
 
-    <!-- Main Content Area: Simplified and stabilized structure to avoid patching conflicts -->
     <main class="content-wrapper full-bleed">
       <div class="content-scroll-area full-bleed" :class="{ 'win95-border': currentTheme === '95' }">
-        <!-- Permanent containers for all tabs to ensure DOM stability -->
-        <!-- Static containers: Removing keys as they are stable by position and avoid patching overhead -->
-        <div v-show="currentTab === 'SQL-Helper'" class="full-height-vif">
-          <SQLHelper v-if="initializedTabs['SQL-Helper']" :theme="currentTheme" />
+        <div v-if="initializedTabs['SQL-Helper']" v-show="currentTab === 'SQL-Helper'" key="tab-sql" class="full-height-vif">
+          <SQLHelper :theme="currentTheme" />
         </div>
-        <div v-show="currentTab === 'Translate'" class="full-height-vif">
-          <TranslateTab v-if="initializedTabs['Translate']" />
+        <div v-if="initializedTabs['Translate']" v-show="currentTab === 'Translate'" key="tab-translate" class="full-height-vif">
+          <TranslateTab />
         </div>
-        <div v-show="currentTab === 'ConvertUI'" class="full-height-vif">
-          <ConvertTab v-if="initializedTabs['ConvertUI']" />
+        <div v-if="initializedTabs['ConvertUI']" v-show="currentTab === 'ConvertUI'" key="tab-convert" class="full-height-vif">
+          <ConvertTab />
         </div>
-        <div v-show="currentTab === 'Compare'" class="full-height-vif">
-          <CompareTab v-if="initializedTabs['Compare']" />
+        <div v-if="initializedTabs['Compare']" v-show="currentTab === 'Compare'" key="tab-compare" class="full-height-vif">
+          <CompareTab />
         </div>
-        <div v-show="currentTab === 'Editor'" class="full-height-vif">
-          <EditorTab v-if="initializedTabs['Editor']" />
+        <div v-if="initializedTabs['Editor']" v-show="currentTab === 'Editor'" key="tab-editor" class="full-height-vif">
+          <EditorTab />
         </div>
-        <div v-show="currentTab === 'Git'" class="full-height-vif">
-          <GitTab v-if="initializedTabs['Git']" />
+        <div v-if="initializedTabs['Git']" v-show="currentTab === 'Git'" key="tab-git" class="full-height-vif">
+          <GitTab />
         </div>
-        <div v-show="currentTab === 'FlowChart'" class="full-height-vif">
-          <FlowChartTab v-if="initializedTabs['FlowChart']" />
+        <div v-if="initializedTabs['FlowChart']" v-show="currentTab === 'FlowChart'" key="tab-flow" class="full-height-vif">
+          <FlowChartTab />
         </div>
-        <div v-show="currentTab === 'Chill'" class="full-height-vif">
-          <SmokeTab v-if="initializedTabs['Chill']" />
+        <div v-if="initializedTabs['Chill']" v-show="currentTab === 'Chill'" key="tab-chill" class="full-height-vif">
+          <SmokeTab />
         </div>
       </div>
     </main>
 
-    <!-- Settings Modal: Teleported to body for stability -->
     <Teleport to="body">
       <div v-if="showSettingsModal" class="modal-overlay" @mousedown.self="showSettingsModal = false">
         <div class="modal-content settings-modal-content" :class="{ 'win95-border': currentTheme === '95' }">
@@ -428,7 +426,6 @@ onMounted(() => {
       </div>
     </Teleport>
 
-    <!-- Chill Widget: Global smoking session -->
     <Teleport to="body">
       <div v-if="chillSettings.enableWidget" class="chill-widget-container">
         <Cigarette ref="chillWidgetRef" :is-widget="true" :force-smoking="isGlobalSmoking" />
@@ -439,7 +436,6 @@ onMounted(() => {
 </template>
 
 <style>
-/* No scroll on root */
 html, body {
   margin: 0;
   padding: 0;

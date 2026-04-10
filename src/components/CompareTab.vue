@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { sharedInput, sharedOutput, theme as globalTheme } from '../store';
+import { sharedInput, sharedOutput, theme as globalTheme, globalSearchQuery } from '../store';
 
 // The two sides of the diff
 const originalText = ref(sharedInput.value);
@@ -152,7 +152,6 @@ watch([originalText, modifiedText], () => {
   console.log('Compare Content changed in refs');
 }, { deep: true });
 
-// Toggle inline/split view
 const renderSideBySide = ref(true);
 const currentOptions = computed(() => ({
   ...DIFF_OPTIONS.value,
@@ -162,7 +161,6 @@ const currentOptions = computed(() => ({
 
 <template>
   <div class="compare-container">
-    <!-- Action Bar -->
     <header class="action-bar glass">
       <div class="toolbar-section">
         <span class="toolbar-title">CODE COMPARE</span>
@@ -192,7 +190,6 @@ const currentOptions = computed(() => ({
     </header>
 
     <main class="main-content">
-      <!-- Editor Area -->
       <div class="editor-wrapper glass">
         <VueMonacoDiffEditor
           :original="originalText"
@@ -207,7 +204,6 @@ const currentOptions = computed(() => ({
       </div>
     </main>
 
-    <!-- Copy Bubble -->
     <transition name="bubble">
       <div v-if="showCopyToast" class="copy-bubble" :style="{ left: copyPos.x + 'px', top: (copyPos.y - 30) + 'px' }">
         Copied!

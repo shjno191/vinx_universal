@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, reactive, onMounted, watch, nextTick } from "vue";
 
 import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals, chillSettings, triggerFlick, globalSearchQuery } from "./store";
@@ -426,8 +426,8 @@ onMounted(() => {
       </div>
     </Teleport>
 
-    <Teleport to="body">
-      <div v-if="chillSettings.enableWidget" class="chill-widget-container">
+        <Teleport to="body">
+      <div v-if="chillSettings && chillSettings.enableWidget" class="chill-widget-container">
         <Cigarette ref="chillWidgetRef" :is-widget="true" :force-smoking="isGlobalSmoking" />
       </div>
     </Teleport>

@@ -1,0 +1,851 @@
+ <%--
+  - ファイル名 : pdaDailyOrder.jsp
+  - タイトル   : PDA日配発注登録画面
+  - 説明       : PDA日配発注登録
+  - 著作権     : Copyright (c) 2024
+  - 会社名     : VINX CO., LTD.
+  - Author VINX
+  - Version 1.00 2024/11/01 VINX redmine#29914_不要コメント削除
+  - Version 1.01 2025/08/22 VINX redmine#37729_UI改善対応
+  - Version 1.02 2025/10/31 VINX redmine#38222_【製品投資】マルチテナント化対応（パラメータ化対応）　04.発注管理
+ --%>
+
+<%@ page language="java" %>
+<%@ page contentType="text/html; charset=Windows-31J" pageEncoding="Windows-31J" %>
+<%@ include file="commonLength.jsp" %>
+<%@ taglib uri="/WEB-INF/struts-html.tld" prefix="html" %>
+<%@ taglib uri="/WEB-INF/struts-bean.tld" prefix="bean" %>
+<%@ taglib uri="/WEB-INF/struts-logic.tld" prefix="logic" %>
+<%@ taglib uri="/WEB-INF/common-fvo.tld" prefix="fvo" %>
+<% response.setHeader("Cache-Control", "no-cache"); %>
+<% response.setDateHeader("Expires", 0); %>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" >
+<%@ page import="jp.co.vinculumjapan.swc.commons.resorces.ResorceUtil" %>
+<%@page import="jp.co.vinculumjapan.mdware.common.util.MultiBrowserUtils" %>
+<html:html>
+<%
+	//final String SYOHIN_LENGTH = ResorceUtil.getInstance().getPropertie("SYOHIN_LENGTH");
+	final String BIN_LENGTH = ResorceUtil.getInstance().getPropertie("BIN_LENGTH");
+	//final String MIN_DISP_SURYO_QT_LENGTH = ResorceUtil.getInstance().getPropertie("MIN_DISP_SURYO_QT_LENGTH");
+	//final String MIN_HACHU_SURYO_QT_LENGTH = ResorceUtil.getInstance().getPropertie("MIN_HACHU_SURYO_QT_LENGTH");
+	//final String HACHU_SURYO_QT_LENGTH = ResorceUtil.getInstance().getPropertie("HACHU_SURYO_QT_LENGTH");
+%>
+<head>
+<%@ include file="commonName.jsp" %>
+
+<meta http-equiv="X-UA-Compatible" content="IE=7">
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Cache-Control" content="no-cache"/>
+<meta http-equiv="Expires" content="Thu, 01 Dec 1994 16:00:00 GMT"/>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift_JIS"/>
+<link rel="stylesheet" href="css/common_pda.css" type="text/css"/>
+<script type="text/javascript" src="./JavaScriptValidator/FormValidationManager.js"></script>
+<script type="text/javascript" src="./clientscript/common.js"></script>
+<jsp:include page="/WEB-INF/jsp/commonscript.jsp"/>
+<title>PDA日配発注登録</title>
+<script type="text/javascript" src="./clientscript/dailyorder.js"></script>
+<script type="text/javascript" src="./clientscript/elements.js"></script>
+<style type="text/css">
+	span#message {
+		font-weight: bold;
+		color: #0000FF;
+	}
+
+	div[class^='pda_list'] * {
+		box-sizing: border-box;
+	}
+
+	table[class^='pda_list'] th {
+		background-color: #e3ede3;
+		font-size: 12px;
+		text-align: left;
+		border: solid 1px #cccccc;
+	}
+
+	table[class^='pda_list'] td {
+		text-align: center;
+		font-size: 10px;
+		border: solid 1px #cccccc;
+	}
+
+	table.pda_list1 th {
+		width: 60px;
+		border: solid 1px #cccccc;
+		border-right: none;
+	}
+
+	table.pda_list1 td {
+		height: 15px;
+		width: 180px;
+		border: solid 1px #cccccc;
+		text-align: left;
+		padding-left: 2px;
+	}
+
+	table.pda_list1 td.pda_list1_bin {
+		border-top: none;
+	}
+
+
+	table.pda_list1 th.pda_list1_bin {
+		border-top: none;
+	}
+
+	table.pda_list2 td.pda_list2_msg {
+		border-top: none;
+
+	}
+
+	table.pda_list3 td.pda_list3_result_data {
+		border: none;
+	}
+
+	table.pda_list3 td.pda_list3_syohin_na {
+		width: 220px;
+		text-align: left;
+	}
+
+	span#syohin_na {
+		padding: 0 2px;
+	}
+
+	table.pda_list3 td.pda_list3_auto_method_kb_na {
+		width: 20px;
+		border-left: none;
+		border-top: none;
+	}
+
+	span#auto_method_kb_na {
+		padding: 0 2px;
+	}
+
+	table.pda_list3 td.pda_list3_syohin_na2 {
+		width: 80px;
+		border-right: none;
+		border-top: none;
+		text-align: left;
+	}
+
+	span#syohin_na2 {
+		padding: 0 2px;
+	}
+
+	table.pda_list3 td.pda_list3_baitanka_vl {
+		width: 140px;
+		border-left: none;
+		border-top: none;
+		text-align: left;
+	}
+
+	span#baitanka_vl {
+		padding: 0 2px;
+	}
+
+	table.pda_list3 th.pda_list3_hachu_tani_qt {
+		width: 40px;
+		border-top: none;
+	}
+
+	table.pda_list3 td.pda_list3_hachu_tani_qt {
+		width: 40px;
+		text-align: center;
+		border-right: none;
+		border-top: none;
+		border-left: none;
+	}
+
+	table.pda_list3 th.pda_list3_min_disp_suryo_qt {
+		width: 40px;
+		border-top: none;
+	}
+
+	table.pda_list3 td.pda_list3_min_disp_suryo_qt {
+		width: 40px;
+		text-align: center;
+		border-right: none;
+		border-top: none;
+		border-left: none;
+	}
+
+	table.pda_list3 th.pda_list3_min_hachu_suryo_qt {
+		width: 40px;
+		border-top: none;
+	}
+
+	table.pda_list3 td.pda_list3_min_hachu_suryo_qt {
+		width: 40px;
+		text-align: center;
+		border-top: none;
+		border-left: none;
+	}
+
+	table.pda_list3 th.pda_list3_status {
+		width: 40px;
+		height: 70px;
+		border-top: none;
+	}
+
+	table.pda_list3 td.pda_list3_dt {
+		width: 50px;
+		border: none;
+	}
+
+
+	table.pda_list3 td.pda_list3_dt table td {
+		height: 70px;
+	}
+
+	table.pda_list3 td.pda_list3_dt > table {
+		width: 50px;
+		height: 90px;
+	}
+
+	table.pda_list3 td.pda_list3_dt > table th {
+		text-align: center;
+		border-left: none;
+		border-top: none;
+	}
+
+	table.pda_list3 td.pda_list3_dt > table td {
+		text-align: center;
+		border-left: none;
+		border-top: none;
+	}
+
+	table#paging tr {
+		height: 23px;
+	}
+
+	table.pda_list3 th.pda_list3_rank {
+		width: 40px;
+		border-top: none;
+	}
+
+	div.pda_list3 td.pda_list3_abc_kb {
+		width: 100px;
+		border-left: none;
+		border-top: none;
+	}
+
+	table.pda_list3 td.pda_list3_btn {
+		width: 100px;
+		padding-left: 1px;
+		border-left: none;
+		border-top: none;
+	}
+
+	table.pda_list3 td.pda_list3_syohin_info {
+		border: none !important;
+	}
+
+	table.pda_list3 td.pda_list3_footer_result {
+		border: none !important;
+	}
+
+	table.pda_list4 {
+		margin-top: 2px;
+	}
+
+	table.pda_list4 td {
+		width: 80px;
+		border: none;
+		text-align: unset;
+	}
+
+	input {
+		vertical-align: middle;
+	}
+
+	input[name^="syohin_cd"] {
+		width: 175px;
+	}
+
+	input[name^="text_bin_kb"] {
+		width: 125px;
+	}
+
+	input[name^="min_disp_suryo_qt"] {
+		width: 35px;
+		text-align: right;
+	}
+
+	input[name^="min_hachu_suryo_qt"] {
+		width: 35px;
+		text-align: right;
+	}
+	span#abc_kb {
+		color: #606060;
+		font-weight: bold;
+	}
+
+	span.today {
+		background-color: #FFFF00;
+		font-weight: bold;
+		display: inline-block;
+		width: 100%;
+		height: 100%;
+		align-content: center;
+	}
+
+	/* 土曜日 */
+	span.saturday {
+		color: teal;
+		font-weight: bold;
+		display: inline-block;
+	}
+
+	/* 日曜日 */
+	span.sunday {
+		color: #FF0000;
+		font-weight: bold;
+	}
+
+	span[id*="nohin_dt_area"] {
+		padding: 0 2px;
+		text-align: center;
+	}
+
+	span[id*="nohin_dt_area"] span {
+		text-align: right;
+		width: 45px;
+		height: 18px;
+		display: inline-flex;
+		align-items: self-end;
+		justify-content: flex-end;
+	}
+
+	span[id*="nohin_dt_area"] span[id$="hachu_na"] span {
+		text-align: center;
+	}
+
+	span[id*="nohin_dt_area"] span[id$="hachu_na"]  {
+		justify-content: center;
+	}
+
+
+	input[name*="hachu_suryo_qt"] {
+		width: 45px;
+		text-align: right;
+		height: 18px;
+	}
+
+</style>
+<script type="text/JavaScript">
+	// URL
+	var ORDERCOMMON_ROOT_URL = '<%= ResorceUtil.getInstance().getPropertie("ORDERCOMMON_ROOT_URL") %>';
+	var MSG_HACHU_TANI_DIFF_ARM = '<%= ResorceUtil.getInstance().getMessage("HACHU_TANI_DIFF_ARM") %>';
+
+	// 先頭オブジェクト名
+	var headObject = "syohin_cd";
+	// 最終オブジェクト名
+	var lastObject = "menu_button";
+
+	// ページ初期化メソッドを追加
+	dailyorder_addEvent(window, 'load', body_onLoad);
+
+	function pre_doAction(arg) {
+
+		// 発注数量欄でEnter押下時に限り、tab遷移動作を実現する為に、Enter自動submit機能を回避。
+		if (elements_getElementById('pre_method_name').value == "tab") {
+			elements_getElementById('pre_method_name').value = "";
+			return false;
+		}
+
+		// confirm後の再ポストバック用に直前のアクション名を退避
+		elements_getElementById('pre_method_name').value = arg.name;
+	}
+
+	/*
+	 * onkeydown 個別実装（共通処理を上書きイメージ）
+	 */
+	function preKeydown() {
+
+		switch (event.keyCode) {
+			case 13: // Enter
+				// 発注数量欄でEnter押下時に限り、tab遷移動作を実現する為に、Enter自動submit機能回避用に"tab"をセット。
+				var syohin_cd = elements_getElementById('syohin_cd');
+				if (document.activeElement == syohin_cd) {
+					elements_getElementById('search_button').click();
+					return false;
+				}
+				break;
+			case 121 : // F10 スキャナー取込のトリガーキーコードと重複する為
+				return false;
+		}
+
+		return true;
+	}
+
+	/*
+	 * 商品コード欄にフォーカスを移すと全選択
+	 */
+	function syohinCdSelect() {
+		var syohin_cd = elements_getLevelElementById(window.event.srcElement, 'syohin_cd');
+		syohin_cd.select();
+	}
+
+	/*
+	 * 登録数欄にフォーカスを移すと全選択
+	 */
+	function hachuQtSelect() {
+		var hachu_suryo_qt = elements_getLevelElementById(window.event.srcElement, 'hachu_suryo_qt');
+		hachu_suryo_qt.select();
+	}
+
+	/*
+	 * 通常と異なる発注単位チェック
+	 */
+	function chkHachuTani(arg) {
+		var targetName = arg.name;
+
+		var targetRowIndex = targetName.split("[")[1].split("]")[0];    // RowIndex部分を抽出 meisai_result_rows[0].meisai_nohin_cols[1].headerhachutani → 0
+		var targetColIndex = targetName.split("[")[2].split("]")[0];    // ColIndex部分を抽出 meisai_result_rows[0].meisai_nohin_cols[1].headerhachutani → 1
+
+		var rowsName = "rows";
+		var colsName = "cols";
+
+		var headerHachuTani = elements_getElementById(rowsName + "[" + targetRowIndex + "]." + colsName + "[" + targetColIndex + "].headerhachutani").innerText;
+		var meisaiHahuTani = elements_getElementById(rowsName + "[" + targetRowIndex + "]." + colsName + "[" + targetColIndex + "].meisaihachutani").innerText;
+
+		if (meisaiHahuTani != "0") {
+			if (headerHachuTani != meisaiHahuTani) {
+				alert(MSG_HACHU_TANI_DIFF_ARM.replace("{0}", meisaiHahuTani));
+			}
+		}
+	}
+
+
+	/*
+	 * 休止区分用ラベル押下
+	 */
+	function kyushikbLabel_onClick() {
+		if (!elements_getElementsByName('kyushi_kb').disabled) {
+			if (elements_getElementsByName('kyushi_kb').checked == true) {
+				elements_getElementsByName('kyushi_kb').checked = false;
+			} else {
+				elements_getElementsByName('kyushi_kb').checked = true;
+			}
+		}
+	}
+
+	/*
+	 * キーダウン
+	 */
+	function keyDown(arg) {
+
+		var kc = window.event.keyCode;
+
+		if (event.keyCode == 32) {
+			if (window.event.srcElement.tagName == 'IMG' && window.event.srcElement.onclick != null) {
+				window.event.srcElement.click();
+				return false;
+			}
+		}
+
+		switch (kc) {
+			case 13: // Enter
+				// 発注数量欄でEnter押下時に限り、tab遷移動作を実現する為に、Enter自動submit機能回避用に"tab"をセット。
+				elements_getElementById('pre_method_name').value = "tab";
+				moveFocus(arg, 'NEXT');
+				break;
+
+			case 38: // ↑
+				// 発注窓がフォーカスを失う前に当ロジックに入る為、ここでも発単へ変換
+
+				if (elements_getElementById('syohin_prev_button').disabled) {
+					elements_getElementById('update_button').click();
+				} else {
+					elements_getElementById('syohin_prev_button').click();
+				}
+				break;
+
+
+			case 40: // ↓
+				// 発注窓がフォーカスを失う前に当ロジックに入る為、ここでも発単へ変換
+
+				if (elements_getElementById('syohin_next_button').disabled) {
+					elements_getElementById('update_button').click();
+				} else {
+					elements_getElementById('syohin_next_button').click();
+				}
+				break;
+
+			default:
+		}
+	}
+
+	/*
+	 * 登録数欄の間でフォーカスをくるくる遷移させる。
+	 * [0-0][0-1][0-2][0-3]
+	 * [1-0][1-1][1-2][1-3]
+	 */
+	function moveFocus(arg, mode) {
+
+		var targetName = arg.name;
+
+		var targetRowIndex = targetName.split("[")[1].split("]")[0];    // RowIndex部分を抽出 meisai_result_rows[0].meisai_nohin_cols[1].headerhachutani → 0
+		var targetColIndex = targetName.split("[")[2].split("]")[0];    // ColIndex部分を抽出 meisai_result_rows[0].meisai_nohin_cols[1].headerhachutani → 1
+
+		if (mode == 'NEXT') {
+			// 次の入力欄へカーソル遷移
+			setFocusNext(targetRowIndex, targetColIndex);
+		} else {
+			// 前の入力欄へカーソル遷移
+			setFocusPrev(targetRowIndex, targetColIndex);
+		}
+	}
+
+	/*
+	 * ↓ボタン押下時、Tab 遷移状態を再現
+	 */
+	function setFocusNext(targetRowIndex, targetColIndex) {
+
+		targetRowIndex = parseInt(targetRowIndex, 10);
+		targetColIndex = parseInt(targetColIndex, 10);
+
+		// key押下時から1つ進んだ入力位置を計算
+		if (targetColIndex == 3) {
+			targetColIndex = 0;
+			if (targetRowIndex == 1) {
+				targetRowIndex = 0;
+			} else {
+				targetRowIndex = targetRowIndex + 1;
+			}
+		} else {
+			targetColIndex = targetColIndex + 1;
+		}
+
+		// 入力欄が非表示の場合は、フォーカスセット可能な入力欄を探す
+		for (rowNext = targetRowIndex; rowNext < 2; rowNext++) {
+			for (colNext = targetColIndex; colNext < 4; colNext++) {
+				var hachuSuryoQt = elements_getElementById("rows[" + String(rowNext) + "].cols[" + String(colNext) + "].hachu_suryo_qt.value");
+				if (hachuSuryoQt.style.display != 'none') {
+
+					// 何らかのkey押下時にはonblurイベントが発生しているが、
+					// その際、focus設定が正常に動作しない。
+					// setTimeoutで回避している。。
+					//setTimeout(function(){
+					//  hachuSuryoQt.focus();
+					//}, 1);
+					return;
+				}
+			}
+
+			// 列位置を左端に戻す
+			targetColIndex = 0;
+
+			if (rowNext == 1) {
+				// 行位置を１行目に戻す
+				rowNext = -1; // 次の増分で0となる
+			}
+		}
+	}
+
+	/*
+	 * ↑ボタン押下時、Shift + Tab 遷移状態を再現
+	 */
+	function setFocusPrev(targetRowIndex, targetColIndex) {
+
+		targetRowIndex = parseInt(targetRowIndex, 10);
+		targetColIndex = parseInt(targetColIndex, 10);
+
+		if (targetColIndex == 0) {
+			targetColIndex = 3;
+			if (targetRowIndex == 0) {
+				targetRowIndex = 1;
+			} else {
+				targetRowIndex = targetRowIndex - 1;
+			}
+		} else {
+			targetColIndex = targetColIndex - 1;
+		}
+
+		for (rowPrev = targetRowIndex; rowPrev > -1; rowPrev--) {
+			for (colPrev = targetColIndex; colPrev > -1; colPrev--) {
+				var hachuSuryoQt = elements_getElementById("rows[" + String(rowPrev) + "].cols[" + String(colPrev) + "].hachu_suryo_qt.value");
+				if (hachuSuryoQt.style.display != 'none') {
+					//setTimeout(function(){hachuSuryoQt.focus();}, 1);
+					return;
+				}
+			}
+			targetColIndex = 3;
+			if (rowPrev == 0) {
+				rowPrev = 2;
+			}
+		}
+	}
+
+	/*
+	 * window.confirm()=ok 時の再ポスト（引数が指定できない為、個別にfuncを作成）
+	 */
+	function this_confirmedPostBack() {
+
+		elements_getElementById('confirmedserial').checked = true;
+		elements_getElementById('confirmedtorokuqt').checked = true;
+
+		var preMethodName = elements_getElementById('pre_method_name').value;
+		elements_getElementById(preMethodName).click();
+	}
+
+	/*
+	 * window.confirm()=ok 時の再ポスト（引数が指定できない為、個別にfuncを作成）
+	 */
+	function this_confirmedSerialPostBack() {
+
+		elements_getElementById('confirmedserial').checked = true;
+
+		var preMethodName = elements_getElementById('pre_method_name').value;
+		elements_getElementById(preMethodName).click();
+	}
+
+	/*
+	 * window.confirm()=ok 時の再ポスト（引数が指定できない為、個別にfuncを作成）
+	 */
+	function this_confirmedTorokuqtPostBack() {
+
+		elements_getElementById('confirmedtorokuqt').checked = true;
+
+		var preMethodName = elements_getElementById('pre_method_name').value;
+		elements_getElementById(preMethodName).click();
+	}
+
+	/*
+	 * window.confirm()=ok 時の再ポスト（引数が指定できない為、個別にfuncを作成）
+	 */
+	function this_confirmedExitPostBack() {
+
+		window.close();
+	}
+
+	/*
+     * window.confirm()=ok 時の再ポスト（引数が指定できない為、個別にfuncを作成）
+     * 直前に退避していたアクションのボタンをスクリプトで再度押下
+     */
+	function this_confirmedNewSyohinCdOkPostBack() {
+
+		elements_getElementById('confirmNewSyohinCd').checked = true;
+
+		var preMethodName = elements_getElementById('pre_method_name').value;
+		elements_getElementById(preMethodName).click();
+	}
+
+	/*
+     * window.confirm()=cancel 時の再ポスト（引数が指定できない為、個別にfuncを作成）
+     * 直前に退避していたアクションのボタンをスクリプトで再度押下
+     */
+	function this_confirmedNewSyohinCdNgPostBack() {
+
+		elements_getElementById('confirmNewSyohinCd').checked = false;
+
+		var preMethodName = elements_getElementById('pre_method_name').value;
+		elements_getElementById(preMethodName).click();
+	}
+
+	/*
+	 * モーダルダイアログの表示.
+	 * サーバサイドで指定した｢アクション｣｢幅｣｢高さ｣で表示
+	 */
+	function this_showModalDialog() {
+		var modalDialogUrl = elements_getElementById('modal_dialog_url').value;
+		var modalDialogWidth = elements_getElementById('modal_dialog_width').value;
+		var modalDialogHeight = elements_getElementById('modal_dialog_height').value;
+		if (modalDialogUrl != '') {
+			elements_getElementById('modal_dialog_url').value = '';
+			window.open(modalDialogUrl, '', 'width=' + modalDialogWidth + ', height=' + modalDialogHeight);
+		}
+	}
+
+	/*
+	 * ページ初期化
+	 */
+	function body_onLoad() {
+
+		// 閉じるフラグが立ってたら閉じる
+
+		if (elements_getElementById('isclose').checked) {
+
+			elements_getElementById('isclose').checked = false;
+			window.close();
+		}
+
+		this_showModalDialog();
+	}
+</script>
+</head>
+
+<body onload="initForm();" onfocus="onFocusForm();">
+
+<html:form action="pdaDailyOrder" method="post">
+	<table cellspacing="0" cellpadding="0" width="100%" border="0">
+		<tr>
+			<td>
+				<jsp:include page="PDAheader.jsp">
+					<jsp:param name="PARAM" value="PDA日配発注登録"/>
+				</jsp:include>
+			</td>
+		</tr>
+		<tr>
+			<td align="center" valign="top">
+				<!-- ↓商品情報 -->
+				<div class="pda_list1">
+					<table border="0" cellspacing="0" cellpadding="0" class="pda_list1">
+						<tr>
+							<th nowrap class="pda_list1_syohin">&nbsp;商品</th>
+							<td class="pda_list1_syohin">
+								<fvo:text tabindex="1" maxlength='<%= cmnLenSyohin%>' onblur="syohinOnblur(this);" onfocus="syohinCdSelect();" property='syohin_cd'/>
+							</td>
+						</tr>
+						<tr>
+							<th nowrap class="pda_list1_bin">&nbsp;便</th>
+							<td nowrap class="pda_list1_bin">
+								<fvo:text tabindex="2" maxlength='<%=BIN_LENGTH%>' property='text_bin_kb'/>
+								<fvo:submit tabindex="-1" value="検索" onclick="return doAction(this);" property='search_button' styleClass="pda_btn"/>
+							</td>
+						</tr>
+					</table>
+				</div>
+				<div class="pda_list2">
+					<table class="pda_list2" cellpadding="0" cellspacing="0" border="0">
+						<tr>
+							<td align="center" class="pda_list2_msg"><fvo:span property='message'/></td>
+						</tr>
+					</table>
+				</div>
+
+				<!-- ↓検索結果 -->
+				<div class="pda_list3">
+					<fvo:span property='result_area'>
+						<table cellspacing="0" cellpadding="0" border="0" class="pda_list3">
+							<tr>
+								<td class="pda_list3_syohin_info">
+									<table cellpadding="0" cellspacing="0" border="0">
+										<tr>
+											<td colspan="2" style="border-top: none" class="pda_list3_syohin_na">
+												<fvo:span property='syohin_na'/>
+												<fvo:span style="display: none;" property='hdn_tenpo_cd'/>
+												<fvo:span style="display: none;" property='hdn_syohin_cd'/>
+												<fvo:span style="display: none;" property='hdn_meisai_kb'/>
+											</td>
+										</tr>
+										<tr>
+											<td class="pda_list3_syohin_na2">
+												<fvo:span property='syohin_na2'/>
+											</td>
+											<td class="pda_list3_baitanka_vl">
+												<fvo:span property='baitanka_vl'/>
+											</td>
+										</tr>
+									</table>
+								</td>
+								<td class="pda_list3_auto_method_kb_na">
+									<fvo:span property='auto_method_kb_na'/>
+								</td>
+							</tr>
+						</table>
+						<table class="pda_list3" cellpadding="0" cellspacing="0" border="0">
+							<tr>
+								<th nowrap class="pda_list3_hachu_tani_qt">&nbsp;発単</th>
+								<td align="center" class="pda_list3_hachu_tani_qt"><fvo:span property='hachu_tani_qt'/></td>
+								<th nowrap class="pda_list3_min_disp_suryo_qt" style="text-align: center">最陳</th>
+								<td align="center" class="pda_list3_min_disp_suryo_qt"><fvo:text tabindex="-1" maxlength='<%= cmnLenMinDispSuryoQt%>' property='min_disp_suryo_qt' /></td>
+								<th nowrap class="pda_list3_min_hachu_suryo_qt" style="text-align: center">最発</th>
+								<td class="pda_list3_min_hachu_suryo_qt"><fvo:text tabindex="-1" maxlength='<%= cmnLenMinHachuSuryoQt%>' property='min_hachu_suryo_qt' /></td>
+							</tr>
+						</table>
+						<!-- ↑商品情報 -->
+						<table border="0" cellspacing="0" cellpadding="0" class="pda_list3">
+							<logic:iterate name="PdaDailyOrderForm" property='rows' id="rows" indexId="rowsindex" type="jp.co.vinculumjapan.mdware.dailyorder.struts.form.rows.PdaDailyOrderFormRowsBean">
+								<tr>
+									<td class="pda_list3_result_data">
+										<table cellpadding="0" cellspacing="0" border="0">
+											<tr>
+												<th nowrap style="border-top: none"></th>
+												<logic:iterate name="rows" property='cols' id="cols" indexId="colsindex" type="jp.co.vinculumjapan.mdware.dailyorder.struts.form.rows.PdaDailyOrderFormRowsColsBean">
+													<td rowspan="2" class="pda_list3_dt">
+														<table cellpadding="0" cellspacing="0" border="0">
+															<tr>
+																<th>
+																	<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].todaybgcolor"%>'>
+																		<fvo:text tabindex="-1" style="display: none;" property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].nohin_dt"%>'/>
+																		<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].day"%>'/>&nbsp;
+																		<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].week_day"%>'/>
+																	</fvo:span>
+																</th>
+															</tr>
+															<tr>
+																<td>
+																	<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].nohin_dt_area"%>'>
+																		<fvo:text maxlength='<%= cmnLenHachuSuryoQt%>' onfocus="hachuQtSelect();" onkeydown="keyDown(this);" property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].hachu_suryo_qt"%>' />
+																		<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].nohin_qt"%>'/>
+																		<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].hachu_na"%>'/>
+																		<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].kankoku_suryo_qt"%>'/>
+																		<fvo:span property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].yosoku_suryo_qt"%>'/>
+																		<fvo:span style="display: none;" property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].zaiko_suryo_qt"%>'/>
+																		<fvo:span style="display: none;" property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].headerhachutani"%>'/>
+																		<fvo:span style="display: none;" property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].meisaihachutani"%>'/>
+																		<fvo:span style="display: none;" property='<%="rows[" + rowsindex + "].cols[" + colsindex + "].max_hachu_qt"%>'/>
+																	</fvo:span>
+																</td>
+															</tr>
+														</table>
+													</td>
+												</logic:iterate>
+											</tr>
+											<tr>
+												<th class="pda_list3_status">&nbsp;納品<br>&nbsp;予発<br>&nbsp;予販</th>
+											</tr>
+										</table>
+									</td>
+								</tr>
+							</logic:iterate>
+							<tr>
+								<td class="pda_list3_footer_result">
+									<table id="paging" class="pda_list3" cellpadding="0" cellspacing="0" border="0">
+										<tr>
+											<th nowrap class="pda_list3_rank">ランク</th>
+											<td class="pda_list3_abc_kb">
+												<fvo:span property='abc_kb'/>
+											</td>
+											<td class="pda_list3_btn">
+												<fvo:submit value="日戻し" onclick="return doAction(this);" property='prevdaybutton' styleClass="pda_btn"/>
+												<fvo:submit value="日送り" onclick="return doAction(this);" property='nextdaybutton' styleClass="pda_btn"/>
+											</td>
+										</tr>
+									</table>
+								</td>
+							</tr>
+						</table>
+					</fvo:span>
+				</div>
+				<!-- ↑検索結果 -->
+				<!-- ↓ボタン類 -->
+				<div class="pda_list4">
+					<table border="0" cellspacing="0" cellpadding="0" class="pda_list4">
+						<tr>
+							<td align="left">
+								<fvo:span property='kyushi_area'>
+									<fvo:checkbox tabindex="-1" value="1" property='kyushi_kb'/><label onclick="kyushikbLabel_onClick();"> 休止 </label>
+								</fvo:span>
+							</td>
+							<td style="text-align: center"><fvo:submit tabindex="-1" value="登録" onclick="return doAction(this);" property='update_button' styleClass="pda_btn"/></td>
+							<td style="text-align: right"><fvo:submit tabindex="-1" value="戻る" onclick="return doAction(this);" property='menu_button' styleClass="pda_btn"/>&nbsp;</td>
+						</tr>
+					</table>
+				</div>
+				<!-- ↑ボタン類 -->
+			</td>
+		</tr>
+	</table>
+	<fvo:text tabindex="-1" style="display: none;" property='modal_dialog_url'/>
+	<fvo:text tabindex="-1" style="display: none;" property='modal_dialog_width'/>
+	<fvo:text tabindex="-1" style="display: none;" property='modal_dialog_height'/>
+	<fvo:text tabindex="-1" style="display: none;" property='pre_method_name'/>
+	<fvo:checkbox tabindex="-1" style="display: none;" value="1" property='confirmedserial'/>
+	<fvo:checkbox tabindex="-1" style="display: none;" value="1" property='confirmedtorokuqt'/>
+	<fvo:checkbox tabindex="-1" style="display: none;" value="1" property='isclose'/>
+	<fvo:checkbox tabindex="-1" style="display: none;" value="1" property='confirmNewSyohinCd'/>
+	<fvo:text tabindex="-1" style="display: none;" property='new_syohin_cd'/>
+</html:form>
+</body>
+
+</html:html>

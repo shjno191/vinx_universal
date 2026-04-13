@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -12,8 +12,9 @@ const categories = [
   { id: 'translate', name: 'Translate', icon: '\u{1F310}' },
   { id: 'editor', name: 'Editor', icon: '\u{1F4DD}' },
   { id: 'shortcut', name: 'Shortcut', icon: '\u2328\uFE0F' },
-  { id: 'ai', name: 'AI', icon: '🤖' },
-  { id: 'chill', name: 'Chill', icon: '🚬' },
+  { id: 'ai', name: 'AI', icon: '\u{1F916}' },
+  { id: 'chill', name: 'Chill', icon: '\u{1F6AC}' },
+  { id: 'convert', name: 'Convert UI', icon: '\u{1F504}' },
 ];
 
 const currentCategory = ref('general');
@@ -39,6 +40,17 @@ const settings = ref({
     shortcutFlick: 'ctrl+space+space',
     burnTimeMinutes: 5,
     enableWidget: false
+  },
+  ai: {
+    provider: 'gemini',
+    geminiKey: '',
+    geminiModel: 'gemini-1.5-flash',
+    openaiKey: '',
+    openaiModel: 'gpt-4o-mini',
+    claudeKey: '',
+    claudeModel: 'claude-3-haiku-20240307',
+    ollamaUrl: 'http://localhost:11434/api/generate',
+    ollamaModel: 'llama3',
   }
 });
 
@@ -76,14 +88,12 @@ const handleShortcutKey = (key: string, e: KeyboardEvent) => {
     return;
   }
 
-  // Define modifier keys to ignore as standalone keys, but track them as modifiers
   const modifiers = ['control', 'shift', 'alt', 'meta'];
-  if (modifiers.includes(k)) return; // Wait for a non-modifier key
+  if (modifiers.includes(k)) return;
   
   const forbidden = ['capslock', 'tab', 'enter', 'backspace'];
   if (forbidden.includes(k)) return;
   
-  // Only allow arrows for specific shortcuts (prev/next tab)
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
     if (!isRecording.value.includes('tab')) return;
   }
@@ -97,133 +107,43 @@ const handleShortcutKey = (key: string, e: KeyboardEvent) => {
   parts.push(k);
   const newShortcut = parts.join('+');
   
-  if (!settings.value.shortcuts) {
-    settings.value.shortcuts = { 
-      focus_search: 'ctrl+f', 
-      open_settings: 'ctrl+shift+s', 
-      open_file: 'ctrl+o',
-      prev_tab: 'ctrl+arrowleft',
-      next_tab: 'ctrl+arrowright'
-    };
+  if (settings.value.shortcuts) {
+    (settings.value.shortcuts as any)[isRecording.value] = newShortcut;
+    saveSettings();
   }
-  
-  if (isRecording.value.startsWith('chill_')) {
-    const key = isRecording.value.replace('chill_', '');
-    (settings.value.chill as any)[key] = newShortcut;
-    (chillSettings.value as any)[key] = newShortcut;
-  } else {
-    // 1. Update component state
-    (settings.value.shortcuts as any)[key] = newShortcut;
-    
-    // 2. Sync to global store immediately for real-time app update
-    (globalShortcuts.value as any)[key] = newShortcut;
-  }
-  
-  // 3. Save to persistent storage
-  saveSettings();
-  
   isRecording.value = null;
 };
 
-const updateEditorSettings = () => {
-    editorSettings.value = { ...settings.value.editor };
-    saveSettings();
-};
-
-const loadSettings = async () => {
+const refreshSettings = async () => {
   try {
-    const raw = await invoke('get_settings') as string;
-    const s = JSON.parse(raw || "{}");
-    if (s) {
-      if (s.theme) {
-        settings.value.theme = s.theme;
-        theme.value = s.theme;
-      }
-      if (s.dictionary_path) settings.value.dictionary_path = s.dictionary_path;
-      if (s.shortcuts) {
-        // Deep merge to ensure new default keys (like prev_tab) are present even if not in saved file
-        settings.value.shortcuts = { 
-          ...settings.value.shortcuts, 
-          ...s.shortcuts 
-        };
-        globalShortcuts.value = { 
-          ...globalShortcuts.value, 
-          ...s.shortcuts 
-        };
-      }
-      if (s.editor) {
-        settings.value.editor = { ...settings.value.editor, ...s.editor };
-        editorSettings.value = { ...editorSettings.value, ...s.editor };
-      }
-      if (s.last_project_root) settings.value.last_project_root = s.last_project_root;
-      if (s.last_git_repo) settings.value.last_git_repo = s.last_git_repo;
-      if (s.chill) {
-        settings.value.chill = { ...settings.value.chill, ...s.chill };
-        chillSettings.value = { ...chillSettings.value, ...s.chill };
-      }
-    }
+    const s = await invoke('get_settings') as any;
+    settings.value = s;
+    globalShortcuts.value = s.shortcuts;
+    editorSettings.value = s.editor;
+    theme.value = s.theme;
+    aiSettings.value = s.ai;
+    chillSettings.value = s.chill;
   } catch (e) {
-    console.error('Failed to load settings', e);
+    console.error('Failed to get settings:', e);
   }
 };
 
-const chooseDictionaryFile = async () => {
-  try {
-    const selected = await open({
-      multiple: false,
-      filters: [{
-        name: 'Excel Files',
-        extensions: ['xlsx', 'xls']
-      }]
-    });
-    
-    if (selected && typeof selected === 'string') {
-      settings.value.dictionary_path = selected;
-      await saveSettings();
-    }
-  } catch (e) {
-    console.error('Failed to open file dialog', e);
-  }
-};
+onMounted(() => {
+  refreshSettings();
+});
 
 const saveSettings = async () => {
   try {
-    theme.value = settings.value.theme as any;
-    const toSave = { ...settings.value };
-    await invoke('save_settings', { settings: JSON.stringify(toSave, null, 2) });
+    await invoke('save_settings', { settings: settings.value });
+    globalShortcuts.value = settings.value.shortcuts;
+    editorSettings.value = settings.value.editor;
+    theme.value = settings.value.theme;
+    aiSettings.value = settings.value.ai;
+    chillSettings.value = settings.value.chill;
     triggerSettingsRefresh.value++;
     emit('theme-changed', settings.value.theme);
   } catch (e) {
-    console.error('Failed to save settings', e);
-  }
-};
-
-
-// ── AI Settings ────────────────────────────────────────────────────────────────
-const aiSaveStatus = ref<'idle' | 'saving' | 'saved'>('idle');
-
-const saveAISettings = () => {
-  aiSaveStatus.value = 'saving';
-  // Persist to localStorage for simplicity (keys should not go to server-side settings)
-  try {
-    localStorage.setItem('ai_settings', JSON.stringify(aiSettings.value));
-    aiSaveStatus.value = 'saved';
-    setTimeout(() => { aiSaveStatus.value = 'idle'; }, 2000);
-  } catch (e) {
-    console.error('Failed to save AI settings', e);
-    aiSaveStatus.value = 'idle';
-  }
-};
-
-const loadAISettings = () => {
-  try {
-    const stored = localStorage.getItem('ai_settings');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      aiSettings.value = { ...aiSettings.value, ...parsed };
-    }
-  } catch (e) {
-    console.error('Failed to load AI settings', e);
+    console.error('Failed to save settings:', e);
   }
 };
 
@@ -231,13 +151,26 @@ const openSettingsFile = async () => {
   try {
     await invoke('open_settings_file');
   } catch (e) {
-    console.error('Failed to open settings file', e);
+    console.error('Failed to open settings file:', e);
   }
 };
 
-const refreshSettings = async () => {
-  await loadSettings();
-  emit('theme-changed', settings.value.theme);
+const pickDictionary = async () => {
+  try {
+    const selected = await openDialog({
+      multiple: false,
+      filters: [{
+        name: 'Excel',
+        extensions: ['xlsx', 'xls']
+      }]
+    });
+    if (selected) {
+      settings.value.dictionary_path = Array.isArray(selected) ? selected[0] : selected;
+      saveSettings();
+    }
+  } catch (e) {
+    console.error('Failed to pick dictionary:', e);
+  }
 };
 
 const downloadTemplate = async () => {
@@ -267,11 +200,10 @@ const downloadTemplate = async () => {
         path: chosenPath, 
         data: Array.from(uint8) 
       });
-      alert('Template saved successfully to: ' + chosenPath);
+      alert('Template saved successfully!');
     }
   } catch (e) {
     console.error('Failed to save template:', e);
-    alert('Failed to save template: ' + e);
   }
 };
 
@@ -283,86 +215,74 @@ defineExpose({
 
 watch(showSettingsTrigger, (val) => {
   if (val && val.category) {
-    currentCategory.value = val.category;
+    currentCategory.value = val.category as any;
   }
-});
-
-onMounted(() => {
-  loadSettings();
-  loadAISettings();
 });
 </script>
 
 <template>
   <div class="settings-layout">
     <aside class="settings-sidebar">
-      <button 
-        v-for="cat in categories" 
-        :key="cat.id"
-        @click="currentCategory = cat.id"
-        class="category-btn"
-        :class="{ 'active': currentCategory === cat.id }"
-      >
-        <span class="cat-icon">{{ cat.icon }}</span>
-        <span class="cat-name">{{ cat.name }}</span>
+      <button v-for="cat in categories" :key="cat.id" class="category-btn" :class="{ active: currentCategory === cat.id }" @click="currentCategory = cat.id as any">
+        <span class="category-icon">{{ cat.icon }}</span>
+        {{ cat.name }}
       </button>
     </aside>
 
-    <main class="settings-content">
+    <main v-if="settings && settings.editor" class="settings-content">
       <div v-show="currentCategory === 'general'" class="settings-section">
         <div class="setting-item">
           <label>Theme</label>
-          <select v-model="settings.theme" @change="saveSettings" class="theme-select">
-            <option value="dark">Dark (Modern)</option>
-            <option value="light">Light</option>
+          <select v-model="settings.theme" class="theme-select" @change="saveSettings">
+            <option value="dark">Dark Mode</option>
+            <option value="light">Light Mode</option>
             <option value="95">Windows 95</option>
           </select>
         </div>
-      </div>
 
-      <div v-show="currentCategory === 'translate'" class="settings-section">
         <div class="setting-item-vertical">
-          <label>Dictionary Excel File (JP, EN, VI)</label>
+          <label>Translation Dictionary (.xlsx)</label>
           <div class="path-picker">
-            <input v-model="settings.dictionary_path" placeholder="Path to excel file..." class="theme-input path-input" readonly />
-            <button @click="chooseDictionaryFile" class="theme-button">Browse...</button>
+            <input v-model="settings.dictionary_path" type="text" class="text-input path-input" readonly placeholder="No dictionary selected..." />
+            <button class="save-all-btn" @click="pickDictionary">Browse</button>
           </div>
           <div class="helper-actions">
-            <button @click="downloadTemplate" class="text-link-btn">Download Excel Template</button>
+             <button class="text-link-btn" @click="downloadTemplate">Download Template</button>
           </div>
+        </div>
+        
+        <div class="setting-item">
+          <label>Open Config Folder</label>
+          <button class="save-all-btn" @click="openSettingsFile">Open Folder</button>
         </div>
       </div>
 
       <div v-show="currentCategory === 'editor'" class="settings-section">
         <div class="setting-item-vertical">
-          <label>Mouse Features</label>
+          <label>Editor Behavior</label>
           <div class="setting-checkbox-list">
-            <div class="checkbox-row">
-              <label class="checkbox-container">
-                <input type="checkbox" v-model="settings.editor.middleClickClose" @change="updateEditorSettings" />
-                <span class="checkmark"></span>
-                Middle-click to close tab
-              </label>
-            </div>
-            <div class="checkbox-row">
-              <label class="checkbox-container">
-                <input type="checkbox" v-model="settings.editor.doubleClickNewTab" @change="updateEditorSettings" />
-                <span class="checkmark"></span>
-                Double-click on tab bar to create tab
-              </label>
-            </div>
-            <div class="checkbox-row">
-              <label class="checkbox-container">
-                <input type="checkbox" v-model="settings.editor.mouseNavHistory" @change="updateEditorSettings" />
-                <span class="checkmark"></span>
-                Mouse Button 4/5 for navigation
-              </label>
-            </div>
+            <label class="checkbox-container">
+              <input type="checkbox" v-model="settings.editor.middleClickClose" @change="saveSettings" />
+              <span class="checkmark"></span>
+              Middle click to close tab
+            </label>
+            <label class="checkbox-container">
+              <input type="checkbox" v-model="settings.editor.doubleClickNewTab" @change="saveSettings" />
+              <span class="checkmark"></span>
+              Double click bar to open new tab
+            </label>
+            <label class="checkbox-container">
+              <input type="checkbox" v-model="settings.editor.mouseNavHistory" @change="saveSettings" />
+              <span class="checkmark"></span>
+              Mouse back/forward buttons for tab history
+            </label>
           </div>
         </div>
+      </div>
 
+      <div v-show="currentCategory === 'shortcut'" class="settings-section">
         <div class="setting-item-vertical">
-          <label>Editor Shortcuts</label>
+          <label>Editor Shortcuts (Click to change)</label>
           <div class="shortcut-list">
             <div class="shortcut-row" @click="startRecording('open_file')">
               <span class="shortcut-desc">Open File</span>
@@ -379,16 +299,11 @@ onMounted(() => {
               <span class="shortcut-desc">Generate Flow Chart</span>
               <span class="shortcut-key">CTRL + SHIFT + G</span>
             </div>
-            <div class="shortcut-row" style="pointer-events:none; opacity:0.7;">
-              <span class="shortcut-desc">Save File</span>
-              <span class="shortcut-key">CTRL + S</span>
-            </div>
           </div>
-          <p class="shortcut-hint">These shortcuts only work within the Editor tab.</p>
         </div>
 
         <div class="setting-item-vertical">
-          <label>Tab Navigation Shortcuts (Global) <span class="new-badge">NEW</span></label>
+          <label>Tab Navigation Shortcuts (Global)</label>
           <div class="shortcut-list">
             <div class="shortcut-row" @click="startRecording('prev_tab')">
               <span class="shortcut-desc">Switch to Previous Tab</span>
@@ -408,61 +323,14 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-show="currentCategory === 'shortcut'" class="settings-section">
-        <div class="setting-item-vertical">
-          <label>General Shortcuts (Click to change) <span class="new-badge">NEW ITEMS BELOW</span></label>
-          <div class="shortcut-list">
-            <!-- Navigation at the top -->
-            <div class="shortcut-row" @click="startRecording('prev_tab')">
-              <span class="shortcut-desc">Switch to Previous Tab</span>
-              <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
-                {{ isRecording === 'prev_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.prev_tab) }}
-              </span>
-              <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('prev_tab', $event)" @blur="isRecording = null" />
-            </div>
-            <div class="shortcut-row" @click="startRecording('next_tab')">
-              <span class="shortcut-desc">Switch to Next Tab</span>
-              <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
-                {{ isRecording === 'next_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.next_tab) }}
-              </span>
-              <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('next_tab', $event)" @blur="isRecording = null" />
-            </div>
-            
-            <!-- Separator -->
-            <div style="height: 1px; background: rgba(128,128,128,0.1); margin: 5px 0;"></div>
-            <div class="shortcut-row" @click="startRecording('focus_search')">
-              <span class="shortcut-desc">Focus Dictionary Search</span>
-              <span class="shortcut-key" :class="{ 'recording': isRecording === 'focus_search' }">
-                {{ isRecording === 'focus_search' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.focus_search) }}
-              </span>
-              <input v-if="isRecording === 'focus_search'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('focus_search', $event)" @blur="isRecording = null" />
-            </div>
-            <div class="shortcut-row" @click="startRecording('open_settings')">
-              <span class="shortcut-desc">Open Settings</span>
-              <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_settings' }">
-                {{ isRecording === 'open_settings' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.open_settings) }}
-              </span>
-              <input v-if="isRecording === 'open_settings'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('open_settings', $event)" @blur="isRecording = null" />
-            </div>
-            <div class="shortcut-row disabled">
-              <span class="shortcut-desc">Forward Navigation (Global)</span>
-              <span class="shortcut-key">MOUSE BUTTON 5</span>
-            </div>
-          </div>
-          <p class="shortcut-hint">Tip: Press Escape to cancel recording.</p>
-        </div>
-      </div>
-
-      <!-- AI Provider Settings -->
       <div v-show="currentCategory === 'ai'" class="settings-section">
         <div class="ai-settings-header">
           <h3 style="margin:0;font-size:1rem;">AI Provider Settings</h3>
           <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Used by the Flow Chart feature to generate diagrams from code.</p>
         </div>
-
         <div class="setting-item">
           <label>Default Provider</label>
-          <select v-model="aiSettings.provider" class="theme-select">
+          <select v-model="aiSettings.provider" class="theme-select" @change="saveSettings">
             <option value="gemini">Gemini (Google)</option>
             <option value="openai">ChatGPT (OpenAI)</option>
             <option value="claude">Claude (Anthropic)</option>
@@ -470,666 +338,68 @@ onMounted(() => {
           </select>
         </div>
 
-        <!-- Gemini -->
         <div class="provider-block" :class="{ active: aiSettings.provider === 'gemini' }">
-          <div class="provider-label">
-            <span class="provider-dot gemini"></span> Gemini (Google)
-          </div>
-          <div class="setting-item-vertical">
-            <label>API Key</label>
-            <input v-model="aiSettings.geminiKey" type="password" class="text-input" placeholder="AIza..." autocomplete="off" />
-            <span class="hint-text">Get your key at <a href="https://ai.google.dev" target="_blank">ai.google.dev</a></span>
-          </div>
-          <div class="setting-item-vertical">
-            <label>Model</label>
-            <select v-model="aiSettings.geminiModel" class="theme-select">
-              <option value="gemini-1.5-flash">gemini-1.5-flash (Free, Fast)</option>
-              <option value="gemini-1.5-pro">gemini-1.5-pro (Better quality)</option>
-              <option value="gemini-2.0-flash">gemini-2.0-flash (Latest, Paid)</option>
-              <option value="gemini-2.0-pro">gemini-2.0-pro (Best quality)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- OpenAI -->
-        <div class="provider-block" :class="{ active: aiSettings.provider === 'openai' }">
-          <div class="provider-label">
-            <span class="provider-dot openai"></span> ChatGPT (OpenAI)
-          </div>
-          <div class="setting-item-vertical">
-            <label>API Key</label>
-            <input v-model="aiSettings.openaiKey" type="password" class="text-input" placeholder="sk-..." autocomplete="off" />
-          </div>
-          <div class="setting-item-vertical">
-            <label>Model</label>
-            <select v-model="aiSettings.openaiModel" class="theme-select">
-              <option value="gpt-4o-mini">gpt-4o-mini (Cheap, Fast)</option>
-              <option value="gpt-4o">gpt-4o (Best)</option>
-              <option value="gpt-3.5-turbo">gpt-3.5-turbo (Legacy)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Claude -->
-        <div class="provider-block" :class="{ active: aiSettings.provider === 'claude' }">
-          <div class="provider-label">
-            <span class="provider-dot claude"></span> Claude (Anthropic)
-          </div>
-          <div class="setting-item-vertical">
-            <label>API Key</label>
-            <input v-model="aiSettings.claudeKey" type="password" class="text-input" placeholder="sk-ant-..." autocomplete="off" />
-          </div>
-          <div class="setting-item-vertical">
-            <label>Model</label>
-            <select v-model="aiSettings.claudeModel" class="theme-select">
-              <option value="claude-3-haiku-20240307">claude-3-haiku (Fast, Cheap)</option>
-              <option value="claude-3-5-sonnet-20241022">claude-3.5-sonnet (Best)</option>
-              <option value="claude-3-opus-20240229">claude-3-opus (Powerful)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Ollama -->
-        <div class="provider-block" :class="{ active: aiSettings.provider === 'ollama' }">
-          <div class="provider-label">
-            <span class="provider-dot ollama"></span> Ollama (Local)
-          </div>
-          <div class="setting-item-vertical">
-            <label>Server URL</label>
-            <input v-model="aiSettings.ollamaUrl" type="text" class="text-input" placeholder="http://localhost:11434/api/generate" />
-          </div>
-          <div class="setting-item-vertical">
-            <label>Model Name</label>
-            <input v-model="aiSettings.ollamaModel" type="text" class="text-input" placeholder="llama3" />
-            <span class="hint-text">e.g.: llama3, mistral, codellama, deepseek-coder</span>
-          </div>
-        </div>
-        <div class="setting-item">
-          <button class="save-all-btn" @click="saveAISettings" :disabled="aiSaveStatus === 'saving'">
-            <span v-if="aiSaveStatus === 'saved'">Saved!</span>
-            <span v-else>Save AI Settings</span>
-          </button>
-          <span class="hint-text" style="margin-left:10px;">Stored locally in browser.</span>
+          <div class="provider-label"><span class="provider-dot gemini"></span> Gemini</div>
+          <input v-model="aiSettings.geminiKey" type="password" class="text-input" placeholder="AIza... (API Key)" @change="saveSettings"/>
+          <select v-model="aiSettings.geminiModel" class="theme-select" @change="saveSettings">
+            <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+            <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+          </select>
         </div>
       </div>
 
       <div v-show="currentCategory === 'chill'" class="settings-section">
         <div class="setting-item-vertical">
-          <label>Chill Activation (Fixed Shortcuts)</label>
-          <div class="shortcut-list">
-            <div class="shortcut-row disabled">
-              <span class="shortcut-desc">Smoke (Hold)</span>
-              <span class="shortcut-key">Space</span>
-            </div>
-            <div class="shortcut-row disabled">
-              <span class="shortcut-desc">Flick Ash</span>
-              <span class="shortcut-key">Ctrl + Space</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="setting-item">
-          <label>Burn Time (Minutes)</label>
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <input type="range" v-model.number="settings.chill.burnTimeMinutes" min="1" max="20" @change="saveSettings" />
-            <span style="min-width: 50px; font-weight: bold;">{{ settings.chill.burnTimeMinutes }}m</span>
-          </div>
-        </div>
-
-        <div class="setting-item">
-          <label>Widget Mode</label>
+          <label>Chill Widget</label>
           <label class="checkbox-container">
             <input type="checkbox" v-model="settings.chill.enableWidget" @change="saveSettings" />
             <span class="checkmark"></span>
-            Show as bottom-right widget in all tabs
+            Show smoking widget
           </label>
         </div>
       </div>
 
+      <div v-show="currentCategory === 'convert'" class="settings-section">
+        <div class="ai-settings-header">
+          <h3 style="margin:0;font-size:1rem;">Convert UI Transformation Rules</h3>
+          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Rules applied during JSP to PDA/Common conversion.</p>
+        </div>
+        <div class="rules-container">
+          <div class="rule-group">
+            <h4 class="rule-title">Type: PDA JSP</h4>
+            <div class="rule-list">
+              <div class="rule-item"><span class="rule-tag">CSS</span><p>Replaces with <code>common_pda.css</code>.</p></div>
+              <div class="rule-item"><span class="rule-tag">LAYOUT</span><p>Wraps in <code>div.pda_list</code>.</p></div>
+              <div class="rule-item"><span class="rule-tag">STYLE</span><p>Extracts to <code>&lt;style&gt;</code> before script.</p></div>
+              <div class="rule-item"><span class="rule-tag">INDENT</span><p>Uses 4-char tabs.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
 
 <style scoped>
-.settings-layout {
-  display: flex;
-  height: 500px;
-  background-color: var(--container-bg);
-  color: var(--text-color);
-}
-
-.settings-sidebar {
-  width: 160px;
-  border-right: var(--border-style);
-  display: flex;
-  flex-direction: column;
-  padding: 10px 0;
-  gap: 2px;
-}
-
-.category-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 15px;
-  border: none;
-  background: transparent;
-  color: var(--text-color);
-  cursor: pointer;
-  text-align: left;
-  font-size: 0.9rem;
-  transition: background 0.1s;
-}
-
-.category-btn:hover {
-  background-color: var(--button-hover);
-}
-
-.category-btn.active {
-  background-color: var(--accent-color);
-  color: #fff;
-}
-
-.settings-content {
-  flex: 1;
-  padding: 25px;
-  overflow-y: auto;
-  text-align: left;
-}
-
-.settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.setting-checkbox-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: rgba(128, 128, 128, 0.05);
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.1);
-}
-
-.checkbox-row {
-  display: flex;
-  align-items: center;
-}
-
-.checkbox-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  position: relative;
-  cursor: pointer;
-  font-size: 0.9rem;
-  user-select: none;
-  color: var(--text-color);
-  opacity: 0.9;
-}
-
-.checkbox-container input {
-  position: absolute;
-  opacity: 0;
-  cursor: pointer;
-  height: 0;
-  width: 0;
-}
-
-.checkmark {
-  height: 18px;
-  width: 18px;
-  background-color: var(--button-bg);
-  border: var(--border-style);
-  border-radius: 4px;
-}
-
-.checkbox-container:hover input ~ .checkmark {
-  background-color: var(--button-hover);
-}
-
-.checkbox-container input:checked ~ .checkmark {
-  background-color: var(--accent-color);
-  border-color: var(--accent-color);
-}
-
-.checkmark:after {
-  content: "";
-  position: absolute;
-  display: none;
-}
-
-.checkbox-container input:checked ~ .checkmark:after {
-  display: block;
-}
-
-.checkbox-container .checkmark:after {
-  left: 6px;
-  top: 2px;
-  width: 5px;
-  height: 10px;
-  border: solid white;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-
-.shortcut-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: rgba(128, 128, 128, 0.05);
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.1);
-}
-
-.shortcut-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: background 0.2s;
-  border: 1px solid transparent;
-}
-
-.shortcut-row:hover {
-  background: rgba(99, 102, 241, 0.05);
-  border-color: rgba(99, 102, 241, 0.1);
-}
-
-.shortcut-desc {
-  font-size: 0.9rem;
-  font-weight: 500;
-  opacity: 0.9;
-}
-
-.shortcut-key {
-  background: var(--button-bg);
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: var(--border-style);
-  font-family: 'Consolas', monospace;
-  font-weight: bold;
-  font-size: 0.85rem;
-  color: var(--accent-color);
-  min-width: 100px;
-  text-align: center;
-  transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-.shortcut-key.recording {
-  background: #fef3c7;
-  color: #92400e;
-  border-color: #f59e0b;
-  animation: pulse 1.5s infinite;
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
-}
-
-@keyframes pulse {
-  0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.02); opacity: 0.8; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-.hidden-input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-  width: 0;
-  height: 0;
-}
-
-.shortcut-hint {
-  font-size: 0.75rem;
-  opacity: 0.5;
-  margin-top: 10px;
-  font-style: italic;
-  text-align: center;
-}
-
-.new-badge {
-  background: #f59e0b;
-  color: white;
-  font-size: 0.6rem;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-left: 10px;
-  text-transform: uppercase;
-  font-weight: bold;
-}
-
-.setting-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
-}
-
-.setting-item label {
-  font-weight: 600;
-  font-size: 0.95rem;
-  flex-shrink: 0;
-}
-
-.theme-select {
-  padding: 8px 12px;
-  background-color: var(--input-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  min-width: 180px;
-  outline: none;
-}
-
-.setting-item-vertical {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
-}
-
-.setting-item-vertical label {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.path-picker {
-  display: flex;
-  gap: 10px;
-}
-
-.path-input {
-  flex: 1;
-  font-size: 0.85rem;
-  opacity: 0.8;
-}
-
-.theme-input {
-  padding: 8px 12px;
-  background-color: var(--input-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  outline: none;
-}
-
-.helper-actions {
-  margin-top: 5px;
-}
-
-.text-link-btn {
-  background: none;
-  border: none;
-  color: var(--accent-color);
-  padding: 0;
-  cursor: pointer;
-  font-size: 0.85rem;
-  text-decoration: underline;
-}
-
-.text-link-btn:hover {
-  opacity: 0.8;
-}
-
-/* Win95 Variations */
-:root.theme-95 .category-btn.active {
-  background: #000080;
-  color: #fff;
-}
-
-:root.theme-95 .theme-select {
-  border: 2px solid;
-  border-top-color: #808080;
-  border-left-color: #808080;
-  border-right-color: #fff;
-  border-bottom-color: #fff;
-  background: white;
-  color: black;
-  border-radius: 0;
-}
-
-:root.theme-95 .theme-button {
-  border: 2px solid;
-  border-top-color: #fff;
-  border-left-color: #fff;
-  border-right-color: #808080;
-  border-bottom-color: #808080;
-  background: #c0c0c0;
-  color: #000;
-  border-radius: 0;
-}
-
-:root.theme-95 .theme-button:active {
-  border-top-color: #808080;
-  border-left-color: #808080;
-  border-right-color: #fff;
-  border-bottom-color: #fff;
-}
-
-/* AI Settings */
-.ai-settings-header {
-  padding-bottom: 15px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
-}
-
-.text-input {
-  width: 100%;
-  padding: 8px 12px;
-  background-color: var(--input-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  font-size: 0.9rem;
-  outline: none;
-  transition: border-color 0.2s;
-  box-sizing: border-box;
-}
-
-.text-input:focus {
-  border-color: var(--accent-color);
-}
-
-.hint-text {
-  font-size: 0.72rem;
-  opacity: 0.5;
-  font-style: italic;
-}
-
-.hint-text a {
-  color: var(--accent-color);
-  text-decoration: underline;
-}
-
-.save-all-btn {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  color: white;
-  border: none;
-  padding: 8px 20px;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
-}
-
-.save-all-btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-}
-
-.save-all-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* AI Provider blocks */
-.provider-block {
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  background: rgba(128, 128, 128, 0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  opacity: 0.6;
-  transition: opacity 0.2s, border-color 0.2s;
-}
-
-.provider-block.active {
-  opacity: 1;
-  border-color: var(--accent-color);
-  background: rgba(99, 102, 241, 0.04);
-}
-
-.provider-label {
-  font-weight: 700;
-  font-size: 0.85rem;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.provider-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.provider-dot.gemini { background: #4285f4; }
-.provider-dot.openai { background: #10a37f; }
-.provider-dot.claude { background: #d97706; }
-.provider-dot.ollama { background: #a78bfa; }
-/* Remote Machine Config */
-.remote-empty {
-  padding: 20px;
-  text-align: center;
-  opacity: 0.5;
-  font-size: 0.85rem;
-  border: 1px dashed rgba(128,128,128,0.3);
-  border-radius: 8px;
-}
-
-.remote-config-block {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  background: rgba(99, 102, 241, 0.05);
-  border: 1px solid rgba(99, 102, 241, 0.15);
-  border-radius: 10px;
-}
-
-.remote-config-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.remote-label-input { font-weight: 600; flex: 1; }
-
-.remote-fields-grid {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr 1fr;
-  gap: 12px;
-}
-
-.remote-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.remote-field label {
-  font-size: 0.78rem;
-  opacity: 0.65;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-
-.remote-field-sm { min-width: 80px; max-width: 100px; }
-
-.remote-test-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.test-conn-btn {
-  padding: 7px 16px;
-  background: rgba(99,102,241,0.15);
-  border: 1px solid rgba(99,102,241,0.4);
-  border-radius: 6px;
-  color: var(--accent-color);
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.test-conn-btn:hover:not(:disabled) { background: rgba(99,102,241,0.25); }
-.test-conn-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.test-result {
-  font-size: 0.78rem;
-  padding: 4px 10px;
-  border-radius: 5px;
-  flex: 1;
-}
-
-.test-result.ok { background: rgba(34,197,94,0.1); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
-.test-result.fail { background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
-.test-result.testing { background: rgba(234,179,8,0.1); color: #ca8a04; border: 1px solid rgba(234,179,8,0.3); }
-
-.remote-enabled-toggle { display: flex; align-items: center; }
-
-.remove-remote-btn {
-  background: rgba(239,68,68,0.1);
-  border: 1px solid rgba(239,68,68,0.2);
-  color: #ef4444;
-  border-radius: 6px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  transition: background 0.2s;
-}
-
-.remove-remote-btn:hover { background: rgba(239,68,68,0.2); }
-
-.shortcut-row.disabled {
-  opacity: 0.6;
-  cursor: default;
-  pointer-events: none;
-}
-
-.shortcut-row.disabled .shortcut-key {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.add-remote-btn {
-  width: 100%;
-  padding: 10px;
-  background: rgba(99,102,241,0.1);
-  border: 1px dashed rgba(99,102,241,0.4);
-  border-radius: 8px;
-  color: var(--accent-color);
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.add-remote-btn:hover { background: rgba(99,102,241,0.2); }
+.settings-layout { display: flex; height: 500px; background-color: var(--container-bg); color: var(--text-color); border-radius: 12px; overflow: hidden; }
+.settings-sidebar { width: 180px; border-right: var(--border-style); display: flex; flex-direction: column; padding: 10px 0; background: rgba(0,0,0,0.05); }
+.category-btn { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border: none; background: transparent; color: var(--text-color); cursor: pointer; text-align: left; font-size: 0.85rem; font-weight: 600; opacity: 0.7; transition: all 0.2s; }
+.category-btn:hover { background-color: rgba(255,255,255,0.05); opacity: 1; }
+.category-btn.active { background-color: var(--accent-color); color: #fff; opacity: 1; }
+.settings-content { flex: 1; padding: 30px; overflow-y: auto; }
+.settings-section { display: flex; flex-direction: column; gap: 24px; }
+.setting-item { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
+.setting-item-vertical { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
+.setting-item label, .setting-item-vertical label { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; opacity: 0.5; letter-spacing: 0.05em; }
+.theme-select, .text-input { padding: 8px 12px; background-color: rgba(0,0,0,0.2); color: var(--text-color); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; font-size: 0.85rem; outline: none; }
+.save-all-btn { background: var(--accent-color); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 600; font-size: 0.75rem; cursor: pointer; }
+.rule-group { background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; padding: 16px; }
+.rule-title { margin: 0 0 12px 0; font-size: 0.75rem; color: var(--accent-color); font-weight: 800; }
+.rule-item { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.75rem; }
+.rule-tag { background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; font-weight: 800; min-width: 50px; text-align: center; }
+.rule-item p { margin: 0; opacity: 0.7; }
 </style>
+
+
+
+

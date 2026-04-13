@@ -3,8 +3,6 @@ import { ref, watch, onMounted, nextTick, computed } from 'vue';
 import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { theme as globalTheme, globalSearchQuery } from '../store';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { open } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
 
 // --- State ---
 const inputText = ref('');
@@ -13,7 +11,6 @@ const isProcessing = ref(false);
 const showDiff = ref(false);
 const convertMode = ref<'PDA' | 'Common'>('PDA');
 const selectedEncoding = ref('Shift_JIS');
-const lastOpenedPath = ref('');
 const status = ref({ type: '', msg: '' });
 const leftEditorRef = ref<any>(null);
 const rightEditorRef = ref<any>(null);
@@ -32,9 +29,6 @@ const editorOptions = computed(() => ({
   theme: globalTheme.value === 'dark' ? 'vs-dark' : 'vs',
   lineNumbers: 'on' as const,
   readOnly: false,
-  tabSize: 4,
-  insertSpaces: false,
-  detectIndentation: false,
   padding: { top: 10, bottom: 10 },
   scrollbar: {
     useShadows: false,
@@ -80,44 +74,8 @@ const updateSearchHighlights = () => {
 watch(globalSearchQuery, () => updateSearchHighlights());
 watch(showDiff, () => nextTick(() => updateSearchHighlights()));
 
-// Encoding Re-open logic
-const reopenWithEncoding = async () => {
-  if (!lastOpenedPath.value) return;
-  try {
-    const content = await invoke('read_file_content', { path: lastOpenedPath.value });
-    inputText.value = content as string;
-    status.value = { type: 'success', msg: `Re-opened with ${selectedEncoding.value}` };
-  } catch (e) {
-    status.value = { type: 'error', msg: 'Re-open failed' };
-  }
-};
-
-watch(selectedEncoding, () => {
-  if (lastOpenedPath.value) reopenWithEncoding();
-});
-
 // --- Actions ---
-const openFile = async () => {
-  const selected = await open({ 
-    multiple: false, 
-    filters: [{ name: 'JSP Files', extensions: ['jsp'] }, { name: 'All Files', extensions: ['*'] }] 
-  });
-  if (!selected) return;
-  const p = Array.isArray(selected) ? selected[0] : selected;
-  try {
-    const content = await invoke('read_file_content', { path: p });
-    inputText.value = content as string;
-    lastOpenedPath.value = p;
-    status.value = { type: 'success', msg: `Opened: ${p.split(/[/\\]/).pop()}` };
-  } catch (e) {
-    status.value = { type: 'error', msg: 'Open file error' };
-  }
-};
-
 const clearAll = () => {
-  inputText.value = '';
-  resultText.value = '';
-  lastOpenedPath.value = '';
   inputText.value = '';
   resultText.value = '';
   status.value = { type: '', msg: '' };
@@ -203,20 +161,21 @@ const addVersionComment = (code: string): string => {
 // 2c: x?a <!-- ... //--> wrapper b?n trong <script>
 // ����������������������������������������������������������������������������������������������������������������������������������������������������������
 const fixCssLinks = (code: string): string => {
-  // 2a - Chuyển sang dùng common_pda.css duy nhất
+  // 2a ? ch? ??i khi href tr? ??ng common.css (kh?ng ph?i common_pda ?? ??ng r?i)
   code = code.replace(
     /(<link[^>]*href=["'])css\/common\.css(["'][^>]*>)/g,
     '$1css/common_pda.css$2'
   );
 
-  // 2b - Xóa các link CSS cũ khác (dailyorder, default_*)
-  code = code.replace(/^[ \t]*<link[^>]+href=["'][^"' ]*default_[^"' ]*["'][^>]*>[ \t]*\n?/gm, '');
-  code = code.replace(/^[ \t]*<link[^>]+href=["'][^"' ]*dailyorder[^"' ]*["'][^>]*>[ \t]*\n?/gm, '');
+  // 2b ? x?a c? d?ng ch?a link default_*.css
+  code = code.replace(/^[ \t]*<link[^>]+href=["'][^"']*default_[^"']*["'][^>]*>[ \t]*\n?/gm, '');
 
-  // 2c - Xóa <!-- ... //--> wrapper trong <script>
+  // 2c ? x?a <!-- ... //--> wrapper trong <script type="text/JavaScript">
+  // Gi? nguy?n n?i dung JS b?n trong, ch? b? d?ng <!-- v? //--> 
   code = code.replace(
     /(<script[^>]*>)\s*\n[ \t]*<!--[ \t]*\n([\s\S]*?)\n[ \t]*\/\/-->[ \t]*\n/g,
     (_, openTag, inner) => {
+      // B? indent th?a 4 space t? format c?
       const trimmed = inner.replace(/^    /gm, '');
       return `${openTag}\n${trimmed}\n`;
     }
@@ -225,137 +184,159 @@ const fixCssLinks = (code: string): string => {
   return code;
 };
 
+// ����������������������������������������������������������������������������������������������������������������������������������������������������������
 // STEP 3 ? Chu?n h?a HTML
 // - X?a <br> / <br /> d?ng l?m spacing (d?ng ch? c? <br>)
 // - window.close() �� window.open('about:blank','_self').close()
 // - X?a border=0, cellspacing=0, cellpadding=0 (clean attribute th?a)
 // ����������������������������������������������������������������������������������������������������������������������������������������������������������
 const normalizeHtml = (code: string): string => {
-  // Xóa các dòng br dư thừa
+  // X?a d?ng ch? ch?a <br> ho?c <br /> (spacing r?c)
   code = code.replace(/^[ \t]*<br\s*\/?>[ \t]*\n/gm, '');
-  
+
   // Fix window.close
   code = code.replace(/window\.close\(\);/g, "window.open('about:blank', '_self').close();");
 
-  // Xóa thuộc tính layout lỗi thời trên Table và bổ sung thuộc tính PDA chuẩn
-  code = code.replace(/<table([^>]*)>/gi, (match, attrs) => {
-    // Loại bỏ các thuộc tính layout cũ nát nếu có
-    let cleanAttrs = attrs.replace(/\s+(border|cellspacing|cellpadding|width)=["'][^"']*["']/gi, '');
-    // Thêm bộ thuộc tính chuẩn PDA
-    return `<table${cleanAttrs} cellpadding="0" cellspacing="0" border="0" width="100%">`;
-  });
+  // X?a attribute layout th?a tr?n table
+  code = code.replace(/\s+border=["']0["']/g, '');
+  code = code.replace(/\s+cellspacing=["']0["']/g, '');
+  code = code.replace(/\s+cellpadding=["']0["']/g, '');
 
-  // Cấu trúc lại Body nếu chưa có pda_list wrapper
-  if (code.includes('<body>') && !code.includes('class="pda_list')) {
-    code = code.replace(/(<body[^>]*>)\s*([\s\S]*?)\s*(<\/body>)/i, (match, bodyOpen, content, bodyClose) => {
-      const formMatch = content.match(/(<html:form[^>]*>)([\s\S]*?)(<\/html:form>)/i);
-      if (formMatch) {
-        const [fullForm, formOpen, formInner, formClose] = formMatch;
-        // Bọc toàn bộ formInner vào Table 100% trung tâm
-        const wrappedInner = "\n\t<table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\">\n\t\t<tr>\n\t\t\t<td align=\"center\" valign=\"top\">\n\t\t\t\t${formInner.trim()}\n\t\t\t</td>\n\t\t</tr>\n\t</table>\n";
-        
-        let finalInner = wrappedInner;
-        // Tự động bọc các Table con có class pda_listX vào Div tương ứng (nếu chưa có)
-        finalInner = finalInner.replace(/(<table[^>]*class=["'](pda_list\d+)[^"']*["'][^>]*>[\s\S]*?<\/table>)/g, (m, table, className) => {
-           return `<div class="${className}">\n${table}\n</div>`;
-        });
-        
-        return `${bodyOpen}\n${formOpen}${finalInner}${formClose}\n${bodyClose}`;
-      }
-      return match;
-    });
-  }
   return code;
 };
 
+// ����������������������������������������������������������������������������������������������������������������������������������������������������������
 // STEP 4 ? Build <style> block t? inline style
 // C?ng th?c: m?i inline style="..." �� 1 CSS rule v?i selector tagname.class ho?c tag#id
 // Style button (width/height/border/border-radius) �� KH?NG t?o class �� b?
 // Ch? display:none �� gi? nguy?n inline
 // ����������������������������������������������������������������������������������������������������������������������������������������������������������
 const buildStyleBlock = (code: string): string => {
-  const cssRules = [];
-  const seen = new Set();
+  const cssRules: string[] = [];
+  const seen = new Set<string>();
 
-  // Add default PDA styles
-  cssRules.push("\tdiv[class^=\"pda_list\"] {\n\t\twidth: 240px;\n\t\tpadding-top: 10px;\n\t}\n\n\ttable[class^=\"pda_list\"] {\n\t\twidth: 240px;\n\t}\n\n\ttable.pda_list2_alarm {\n\t\twidth: 200px;\n\t\theight: 213px;\n\t\tbackground-color: red;\n\t\tmargin: auto;\n\t}\n\n\tth.pda_list2_alarm_title {\n\t\ttext-align: center;\n\t\theight: 28px;\n\t}\n\n\ttd.pda_list2_alarm_msg {\n\t\tvertical-align: top;\n\t\ttext-align: left;\n\t\tbackground-color: white;\n\t\tpadding: 5px;\n\t\theight: 180px;\n\t}\n\n\tspan#disp_alarm_title {\n\t\tfont-size: 16px;\n\t\tcolor: white;\n\t}");
-
+  // Regex qu?t t?ng th? HTML/JSP c? inline style
   const tagRegex = /<([\w:]+)([^>]*?)>/gs;
-  let m;
+  let m: RegExpExecArray | null;
+
   while ((m = tagRegex.exec(code)) !== null) {
     const tag = m[1];
     const attrs = m[2];
+
     const styleMatch = attrs.match(/\bstyle=["']([^"']+)["']/);
     if (!styleMatch) continue;
 
     const styleVal = styleMatch[1].trim();
-    if (/^\s*display\s*:\s*none\s*;?\s*$/.test(styleVal)) continue;
-    if (/width\s*:/.test(styleVal) && /height\s*:/.test(styleVal) && /border-radius\s*:/.test(styleVal)) continue;
 
+    // Gi? l?i display:none inline ? kh?ng tr?ch ra
+    if (/^\s*display\s*:\s*none\s*;?\s*$/.test(styleVal)) continue;
+    // B? qua style button (width + height + border) �� d?ng class pda_btn
+    if (/width\s*:/.test(styleVal) && /height\s*:/.test(styleVal) && /(border|border-radius)\s*:/.test(styleVal)) continue;
+
+    // T?m class
     const classMatch = attrs.match(/\bclass=["']([^"']+)["']/);
+    // T?m id
     const idMatch = attrs.match(/\bid=["']([^"']+)["']/);
+    // fvo: property �� d?ng l?m id
     const propMatch = attrs.match(/\bproperty=['"]([^'"]+)['"]/);
 
-    let selector = "";
+    let selector = '';
     if (classMatch) {
-      selector = `${tag}.${classMatch[1].trim().split(/\s+/)[0]}`;
+      const firstClass = classMatch[1].trim().split(/\s+/)[0];
+      selector = `${tag}.${firstClass}`;
     } else if (idMatch) {
       selector = `${tag}#${idMatch[1]}`;
     } else if (propMatch) {
-      selector = `${tag}#${propMatch[1].replace(/[[\].]/g, "_")}`;
+      // fvo:span property='disp_alarm_title' �� span#disp_alarm_title
+      const cleanId = propMatch[1].replace(/[[\].]/g, '_');
+      selector = `span#${cleanId}`;
     }
 
     if (!selector || seen.has(selector)) continue;
     seen.add(selector);
 
-    const props = styleVal.split(";").map(p => p.trim()).filter(Boolean).map(p => `\t\t${p};`).join("\n");
+    const props = styleVal
+      .split(';')
+      .map(p => p.trim())
+      .filter(Boolean)
+      .map(p => `\t\t${p};`)
+      .join('\n');
+
     cssRules.push(`\t${selector} {\n${props}\n\t}`);
   }
 
-  const styleBlock = cssRules.length > 0 ? `<style type="text/css">\n${cssRules.join("\n\n")}\n</style>` : "";
-  code = code.replace(/<style[^>]*>[\s\S]*?<\/style>\n?/g, "");
+  if (cssRules.length === 0) return code;
 
-  if (code.includes("<script type=\"text/JavaScript\">")) {
-    return code.replace(/([ \t]*<script type=["']text\/JavaScript["']>)/i, `${styleBlock}\n$1`);
-  }
-  if (code.includes("<script")) {
-    return code.replace(/([ \t]*<script)/i, `${styleBlock}\n$1`);
-  }
-  if (code.includes("commonName.jsp")) {
-    return code.replace(/([ \t]*<%@\s*include\s*file=["']commonName\.jsp["']\s*%>)/i, `${styleBlock}\n$1`);
-  }
-  return code.replace(/([ \t]*<\/head>)/i, `${styleBlock}\n$1`);
+  const styleBlock = `<style type="text/css">\n${cssRules.join('\n\n')}\n</style>`;
+
+  // X?a <style> block c? n?u c?
+  code = code.replace(/<style[^>]*>[\s\S]*?<\/style>\n?/g, '');
+
+  // Ch?n tr??c </head>
+  return code.replace(/(\n?)([ \t]*<\/head>)/i, `\n${styleBlock}\n$2`);
 };
 
+// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// STEP 5 ? Chu?n h?a tab indent
+// Quy t?c:
+//   - D?ng \t (1 tab = 1 c?p)
+//   - JSP directive / comment header �� level 0, kh?ng indent
+//   - Closing tag �� gi?m depth TR??C khi in d?ng
+//   - Opening tag t? ??ng (/>), <meta>, <link>, <br>, fvo:text/submit/checkbox �� kh?ng t?ng depth
+//   - CSS b?n trong <style>: m?i { t?ng 1, m?i } gi?m 1 (t??ng ??i v?i depth hi?n t?i)
+//   - JS b?n trong <script>: m?i { t?ng 1, m?i } gi?m 1
+// ����������������������������������������������������������������������������������������������������������������������������������������������������������
 const normalizeIndent = (code: string): string => {
   const TAB = '\t';
   const lines = code.split('\n');
-  const result = [];
+  const result: string[] = [];
   let depth = 0;
 
+  // Tags m? l?m t?ng depth (c?n tag ??ng t??ng ?ng)
   const BLOCK_OPEN = /^<(html:html|html:form|head|body|table|tbody|thead|tfoot|tr|td|th|div|ul|ol|li|select|option|style|script|fvo:span|logic:iterate|logic:notEmpty|logic:empty|logic:equal|logic:notEqual|bean:define)(\s|>)/i;
+
+  // Tags t? ??ng ? kh?ng t?ng depth
   const SELF_CLOSE = /\/>$|^<(meta|link|input|br|hr|img|jsp:include|jsp:param|fvo:text|fvo:submit|fvo:checkbox|fvo:button|fvo:hidden|html:hidden)(\s|>|\/)/i;
+
+  // Tags ??ng ? gi?m depth
   const BLOCK_CLOSE = /^<\/(html:html|html:form|head|body|table|tbody|thead|tfoot|tr|td|th|div|ul|ol|li|select|option|style|script|fvo:span|logic:iterate|logic:notEmpty|logic:empty|logic:equal|logic:notEqual|bean:define)>/i;
 
+  // D?ng JSP level-0 (kh?ng indent)
+  const JSP_LEVEL0 = /^(<%[@!-]|<%--|<html:html|<!DOCTYPE|<html|<body|<head)/i;
+
   for (const raw of lines) {
-    let line = raw.trim();
-    if (!line) { result.push(''); continue; }
+    const line = raw.trim();
 
-    const isLevel0 = /^<%[@!-]|<%--|<html:html|<!DOCTYPE|<html|<body|<head|--%>/.test(line);
-    if (BLOCK_CLOSE.test(line)) depth = Math.max(0, depth - 1);
-    
-    const currentIndent = isLevel0 ? 0 : depth;
-    result.push(TAB.repeat(currentIndent) + line);
+    // D?ng tr?ng �� gi? nguy?n
+    if (!line) {
+      result.push('');
+      continue;
+    }
 
-    if (BLOCK_OPEN.test(line) && !SELF_CLOSE.test(line)) {
-      const tagMatch = line.match(/^<([\w:]+)/);
-      if (tagMatch) {
-         const tagName = tagMatch[1];
-         const closeRegex = new RegExp(`</${tagName.replace(':', '\\:')}>`, 'i');
-         if (!closeRegex.test(line)) depth++;
+    // JSP directive / header comment / DOCTYPE �� lu?n level 0
+    if (/^<%[@!]/.test(line) || /^<%--/.test(line) || /^--%>/.test(line) || /^<!DOCTYPE/i.test(line)) {
+      result.push(line);
+      continue;
+    }
+
+    // Closing tag �� gi?m depth TR??C khi in
+    if (BLOCK_CLOSE.test(line)) {
+      depth = Math.max(0, depth - 1);
+    }
+
+    result.push(TAB.repeat(depth) + line);
+
+    // Opening tag (kh?ng ph?i self-close, kh?ng c? closing tr?n c?ng d?ng) �� t?ng depth
+    if (BLOCK_OPEN.test(line) && !SELF_CLOSE.test(line) && !BLOCK_CLOSE.test(line)) {
+      // N?u c?ng 1 d?ng c? c? m? v? ??ng (vd: <td>text</td>) �� kh?ng t?ng
+      const tagName = line.match(/^<([\w:]+)/)?.[1] ?? '';
+      const closeOnSameLine = new RegExp(`</${tagName}>`, 'i').test(line);
+      if (!closeOnSameLine) {
+        depth++;
       }
     }
   }
+
   return result.join('\n');
 };
 </script>
@@ -423,7 +404,7 @@ const normalizeIndent = (code: string): string => {
             <VueMonacoEditor
               v-model:value="resultText"
               language="html"
-              :options="editorOptions"
+              :options="{ ...editorOptions, readOnly: true }"
               @mount="handleRightMount"
             />
           </div>
@@ -436,7 +417,7 @@ const normalizeIndent = (code: string): string => {
             :original="inputText"
             :modified="resultText"
             language="html"
-            :options="editorOptions"
+            :options="{ ...editorOptions, readOnly: true }"
             @mount="handleDiffMount"
           />
         </div>
@@ -568,15 +549,3 @@ const normalizeIndent = (code: string): string => {
   box-shadow: none !important;
 }
 </style>
-
-
-
-
-
-
-
-
-
-
-
-

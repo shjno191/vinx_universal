@@ -1,0 +1,115 @@
+<%--
+  - ファイル名 : pdaAlarmMessage.jsp
+  - タイトル   : PDA警告メッセージ画面
+  - 説明       : PDA警告メッセージ
+  - 著作権     : Copyright (c) 2024
+  - 会社名     : VINX CO., LTD.
+  - Author VINX
+  - Version 1.00 2024/11/01 VINX redmine#29914_不要コメント削除
+  - Version 1.01 2025/10/31 VINX redmine#38222_【製品投資】マルチテナント化対応（パラメータ化対応）　04.発注管理
+ --%>
+<%@ page language="java" %>
+<%@ page contentType="text/html; charset=Windows-31J" pageEncoding="Windows-31J" %>
+<%@ taglib uri="/WEB-INF/struts-html.tld" prefix="html" %>
+<%@ taglib uri="/WEB-INF/struts-bean.tld" prefix="bean" %>
+<%@ taglib uri="/WEB-INF/struts-logic.tld" prefix="logic" %>
+<%@ taglib uri="/WEB-INF/common-fvo.tld" prefix="fvo" %>
+<%  response.setHeader("Cache-Control","no-cache"); %>
+<%  response.setDateHeader("Expires", 0); %>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" >
+<html:html>
+<head>
+<%@ include file="commonName.jsp" %>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Cache-Control" content="no-cache"/>
+<meta http-equiv="Expires" content="Thu, 01 Dec 1994 16:00:00 GMT"/>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift_JIS"/>
+<link rel="stylesheet" href="css/common.css" type="text/css"/>
+<script type="text/javascript" src="./JavaScriptValidator/FormValidationManager.js"></script>
+<script type="text/javascript" src="./clientscript/common.js"></script>
+<jsp:include page="/WEB-INF/jsp/commonscript.jsp" />
+<title>PDA警告メッセージ</title>
+<link rel="stylesheet" type="text/css" href="./css/default_dailyorder.css">
+<link rel="stylesheet" type="text/css" href="./css/default_dailyorder_pda.css">
+<script type="text/javascript" src="./clientscript/dailyorder.js"></script>
+<script type="text/javascript" src="./clientscript/elements.js"></script>
+<script type="text/JavaScript">
+<!--
+    // 行番号
+    var rowIndex = 0;
+    
+    /*
+     * 更に表示するメッセージがないか確認
+     */
+    function checkNextMsg() {
+    
+        rowIndex++;
+        
+        var alarmMsg = elements_getElementById('rows[' + rowIndex + '].alarm_message');
+        if (alarmMsg == null) {
+            window.close();
+            
+        } else {
+            var dispTitle = elements_getElementById('rows[' + (rowIndex) + '].alarm_title').innerText;
+            var dispMsg = elements_getElementById('rows[' + (rowIndex) + '].alarm_message').innerText;
+            elements_getElementById('disp_alarm_title').innerText = dispTitle;
+            elements_getElementById('disp_alarm_message').innerText = dispMsg;
+        }
+        
+    }
+    
+//-->
+window.onload = function() {
+	this_getElementById("exit_button").focus();
+};
+</script>
+</head>
+<body onload="initForm();" onfocus="onFocusForm();" >
+  
+    <!------ システム共通ヘッダー START ------>
+    <html:form action="pdaAlarmMessage" method="post" ><jsp:include page="PDAheader.jsp">
+        <jsp:param name="PARAM" value="PDA警告メッセージ" />
+    </jsp:include>
+    <!------ システム共通ヘッダー END ------>
+    
+    <table>
+      <tr>
+        <td><fvo:span property='message' ></fvo:span></td>
+      </tr>
+    </table>
+    <br>
+    <table border="0" cellspacing="1" cellpadding="5" style="width: 200px; height:213px; background-color: red; margin:auto; ">  
+      <tr height="25" >
+        <th style="text-align: center; height: 28px;" >
+          <fvo:span style="font-size: 16px; color: white;" property='disp_alarm_title' ></fvo:span>
+        </th>
+      </tr>
+      <tr height="180" >
+         <td style="vertical-align: top; text-align: left; background-color: white; padding:5px;">
+          <br />
+          <fvo:span property='disp_alarm_message' ></fvo:span>
+        </td>
+      </tr>
+    </table>
+    
+    <br>
+    <fvo:button value="ＯＫ" style="width:61px; height:28px; border-radius: 0px; border:1px solid #6D6D6D;"
+                onclick="checkNextMsg();" property='exit_button' styleClass="pda_btn" />
+    <br>
+    
+    <fvo:span style="display: none; " property='hidden_area' >
+      <table style="width: 200px;">
+        <logic:iterate name="PdaAlarmMessageForm" property='rows' id="rows" indexId="rowsindex" type="jp.co.vinculumjapan.mdware.dailyorder.struts.form.rows.PdaAlarmMessageFormRowsBean" >
+		<tr >
+          <td >
+            <fvo:span property='<%="rows[" + rowsindex + "].alarm_title"%>' ></fvo:span>
+            <fvo:span property='<%="rows[" + rowsindex + "].alarm_message"%>' ></fvo:span>
+            <fvo:span property='<%="rows[" + rowsindex + "].alarm_kb"%>' ></fvo:span>
+          </td>
+        </tr>
+		</logic:iterate>
+      </table>
+    </fvo:span>
+  
+</html:form></body>
+</html:html>

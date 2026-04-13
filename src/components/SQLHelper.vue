@@ -241,7 +241,7 @@ const formattedLog = computed(() => {
   if (logContent.value.length > 500000) return html;
 
   // 1. Linkify IDs
-  html = html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
+  html = html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (_match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
     const actualId = uniqId || idVal;
     const extra = existingIds.value.has(actualId.toLowerCase()) ? ' existing-id' : '';
     if (uniqId) {

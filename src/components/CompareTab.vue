@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { sharedInput, sharedOutput, theme as globalTheme, globalSearchQuery } from '../store';
 

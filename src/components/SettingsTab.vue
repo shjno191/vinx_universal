@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -77,7 +77,7 @@ const formatShortcut = (str: string) => {
   }).join(' + ');
 };
 
-const handleShortcutKey = (key: string, e: KeyboardEvent) => {
+const handleShortcutKey = (_key: string, e: KeyboardEvent) => {
   if (!isRecording.value) return;
   e.preventDefault();
   e.stopPropagation();
@@ -120,8 +120,8 @@ const refreshSettings = async () => {
     settings.value = s;
     globalShortcuts.value = s.shortcuts;
     editorSettings.value = s.editor;
-    theme.value = s.theme;
-    aiSettings.value = s.ai;
+    theme.value = s.theme as 'light' | 'dark' | '95';
+    aiSettings.value = s.ai as any;
     chillSettings.value = s.chill;
   } catch (e) {
     console.error('Failed to get settings:', e);
@@ -137,8 +137,8 @@ const saveSettings = async () => {
     await invoke('save_settings', { settings: settings.value });
     globalShortcuts.value = settings.value.shortcuts;
     editorSettings.value = settings.value.editor;
-    theme.value = settings.value.theme;
-    aiSettings.value = settings.value.ai;
+    theme.value = settings.value.theme as 'light' | 'dark' | '95';
+    aiSettings.value = settings.value.ai as any;
     chillSettings.value = settings.value.chill;
     triggerSettingsRefresh.value++;
     emit('theme-changed', settings.value.theme);
@@ -157,7 +157,7 @@ const openSettingsFile = async () => {
 
 const pickDictionary = async () => {
   try {
-    const selected = await openDialog({
+    const selected = await open({
       multiple: false,
       filters: [{
         name: 'Excel',

@@ -1,9 +1,9 @@
-﻿<script setup lang="ts">
-import { ref, watch, onMounted, nextTick, computed } from 'vue';
+<script setup lang="ts">
+import { ref, watch, nextTick, computed } from 'vue';
 import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { theme as globalTheme, globalSearchQuery } from '../store';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { open } from '@tauri-apps/plugin-dialog';
+// import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
 // --- State ---
@@ -97,6 +97,7 @@ watch(selectedEncoding, () => {
 });
 
 // --- Actions ---
+/*
 const openFile = async () => {
   const selected = await open({ 
     multiple: false, 
@@ -113,6 +114,7 @@ const openFile = async () => {
     status.value = { type: 'error', msg: 'Open file error' };
   }
 };
+*/
 
 const clearAll = () => {
   inputText.value = '';
@@ -238,7 +240,7 @@ const normalizeHtml = (code: string): string => {
   code = code.replace(/window\.close\(\);/g, "window.open('about:blank', '_self').close();");
 
   // Xóa thuộc tính layout lỗi thời trên Table và bổ sung thuộc tính PDA chuẩn
-  code = code.replace(/<table([^>]*)>/gi, (match, attrs) => {
+  code = code.replace(/<table([^>]*)>/gi, (_match, attrs) => {
     // Loại bỏ các thuộc tính layout cũ nát nếu có
     let cleanAttrs = attrs.replace(/\s+(border|cellspacing|cellpadding|width)=["'][^"']*["']/gi, '');
     // Thêm bộ thuộc tính chuẩn PDA
@@ -250,13 +252,21 @@ const normalizeHtml = (code: string): string => {
     code = code.replace(/(<body[^>]*>)\s*([\s\S]*?)\s*(<\/body>)/i, (match, bodyOpen, content, bodyClose) => {
       const formMatch = content.match(/(<html:form[^>]*>)([\s\S]*?)(<\/html:form>)/i);
       if (formMatch) {
-        const [fullForm, formOpen, formInner, formClose] = formMatch;
+        const [_, formOpen, formInner, formClose] = formMatch;
         // Bọc toàn bộ formInner vào Table 100% trung tâm
-        const wrappedInner = "\n\t<table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\">\n\t\t<tr>\n\t\t\t<td align=\"center\" valign=\"top\">\n\t\t\t\t${formInner.trim()}\n\t\t\t</td>\n\t\t</tr>\n\t</table>\n";
+        const wrappedInner = `
+	<table cellpadding="0" cellspacing="0" border="0" width="100%">
+		<tr>
+			<td align="center" valign="top">
+				${formInner.trim()}
+			</td>
+		</tr>
+	</table>
+`;
         
         let finalInner = wrappedInner;
         // Tự động bọc các Table con có class pda_listX vào Div tương ứng (nếu chưa có)
-        finalInner = finalInner.replace(/(<table[^>]*class=["'](pda_list\d+)[^"']*["'][^>]*>[\s\S]*?<\/table>)/g, (m, table, className) => {
+        finalInner = finalInner.replace(/(<table[^>]*class=["'](pda_list\d+)[^"']*["'][^>]*>[\s\S]*?<\/table>)/g, (_m, table, className) => {
            return `<div class="${className}">\n${table}\n</div>`;
         });
         

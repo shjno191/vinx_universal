@@ -1,5 +1,5 @@
-﻿<script setup lang="ts">
-import { ref, watch, onMounted, nextTick, computed } from 'vue';
+<script setup lang="ts">
+import { ref, watch, nextTick, computed } from 'vue';
 import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { theme as globalTheme, globalSearchQuery } from '../store';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -302,7 +302,7 @@ const normalizeIndent = (code: string): string => {
   const BLOCK_CLOSE = /^<\/(html:html|html:form|head|body|table|tbody|thead|tfoot|tr|td|th|div|ul|ol|li|select|option|style|script|fvo:span|logic:iterate|logic:notEmpty|logic:empty|logic:equal|logic:notEqual|bean:define)>/i;
 
   // D?ng JSP level-0 (kh?ng indent)
-  const JSP_LEVEL0 = /^(<%[@!-]|<%--|<html:html|<!DOCTYPE|<html|<body|<head)/i;
+
 
   for (const raw of lines) {
     const line = raw.trim();

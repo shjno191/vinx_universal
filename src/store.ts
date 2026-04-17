@@ -7,7 +7,9 @@ export const sharedOutput = ref('');
 export const translateInput = ref('');
 export const translateOutput = ref('');
 export const sharedTargetLang = ref<'en' | 'jp' | 'vi'>('jp');
+export const advancedTranslatePaths = ref<string[]>([]);
 export const triggerDictionaryFocus = ref(0);
+
 export const triggerOpenFile = ref(0);
 export const showSettingsTrigger = ref<{ category?: string } | null>(null);
 export const projectRootPath = ref('');

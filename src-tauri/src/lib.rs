@@ -101,6 +101,12 @@ fn open_file_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn check_path_exists(path: String) -> bool {
+    Path::new(&path).exists()
+}
+
+
+#[tauri::command]
 fn read_dir_tree(path: String, depth: u32) -> Result<FileNode, String> {
     let root_path = Path::new(&path);
     if !root_path.exists() {
@@ -253,7 +259,9 @@ pub fn run() {
             read_dir_tree,
             git_execute,
             test_tcp_connection,
-            list_directory_files
+            list_directory_files,
+            check_path_exists
+
 
         ])
         .run(tauri::generate_context!())

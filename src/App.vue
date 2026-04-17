@@ -20,7 +20,8 @@ import Cigarette from "./components/Cigarette.vue";
 import { isGlobalSmoking } from "./store";
 
 const currentTab = ref("SQL-Helper");
-const allTabs = ["SQL-Helper", "Translate", "ConvertUI", "Compare", "Editor", "Git", "FlowChart", "Chill"];
+const allTabs = ["SQL-Helper", "Translate", "Compare", "ConvertUI", "Editor", "Git", "FlowChart", "Chill"];
+
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
 
@@ -299,17 +300,18 @@ onMounted(() => {
           Translate
         </button>
         <button 
-          @click="currentTab = 'ConvertUI'" 
-          :class="{ 'active': currentTab === 'ConvertUI', 'win95-button': currentTheme === '95' }"
-        >
-          CONVERT UI
-        </button>
-        <button 
           @click="currentTab = 'Compare'" 
           :class="{ 'active': currentTab === 'Compare', 'win95-button': currentTheme === '95' }"
         >
           Compare
         </button>
+        <button 
+          @click="currentTab = 'ConvertUI'" 
+          :class="{ 'active': currentTab === 'ConvertUI', 'win95-button': currentTheme === '95' }"
+        >
+          CONVERT UI
+        </button>
+
         <button 
           @click="currentTab = 'Editor'" 
           :class="{ 'active': currentTab === 'Editor', 'win95-button': currentTheme === '95' }"
@@ -347,14 +349,16 @@ onMounted(() => {
           <SQLHelper :theme="currentTheme" />
         </div>
         <div v-if="initializedTabs['Translate']" v-show="currentTab === 'Translate'" key="tab-translate" class="full-height-vif">
-          <TranslateTab />
+          <TranslateTab :theme="currentTheme" />
+        </div>
+
+        <div v-if="initializedTabs['Compare']" v-show="currentTab === 'Compare'" key="tab-compare" class="full-height-vif">
+          <CompareTab />
         </div>
         <div v-if="initializedTabs['ConvertUI']" v-show="currentTab === 'ConvertUI'" key="tab-convert" class="full-height-vif">
           <ConvertTab />
         </div>
-        <div v-if="initializedTabs['Compare']" v-show="currentTab === 'Compare'" key="tab-compare" class="full-height-vif">
-          <CompareTab />
-        </div>
+
         <div v-if="initializedTabs['Editor']" v-show="currentTab === 'Editor'" key="tab-editor" class="full-height-vif">
           <EditorTab />
         </div>

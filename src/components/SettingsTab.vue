@@ -3,7 +3,8 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, chillSettings, triggerSettingsRefresh } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, chillSettings, triggerSettingsRefresh, advancedTranslatePaths } from '../store';
+
 
 const emit = defineEmits(['theme-changed']);
 
@@ -21,7 +22,9 @@ const currentCategory = ref('general');
 const settings = ref({
   theme: 'dark',
   dictionary_path: '',
+  advanced_translate_paths: [] as string[],
   shortcuts: {
+
     focus_search: 'ctrl+f',
     open_settings: 'ctrl+shift+s',
     open_file: 'ctrl+o',
@@ -56,6 +59,10 @@ const settings = ref({
 
 const isRecording = ref<string | null>(null);
 const shortcutInputRef = ref<HTMLInputElement | null>(null);
+const newAdvancedPath = ref('');
+const addPathError = ref('');
+
+
 
 const startRecording = (key: string) => {
   if (key === 'focus_search' || key === 'open_settings') return; // Fixed shortcuts
@@ -127,7 +134,9 @@ const refreshSettings = async () => {
       theme.value = settings.value.theme as 'light' | 'dark' | '95';
       aiSettings.value = settings.value.ai as any;
       chillSettings.value = settings.value.chill;
+      advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
     }
+
   } catch (e) {
     console.error('Failed to get settings:', e);
   }
@@ -146,9 +155,11 @@ const saveSettings = async () => {
     theme.value = settings.value.theme as 'light' | 'dark' | '95';
     aiSettings.value = settings.value.ai as any;
     chillSettings.value = settings.value.chill;
+    advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
     triggerSettingsRefresh.value++;
 
     emit('theme-changed', settings.value.theme);
+
   } catch (e) {
     console.error('Failed to save settings:', e);
   }
@@ -179,6 +190,57 @@ const pickDictionary = async () => {
     console.error('Failed to pick dictionary:', e);
   }
 };
+
+
+const validateAndAddAdvancedPath = async () => {
+  const p = newAdvancedPath.value.trim();
+  if (!p) return;
+  
+  try {
+    const exists = await invoke('check_path_exists', { path: p });
+    if (!exists) {
+      addPathError.value = 'File path does not exist on disk.';
+      return;
+    }
+    
+    if (settings.value.advanced_translate_paths.includes(p)) {
+      addPathError.value = 'Path already added.';
+      return;
+    }
+
+    settings.value.advanced_translate_paths.push(p);
+    newAdvancedPath.value = '';
+    addPathError.value = '';
+    saveSettings();
+  } catch (e) {
+    addPathError.value = 'Error validating path.';
+  }
+};
+
+const pickAdvancedPath = async () => {
+  try {
+    const selected = await open({
+      multiple: true,
+      filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }]
+    });
+    if (selected && Array.isArray(selected)) {
+      selected.forEach(p => {
+        if (!settings.value.advanced_translate_paths.includes(p)) {
+          settings.value.advanced_translate_paths.push(p);
+        }
+      });
+      saveSettings();
+    }
+  } catch (e) {
+    console.error('Failed to load advanced dict:', e);
+  }
+};
+
+const removeAdvancedPath = (idx: number) => {
+  settings.value.advanced_translate_paths.splice(idx, 1);
+  saveSettings();
+};
+
 
 const downloadTemplate = async () => {
   try {
@@ -269,6 +331,38 @@ watch(showSettingsTrigger, (val) => {
         <div class="setting-item">
           <label>Open Config Folder</label>
           <button class="save-all-btn" @click="openSettingsFile">Open Folder</button>
+        </div>
+      </div>
+
+      <div v-show="currentCategory === 'translate'" class="settings-section">
+        <div class="setting-item-vertical">
+          <label>Primary Translation Dictionary (.xlsx)</label>
+          <div class="path-picker">
+            <input v-model="settings.dictionary_path" type="text" class="text-input path-input" readonly placeholder="No dictionary selected..." />
+            <button class="save-all-btn" @click="pickDictionary">Browse</button>
+          </div>
+          <div class="helper-actions">
+             <button class="text-link-btn" @click="downloadTemplate">Download Template</button>
+          </div>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Advanced Translation Files (Priority List)</label>
+          <p class="section-desc">Pasted paths will be validated before adding. These override the primary dictionary.</p>
+          
+          <div class="advanced-paths-list" v-if="settings.advanced_translate_paths.length > 0">
+            <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="advanced-path-entry">
+              <span class="path-text" :title="path">{{ path.split(/[/\\]/).pop() }}</span>
+              <button class="remove-path-btn" @click="removeAdvancedPath(idx)">&times;</button>
+            </div>
+          </div>
+
+          <div class="add-path-control">
+            <input v-model="newAdvancedPath" type="text" class="text-input path-input-manual" placeholder="Paste file path here (C:\...)" @keyup.enter="validateAndAddAdvancedPath" />
+            <button class="save-all-btn" @click="validateAndAddAdvancedPath">Add Path</button>
+            <button class="browse-btn-icon" @click="pickAdvancedPath" title="Browse Files">&#128194;</button>
+          </div>
+          <p v-if="addPathError" class="error-text">{{ addPathError }}</p>
         </div>
       </div>
 
@@ -510,4 +604,16 @@ watch(showSettingsTrigger, (val) => {
 .theme-95 .category-btn.active { background: #000080 !important; color: #fff !important; border: none !important; }
 .theme-95 .save-all-btn { border: 2px solid !important; border-color: #fff #808080 #808080 #fff !important; background: #c0c0c0 !important; color: #000 !important; border-radius: 0; }
 .theme-95 .theme-select, .theme-95 .text-input { border: 2px solid !important; border-color: #808080 #fff #fff #808080 !important; border-radius: 0; background: #fff !important; color: #000 !important; }
+
+.section-desc { font-size: 0.65rem; opacity: 0.5; margin: 0; line-height: 1.4; }
+.advanced-paths-list { display: flex; flex-direction: column; gap: 4px; background: rgba(0,0,0,0.1); padding: 8px; border-radius: 8px; max-height: 150px; overflow-y: auto; }
+.advanced-path-entry { display: flex; justify-content: space-between; align-items: center; background: rgba(128,128,128,0.05); padding: 5px 10px; border-radius: 6px; }
+.path-text { font-size: 0.75rem; font-weight: 600; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 85%; }
+.remove-path-btn { background: transparent; border: none; color: #f43f5e; font-size: 1.1rem; cursor: pointer; padding: 0 5px; opacity: 0.6; }
+.remove-path-btn:hover { opacity: 1; }
+.add-path-control { display: flex; gap: 8px; margin-top: 5px; }
+.path-input-manual { flex: 1; font-size: 0.75rem; }
+.browse-btn-icon { background: rgba(128,128,128,0.1); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; cursor: pointer; padding: 0 10px; font-size: 1rem; color: var(--text-color); }
+.error-text { font-size: 0.7rem; color: #f43f5e; font-weight: 700; margin: 0; }
 </style>
+

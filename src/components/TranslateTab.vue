@@ -3,7 +3,11 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { translateInput, translateOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh, activeTab } from '../store';
+import { translateInput, translateOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh, activeTab, advancedTranslatePaths } from '../store';
+
+defineProps<{ theme?: string }>();
+
+
 
 
 const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
@@ -12,7 +16,30 @@ const isLoading = ref(false);
 const dictionaryPath = ref('');
 const dictionarySearchInput = ref<HTMLInputElement | null>(null);
 const localSearchQuery = ref('');
+
 const isStrict = ref(false);
+
+const advancedDictData = ref<Map<string, Map<string, string>>>(new Map());
+const advancedDictKeys = ref<string[]>([]);
+const showAdvancedModal = ref(false);
+
+const selectedAdvancedFile = ref<string>('');
+const selectedAdvancedSheet = ref<string>('');
+const isStrictAdvancedSheet = ref<boolean>(false);
+const hoveredLineIndex = ref<number | null>(null);
+
+const openDropdown = ref<'file' | 'sheet' | null>(null);
+const fileSearch = ref('');
+const sheetSearch = ref('');
+
+
+const newManualPath = ref('');
+
+
+const pathError = ref('');
+
+
+
 
 
 // Performance optimizations
@@ -88,38 +115,129 @@ const loadDictionary = async () => {
     const raw = await invoke('get_settings') as string;
     const s = JSON.parse(raw || "{}");
     dictionaryPath.value = s?.dictionary_path || '';
+    advancedTranslatePaths.value = s?.advanced_translate_paths || [];
 
-    if (!dictionaryPath.value) {
+    if (!dictionaryPath.value && advancedTranslatePaths.value.length === 0) {
+
       dictionaryData.value = [];
       isLoading.value = false;
       return;
     }
 
-    const bytes = await invoke('read_file_binary', { path: dictionaryPath.value }) as number[];
-    const data = new Uint8Array(bytes);
-    const workbook = XLSX.read(data, { type: 'array' });
-    
-    const firstSheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[firstSheetName];
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-    
-    if (jsonData.length > 0) {
-      const rows = jsonData.slice(1)
-        .map(row => ({
-          jp: (row[0] || '').toString().trim(),
-          en: (row[1] || '').toString().trim(),
-          vi: (row[2] || '').toString().trim()
-        }))
-        .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
-      dictionaryData.value = rows;
-      updateCachedWords();
+    if (dictionaryPath.value) {
+      const bytes = await invoke('read_file_binary', { path: dictionaryPath.value }) as number[];
+      const data = new Uint8Array(bytes);
+      const workbook = XLSX.read(data, { type: 'array' });
+      
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+      
+      if (jsonData.length > 0) {
+        const rows = jsonData.slice(1)
+          .map(row => ({
+            jp: (row[0] || '').toString().trim(),
+            en: (row[1] || '').toString().trim(),
+            vi: (row[2] || '').toString().trim()
+          }))
+          .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
+        dictionaryData.value = rows;
+      }
     }
+
+    await loadAdvancedDictionaries();
+    updateCachedWords();
   } catch (e) {
-    console.error('Failed to load dictionary:', e);
+    console.error('Failed to load dictionaries:', e);
   } finally {
     isLoading.value = false;
   }
 };
+
+onMounted(() => {
+  document.addEventListener('click', () => {
+    openDropdown.value = null;
+  });
+});
+
+const loadAdvancedDictionaries = async () => {
+  advancedDictData.value.clear();
+  advancedDictKeys.value = [];
+
+  for (const path of advancedTranslatePaths.value) {
+
+    try {
+      const bytes = await invoke('read_file_binary', { path }) as number[];
+      const data = new Uint8Array(bytes);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const filename = path.split(/[/\\]/).pop() || path;
+      
+      for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName];
+        if (!worksheet) continue;
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        
+        let headerRowIndex = -1;
+        let logicalColIdx = -1;
+        let physicalColIdx = -1;
+        
+        for (let i = 0; i < Math.min(jsonData.length, 20); i++) {
+          const row = jsonData[i] || [];
+          const logicalIdx = row.findIndex((c: any) => {
+              const s = String(c || '');
+              return s.includes('論理カラム名') || s.includes('論理カラ') || s.includes('論理');
+            });
+            const physicalIdx = row.findIndex((c: any) => {
+              const s = String(c || '');
+              return s.includes('物理カラム名') || s.includes('物理カラ') || s.includes('物理');
+            });
+          
+          if (logicalIdx !== -1 && physicalIdx !== -1) {
+            headerRowIndex = i;
+            logicalColIdx = logicalIdx;
+            physicalColIdx = physicalIdx;
+            break;
+          }
+        }
+        
+        if (headerRowIndex !== -1) {
+          const mapping = new Map<string, string>();
+          for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
+            const row = jsonData[i] || [];
+            const src = String(row[logicalColIdx] || '').trim();
+            const target = String(row[physicalColIdx] || '').trim();
+            if (src && target) {
+              mapping.set(src, target);
+            }
+          }
+          const sheetKey = `${filename}::${sheetName}`;
+          advancedDictData.value.set(sheetKey, mapping);
+          advancedDictKeys.value.push(sheetKey);
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to load advanced dict ${path}:`, e);
+    }
+  }
+
+};
+
+
+
+
+const saveGlobalSettings = async () => {
+  try {
+    const raw = await invoke('get_settings') as string;
+    const s = JSON.parse(raw || "{}");
+    const newSettings = { ...s, advanced_translate_paths: advancedTranslatePaths.value };
+    await invoke('save_settings', { settings: JSON.stringify(newSettings, null, 2) });
+    triggerSettingsRefresh.value++;
+  } catch (e) {
+    console.error('Failed to save settings:', e);
+  }
+};
+
+
 
 const cleanDictionaryDuplicates = async () => {
   if (!dictionaryData.value.length || !dictionaryPath.value) return;
@@ -187,17 +305,41 @@ const updateCachedWords = () => {
 
   dictionaryData.value.forEach(d => {
     const tVal = (d[targetKey] || '').trim();
-    if (tVal && tVal.length > 1) targetSet.add(tVal);
+    if (tVal && tVal.length > 0) targetSet.add(tVal);
     
     ['jp', 'en', 'vi'].forEach(l => {
       if (l !== targetKey) {
         const sVal = (d[l as 'jp'|'en'|'vi'] || '').trim();
-        if (sVal && sVal.length > 1) sourceSet.add(sVal);
+        if (sVal && sVal.length > 0) sourceSet.add(sVal);
       }
     });
   });
 
+  // Include advanced dictionary words
+  if (isStrictAdvancedSheet.value && selectedAdvancedSheet.value) {
+    sourceSet.clear(); 
+    targetSet.clear();
+    const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
+    if (specificMapping) {
+      specificMapping.forEach((val, key) => {
+        if (key && key.length > 0) sourceSet.add(key);
+        if (val && val.length > 0) targetSet.add(val);
+      });
+    }
+  } else {
+    if (selectedAdvancedSheet.value) {
+      const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
+      if (specificMapping) {
+        specificMapping.forEach((val, key) => {
+          if (key && key.length > 0) sourceSet.add(key);
+          if (val && val.length > 0) targetSet.add(val);
+        });
+      }
+    }
+  }
+
   const sList = Array.from(sourceSet).sort((a, b) => b.length - a.length);
+
   const tList = Array.from(targetSet).sort((a, b) => b.length - a.length);
   
   sourceWordsList.value = sList;
@@ -241,29 +383,50 @@ const handleQuickTranslate = () => {
     return;
   }
 
-  if (sourceWordsList.value.length === 0) {
+  const targetKey = sharedTargetLang.value;
+  const lookup = new Map<string, string>();
+
+  if (isStrictAdvancedSheet.value && selectedAdvancedSheet.value) {
+    // STRICT MODE: Only load the specifically selected sheet
+    const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
+    if (specificMapping) {
+      specificMapping.forEach((val, key) => {
+        if (key && val) lookup.set(key, val);
+      });
+    }
+  } else {
+    // NORMAL MODE: 1. Base Dictionary, 2. All Adv Sheets, 3. Selected Adv Sheet (Highest)
+    dictionaryData.value.forEach(entry => {
+      const tVal = (entry[targetKey] || '').toString().trim();
+      if (!tVal) return;
+      ['jp', 'en', 'vi'].forEach(l => {
+        if (l !== targetKey) {
+          const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
+          if (sVal && sVal !== tVal) {
+            lookup.set(sVal, tVal);
+          }
+        }
+      });
+    });
+
+    if (selectedAdvancedSheet.value) {
+      const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
+      if (specificMapping) {
+        specificMapping.forEach((val, k) => {
+          if (k && val) lookup.set(k, val);
+        });
+      }
+    }
+  }
+
+  if (lookup.size === 0) {
+
     translateOutput.value = translateInput.value;
     return;
   }
 
-  const targetKey = sharedTargetLang.value;
-  const lookup = new Map<string, string>();
-  dictionaryData.value.forEach(entry => {
-    const tVal = (entry[targetKey] || '').toString().trim();
-    if (!tVal) return;
-    ['jp', 'en', 'vi'].forEach(l => {
-      if (l !== targetKey) {
-        const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
-        if (sVal && sVal !== tVal) {
-          if (!lookup.has(sVal) || sVal.length > (lookup.get(sVal)?.length || 0)) {
-            lookup.set(sVal, tVal);
-          }
-        }
-      }
-    });
-  });
-
-  const sortedPairs = sourceWordsList.value;
+  // Create a sorted list based purely on what we are matching against so we don't consume chars incorrectly
+  const sortedPairs = Array.from(lookup.keys()).sort((a, b) => b.length - a.length);
 
   let result = '';
   let i = 0;
@@ -289,6 +452,7 @@ const handleQuickTranslate = () => {
 
   translateOutput.value = result;
 };
+
 
 const clearAll = () => {
   translateInput.value = '';
@@ -510,10 +674,70 @@ const handleScroll = (side: 'input' | 'result') => {
 const inputHighlighter = ref<HTMLDivElement | null>(null);
 const resultHighlighter = ref<HTMLDivElement | null>(null);
 
+const validateAndAddPath = async () => {
+  const p = newManualPath.value.trim();
+  if (!p) return;
+  try {
+    const exists = await invoke('check_path_exists', { path: p });
+    if (!exists) {
+      pathError.value = 'Path does not exist on disk';
+      return;
+    }
+    if (advancedTranslatePaths.value.includes(p)) {
+      pathError.value = 'Path already added';
+      return;
+    }
+    advancedTranslatePaths.value.push(p);
+    newManualPath.value = '';
+    pathError.value = '';
+
+    await loadAdvancedDictionaries();
+    updateCachedWords();
+    await saveGlobalSettings();
+    selectedAdvancedFile.value = p; // auto select newly added
+  } catch (e) {
+
+    pathError.value = 'Error validating path';
+  }
+};
+
+const addAdvancedPath = async () => {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({
+      multiple: true,
+      filters: [{ name: 'Excel Files', extensions: ['xlsx', 'xls'] }]
+    });
+    if (selected && Array.isArray(selected) && selected.length > 0) {
+      const newPaths = selected.filter(p => !advancedTranslatePaths.value.includes(p));
+      advancedTranslatePaths.value = [...advancedTranslatePaths.value, ...newPaths];
+      await loadAdvancedDictionaries();
+      updateCachedWords();
+
+      await saveGlobalSettings();
+      if (newPaths.length > 0) {
+        selectedAdvancedFile.value = newPaths[0]; // Auto select first newly added
+      }
+    }
+  } catch (e) {
+
+    console.error('Failed to add advanced path:', e);
+  }
+};
+
+const removeAdvancedPath = async (path: string) => {
+  advancedTranslatePaths.value = advancedTranslatePaths.value.filter(p => p !== path);
+  await loadAdvancedDictionaries();
+  updateCachedWords();
+  await saveGlobalSettings();
+};
+
+
 onMounted(() => {
   loadDictionary();
   window.addEventListener('keydown', handleLocalKeyDown);
 });
+
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleLocalKeyDown);
@@ -549,12 +773,86 @@ watch(subTab, async () => {
   }
 });
 
-watch(sharedTargetLang, () => {
+const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null) => {
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  const scrollY = target.scrollTop;
+  
+  const contentY = y + scrollY - 15; // 15px is textarea padding
+  if (contentY < 0) {
+    hoveredLineIndex.value = null;
+    return;
+  }
+  
+  const remValue = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const lineHeightPx = 0.85 * remValue * 1.6;
+  
+  const idx = Math.floor(contentY / lineHeightPx) + 1;
+  hoveredLineIndex.value = idx <= maxLines.value ? idx : null;
+};
+
+const advancedFileOptions = computed(() => {
+  return advancedTranslatePaths.value.map(p => {
+    const fname = p.split(/[/\\]/).pop() || p;
+    return { value: p, label: fname };
+  });
+});
+
+const availableFileSheets = computed(() => {
+  if (!selectedAdvancedFile.value) return [];
+  const fname = selectedAdvancedFile.value.split(/[/\\]/).pop() || selectedAdvancedFile.value;
+  const options = [];
+  for (const key of advancedDictKeys.value) {
+    if (key.startsWith(fname + '::')) {
+      const sheetName = key.split('::')[1];
+      options.push({ value: key, label: sheetName });
+    }
+  }
+  return options;
+});
+
+const filteredAdvancedFileOptions = computed(() => {
+  if (!fileSearch.value) return advancedFileOptions.value;
+  return advancedFileOptions.value.filter(opt => opt.label.toLowerCase().includes(fileSearch.value.toLowerCase()));
+});
+
+const filteredAvailableFileSheets = computed(() => {
+  if (!sheetSearch.value) return availableFileSheets.value;
+  return availableFileSheets.value.filter(opt => opt.label.toLowerCase().includes(sheetSearch.value.toLowerCase()));
+});
+
+watch(advancedTranslatePaths, (newPaths) => {
+  if (newPaths.length === 0) {
+    selectedAdvancedFile.value = '';
+  } else if (selectedAdvancedFile.value && !newPaths.includes(selectedAdvancedFile.value)) {
+    selectedAdvancedFile.value = '';
+  }
+}, { immediate: true });
+
+watch(selectedAdvancedFile, (newVal) => {
+  if (newVal) {
+    const fname = newVal.split(/[/\\]/).pop() || newVal;
+    const firstMatch = advancedDictKeys.value.find(k => k.startsWith(fname + '::'));
+    if (firstMatch) {
+      selectedAdvancedSheet.value = firstMatch;
+    } else {
+      selectedAdvancedSheet.value = '';
+    }
+  } else {
+    selectedAdvancedSheet.value = '';
+  }
+});
+
+watch([sharedTargetLang, selectedAdvancedSheet, isStrictAdvancedSheet], () => {
+
   updateCachedWords();
+
   handleQuickTranslate();
 });
 
 watch(triggerDictionaryFocus, async () => {
+
   await nextTick();
   if (dictionarySearchInput.value) {
     dictionarySearchInput.value.focus();
@@ -600,8 +898,10 @@ watch(dictionaryData, () => {
 
       <div class="global-actions">
         <button v-if="subTab === 'dictionary' && dictionaryData.length > 0" @click="cleanDictionaryDuplicates" class="action-btn-danger">CLEAN DUPLICATES</button>
+        <button @click="showAdvancedModal = true" class="action-btn-mint">ADVANCED IMPORT</button>
         <button @click="openExcel" class="action-btn-mint">OPEN EXCEL</button>
       </div>
+
     </header>
 
     <div class="tab-body">
@@ -670,10 +970,13 @@ watch(dictionaryData, () => {
               </div>
             </div>
             <div class="pane-editor glass">
-              <div class="line-numbers" ref="inputLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num">{{ n }}</div></div>
+              <div class="line-numbers" ref="inputLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num" @mouseover="hoveredLineIndex = n" @mouseout="hoveredLineIndex = null" :class="{ 'hl-active': hoveredLineIndex === n }">{{ n }}</div></div>
 
-              <div class="editor-sub-container">
+              <div class="editor-sub-container" @mousemove="handleEditorMouseMove($event, inputTextarea)" @mouseleave="hoveredLineIndex = null">
+                <div class="hover-row-overlay" v-if="hoveredLineIndex !== null" :style="{ top: 'calc(15px + ' + ((hoveredLineIndex - 1) * 1.36) + 'rem)' }"></div>
                 <textarea v-model="translateInput" ref="inputTextarea" @scroll="handleScroll('input')" placeholder="Paste text here..."></textarea>
+
+
                 <div class="highlighter" v-html="highlightedInput" ref="inputHighlighter" @click="handleHighlighterClick" @mouseover="handleHighlighterMouseOver" @mouseout="handleHighlighterMouseOut"></div>
 
               </div>
@@ -688,13 +991,57 @@ watch(dictionaryData, () => {
                   <button @click="sharedTargetLang = 'vi'" :class="{ active: sharedTargetLang === 'vi' }">VI</button>
                 </div>
               </div>
-              <div class="header-right"><button @click="copyResult" class="ghost-btn">COPY RESULT</button></div>
+              <div class="header-right">
+                <div class="advanced-sheet-controls" v-if="advancedTranslatePaths.length > 0">
+                  <div class="searchable-dropdown file-dropdown" @click.stop>
+                    <div class="dropdown-trigger" @click="openDropdown = openDropdown === 'file' ? null : 'file'" :title="selectedAdvancedFile" style="max-width: 150px;">
+                      {{ advancedFileOptions.find(o => o.value === selectedAdvancedFile)?.label || 'Select File' }}
+                    </div>
+                    <div class="dropdown-menu" v-if="openDropdown === 'file'">
+                      <input type="text" v-model="fileSearch" placeholder="Search file..." class="dropdown-search" />
+                      <div class="dropdown-list">
+                        <div v-for="opt in filteredAdvancedFileOptions" :key="opt.value" 
+                             class="dropdown-item" :class="{active: selectedAdvancedFile === opt.value}"
+                             @click="selectedAdvancedFile = opt.value; openDropdown = null; fileSearch = ''" :title="opt.label">
+                          {{ opt.label }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="searchable-dropdown sheet-dropdown" @click.stop v-if="selectedAdvancedFile">
+                    <div class="dropdown-trigger" @click="openDropdown = openDropdown === 'sheet' ? null : 'sheet'" :title="selectedAdvancedSheet" style="max-width: 120px;">
+                      {{ availableFileSheets.find(o => o.value === selectedAdvancedSheet)?.label || 'Select Sheet' }}
+                    </div>
+                    <div class="dropdown-menu" v-if="openDropdown === 'sheet'">
+                      <input type="text" v-model="sheetSearch" placeholder="Search sheet..." class="dropdown-search" />
+                      <div class="dropdown-list">
+                        <div v-for="opt in filteredAvailableFileSheets" :key="opt.value" 
+                             class="dropdown-item" :class="{active: selectedAdvancedSheet === opt.value}"
+                             @click="selectedAdvancedSheet = opt.value; openDropdown = null; sheetSearch = ''" :title="opt.label">
+                          {{ opt.label }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <label class="strict-checkbox" title="If checked, only search within the exact selected sheet">
+                    <input type="checkbox" v-model="isStrictAdvancedSheet" />
+                    Strict Sheet
+                  </label>
+                </div>
+                <button @click="copyResult" class="ghost-btn">COPY RESULT</button>
+              </div>
+
             </div>
             <div class="pane-editor glass">
-              <div class="line-numbers" ref="resultLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num">{{ n }}</div></div>
+              <div class="line-numbers" ref="resultLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num" @mouseover="hoveredLineIndex = n" @mouseout="hoveredLineIndex = null" :class="{ 'hl-active': hoveredLineIndex === n }">{{ n }}</div></div>
 
-              <div class="editor-sub-container">
+              <div class="editor-sub-container" @mousemove="handleEditorMouseMove($event, resultTextarea)" @mouseleave="hoveredLineIndex = null">
+                <div class="hover-row-overlay" v-if="hoveredLineIndex !== null" :style="{ top: 'calc(15px + ' + ((hoveredLineIndex - 1) * 1.36) + 'rem)' }"></div>
                 <textarea v-model="translateOutput" readonly ref="resultTextarea" @scroll="handleScroll('result')" placeholder="Translation..." class="clickable-result"></textarea>
+
+
                 <div class="highlighter" v-html="highlightedOutput" ref="resultHighlighter" @click="handleHighlighterClick" @mouseover="handleHighlighterMouseOver" @mouseout="handleHighlighterMouseOut"></div>
 
               </div>
@@ -705,7 +1052,46 @@ watch(dictionaryData, () => {
     </div>
 
     <!-- Copy Bubble -->
+    <!-- Advanced Import Modal -->
+    <Teleport to="body">
+      <div v-if="showAdvancedModal" class="modal-overlay" :class="{ 'win95-overlay': theme === '95' }" @mousedown.self="showAdvancedModal = false">
+        <div class="modal-content advanced-modal" :class="{ 'win95-border': theme === '95' }">
+          <div class="modal-header" :class="{ 'win95-header': theme === '95' }">
+            <span>Import database file excel</span>
+            <button @click="showAdvancedModal = false" class="close-btn">&times;</button>
+          </div>
+
+          <div class="modal-body">
+            <p class="modal-info">Load specialized Excel files (mapping <b>論理カラム名</b> to <b>物理カラム名</b>). Takes priority over main dict.</p>
+            
+            <div class="advanced-list">
+              <div v-if="advancedTranslatePaths.length === 0" class="empty-list-hint">No advanced files loaded.</div>
+
+              <div v-for="path in advancedTranslatePaths" :key="path" class="advanced-item">
+                <div class="item-info">
+                  <span class="item-name">{{ path.split(/[/\\]/).pop() }}</span>
+                  <span class="item-path">{{ path }}</span>
+                </div>
+                <button @click="removeAdvancedPath(path)" class="remove-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="manual-add-row">
+              <input v-model="newManualPath" class="path-input-field" placeholder="Paste path here (C:\...)" @keyup.enter="validateAndAddPath" />
+              <button @click="validateAndAddPath" class="add-manual-btn">Add</button>
+              <button @click="addAdvancedPath" class="browse-fab" title="Browse Files">&#128194;</button>
+            </div>
+            <p v-if="pathError" class="modal-error">{{ pathError }}</p>
+
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <transition name="bubble">
+
       <div v-if="showCopyToast" class="copy-bubble" :style="{ left: copyPos.x + 'px', top: (copyPos.y - 30) + 'px' }">
         Copied!
       </div>
@@ -777,7 +1163,46 @@ watch(dictionaryData, () => {
 .strict-mode input { cursor: pointer; }
 :deep(.local-match) { background: #6366f1; color: white; border-radius: 2px; padding: 0 2px; }
 
+
+.active-advanced-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  margin-left: 15px;
+}
+
+.active-advanced-badge svg { color: #10b981; }
+
+/* Advanced Modal Styles */
+.advanced-modal { width: 600px; max-width: 90vw; }
+.modal-info { font-size: 0.75rem; opacity: 0.7; margin-bottom: 20px; line-height: 1.5; }
+.advanced-list { display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; margin-bottom: 20px; }
+.advanced-item {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(0,0,0,0.03); padding: 10px 15px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.1);
+}
+.item-info { display: flex; flex-direction: column; gap: 2px; }
+.item-name { font-size: 0.8rem; font-weight: 700; color: var(--accent-color); }
+.item-path { font-size: 0.6rem; opacity: 0.4; }
+.remove-btn { background: transparent; border: none; color: #ef4444; opacity: 0.6; cursor: pointer; padding: 5px; }
+.remove-btn:hover { opacity: 1; background: rgba(239, 68, 68, 0.1); border-radius: 4px; }
+.empty-list-hint { text-align: center; padding: 30px; opacity: 0.3; font-size: 0.8rem; font-style: italic; }
+.modal-footer { display: flex; justify-content: flex-end; }
+.add-path-btn {
+  background: var(--accent-color); color: white; border: none; padding: 10px 20px; border-radius: 8px;
+  font-size: 0.75rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 8px;
+}
+.add-path-btn:hover { filter: brightness(1.1); }
+
 .fab-add-btn {
+
   position: absolute;
   bottom: 25px;
   right: 25px;
@@ -826,13 +1251,16 @@ watch(dictionaryData, () => {
 .split-panes { display: flex; gap: 15px; height: 100%; }
 .pane-group { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .pane-header { display: flex; justify-content: space-between; align-items: center; height: 30px; }
+.header-left { display: flex; align-items: center; gap: 10px; }
+.header-right { display: flex; align-items: center; gap: 6px; }
 .pane-label { font-size: 0.6rem; font-weight: 950; opacity: 0.4; letter-spacing: 0.05em; color: var(--text-color); }
 .clear-btn { background: rgba(239,68,68,0.1); color: #f43f5e; border: none; padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
 .clear-btn:hover { background: rgba(239,68,68,0.2); }
-.format-btn { margin-right: 6px; border-color: rgba(99,102,241,0.2); color: var(--accent-color); }
+.format-btn { border-color: rgba(99,102,241,0.2); color: var(--accent-color); }
 .format-btn:hover { background: rgba(99,102,241,0.1); }
 .ghost-btn { background: rgba(128,128,128,0.05); border: 1px solid rgba(128,128,128,0.1); padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; color: var(--text-color); }
 .lang-segmented { display: flex; background: rgba(128, 128, 128, 0.06); padding: 2px; border-radius: 8px; }
+
 .lang-segmented button { padding: 4px 10px; font-size: 0.6rem; border: none; background: transparent; font-weight: 950; border-radius: 6px; cursor: pointer; opacity: 0.4; color: var(--text-color); }
 .lang-segmented button.active { background: #3b82f6; color: #fff; opacity: 1; }
 .pane-editor { flex: 1; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid rgba(128,128,128,0.12); }
@@ -848,7 +1276,21 @@ watch(dictionaryData, () => {
 
   color: transparent; pointer-events: none; z-index: 2;
 }
+
+.hover-row-overlay {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: rgba(99, 102, 241, 0.08);
+  pointer-events: none;
+  z-index: 0;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  box-sizing: border-box;
+}
+
 :deep(mark.hl-source) { background: transparent; color: var(--accent-color); font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; transition: all 0.2s; }
+
 :deep(mark.hl-target) { background: transparent; color: #10b981; font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; transition: all 0.2s; }
 
 
@@ -898,4 +1340,53 @@ textarea {
 .bubble-enter-from { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
 .bubble-leave-to { opacity: 0; transform: translate(-50%, -10px) scale(0.8); }
 .empty-state { padding: 40px !important; text-align: center; opacity: 0.5; font-style: italic; }
+
+/* Win95 Specific Overrides for Advanced Modal */
+.win95-overlay { background: rgba(0,0,0,0.1); backdrop-filter: none; }
+
+.win95-header { background: #000080; border: 2px solid; border-top-color: #dfdfdf; border-left-color: #dfdfdf; border-right-color: #808080; border-bottom-color: #808080; padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; }
+.win95-header span { font-family: 'MS Sans Serif', sans-serif; font-size: 0.75rem; font-weight: bold; color: #ffffff !important; }
+.win95-header .close-btn { background: #c0c0c0; color: #000000 !important; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; width: 16px; height: 14px; display: flex; align-items: center; justify-content: center; font-size: 10px; padding: 0; line-height: 1; margin-top: -1px; }
+
+
+.advanced-modal.win95-border { background: #c0c0c0; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; border-radius: 0; box-shadow: none; padding: 2px; }
+
+.advanced-modal.win95-border .modal-body { padding: 15px; color: #000; }
+.advanced-modal.win95-border .modal-info { color: #000; opacity: 1; font-family: 'MS Sans Serif', sans-serif; font-weight: normal; }
+
+.advanced-modal.win95-border .advanced-item { border-radius: 0; background: #fff; border: 2px solid; border-top-color: #808080; border-left-color: #808080; border-right-color: #ffffff; border-bottom-color: #ffffff; margin-bottom: 2px; }
+.advanced-modal.win95-border .item-name { color: #000; }
+.advanced-modal.win95-border .item-path { color: #808080; }
+
+.advanced-modal.win95-border .add-path-btn { background: #c0c0c0; color: #000; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; border-radius: 0; font-family: 'MS Sans Serif', sans-serif; font-weight: normal; font-size: 0.7rem; }
+.advanced-modal.win95-border .add-path-btn:active { border-top-color: #808080; border-left-color: #808080; border-right-color: #ffffff; border-bottom-color: #ffffff; padding-top: 11px; padding-left: 21px; }
+
+.advanced-modal.win95-border .remove-btn { color: #000; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; background: #c0c0c0; border-radius: 0; }
+
+.strict-checkbox { display: flex; align-items: center; gap: 4px; font-size: 0.65rem; font-weight: 800; cursor: pointer; color: var(--accent-color); }
+.strict-checkbox input { accent-color: var(--accent-color); }
+
+.advanced-sheet-controls { display: flex; align-items: center; gap: 8px; margin-right: 15px; }
+
+/* Custom Searchable Dropdown Styles */
+.searchable-dropdown { position: relative; }
+.dropdown-trigger { background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 4px 25px 4px 10px; font-size: 0.7rem; font-weight: 800; color: var(--text-color); cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23666666%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right 8px center; background-size: 8px auto; transition: 0.2s; user-select: none; }
+.dropdown-trigger:hover { background-color: rgba(128,128,128,0.1); border-color: var(--accent-color); }
+.dropdown-menu { position: absolute; top: calc(100% + 4px); right: 0; min-width: 250px; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); z-index: 500; display: flex; flex-direction: column; overflow: hidden; }
+.dropdown-search { padding: 10px 12px; border: none; border-bottom: 1px solid rgba(128,128,128,0.1); background: transparent; font-size: 0.75rem; color: var(--text-color); outline: none; font-weight: 800; font-family: inherit; width: 100%; box-sizing: border-box; }
+.dropdown-search:focus { background: rgba(99,102,241,0.05); }
+.dropdown-list { max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; }
+.dropdown-item { padding: 10px 12px; font-size: 0.75rem; cursor: pointer; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; color: var(--text-color); border-left: 2px solid transparent; transition: background 0.1s; }
+.dropdown-item:hover { background: rgba(99,102,241,0.05); }
+.dropdown-item.active { background: rgba(99,102,241,0.1); font-weight: 800; color: #6366f1; border-left-color: #6366f1; }
+
+
+.manual-add-row { display: flex; gap: 8px; margin-top: 10px; }
+
+.path-input-field { flex: 1; background: rgba(0,0,0,0.05); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 8px 12px; color: var(--text-color); font-size: 0.75rem; outline: none; }
+.add-manual-btn { background: var(--accent-color); color: white; border: none; padding: 0 15px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+.browse-fab { background: rgba(128,128,128,0.1); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 0 10px; cursor: pointer; color: var(--text-color); }
+.modal-error { color: #f43f5e; font-size: 0.7rem; font-weight: bold; margin: 4px 0 0; }
 </style>
+
+

@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { sharedInput, sharedOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh, globalSearchQuery } from '../store';
+import { translateInput, translateOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh, activeTab } from '../store';
+
 
 const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
 const dictionaryData = ref<any[]>([]);
-const isStrict = ref(false);
 const isLoading = ref(false);
 const dictionaryPath = ref('');
 const dictionarySearchInput = ref<HTMLInputElement | null>(null);
+const localSearchQuery = ref('');
+const isStrict = ref(false);
+
 
 // Performance optimizations
-const debouncedInput = ref(sharedInput.value);
+const debouncedInput = ref(translateInput.value);
 let debounceTimer: any = null;
 const sourceRegex = ref<RegExp | null>(null);
 const targetRegex = ref<RegExp | null>(null);
@@ -23,6 +26,8 @@ const targetWordsList = ref<string[]>([]);
 // Copy feedback
 const showCopyToast = ref(false);
 const copyPos = ref({ x: 0, y: 0 });
+const hoveredWord = ref<string | null>(null);
+
 
 // Modal state
 const showDictModal = ref(false);
@@ -36,23 +41,46 @@ const resultTextarea = ref<HTMLTextAreaElement | null>(null);
 const inputLineNumbers = ref<HTMLDivElement | null>(null);
 const resultLineNumbers = ref<HTMLDivElement | null>(null);
 
-const inputLines = computed(() => {
-  const lines = sharedInput.value.split('\n').length;
-  return lines > 0 ? lines : 1;
+const maxLines = computed(() => {
+  const iLines = translateInput.value.split('\n').length;
+  const oLines = translateOutput.value.split('\n').length;
+  return Math.max(iLines, oLines, 1);
 });
 
-const outputLines = computed(() => {
-  const lines = sharedOutput.value.split('\n').length;
-  return lines > 0 ? lines : 1;
-});
 
 const syncScroll = (side: 'input' | 'result') => {
-  if (side === 'input' && inputTextarea.value && inputLineNumbers.value) {
-    inputLineNumbers.value.scrollTop = inputTextarea.value.scrollTop;
-  } else if (side === 'result' && resultTextarea.value && resultLineNumbers.value) {
-    resultLineNumbers.value.scrollTop = resultTextarea.value.scrollTop;
+  const source = side === 'input' ? inputTextarea.value : resultTextarea.value;
+  const target = side === 'input' ? resultTextarea.value : inputTextarea.value;
+  const sourceHL = side === 'input' ? inputHighlighter.value : resultHighlighter.value;
+  const targetHL = side === 'input' ? resultHighlighter.value : inputHighlighter.value;
+  const sourceLN = side === 'input' ? inputLineNumbers.value : resultLineNumbers.value;
+  const targetLN = side === 'input' ? resultLineNumbers.value : inputLineNumbers.value;
+
+  if (!source) return;
+
+  // Sync the current side's own highlighter and line numbers
+  if (sourceHL) {
+    sourceHL.scrollTop = source.scrollTop;
+    sourceHL.scrollLeft = source.scrollLeft;
+  }
+  if (sourceLN) {
+    sourceLN.scrollTop = source.scrollTop;
+  }
+
+  // Sync the OTHER side
+  if (target) {
+    target.scrollTop = source.scrollTop;
+    target.scrollLeft = source.scrollLeft;
+  }
+  if (targetHL) {
+    targetHL.scrollTop = source.scrollTop;
+    targetHL.scrollLeft = source.scrollLeft;
+  }
+  if (targetLN) {
+    targetLN.scrollTop = source.scrollTop;
   }
 };
+
 
 const loadDictionary = async () => {
   try {
@@ -93,6 +121,65 @@ const loadDictionary = async () => {
   }
 };
 
+const cleanDictionaryDuplicates = async () => {
+  if (!dictionaryData.value.length || !dictionaryPath.value) return;
+
+  const confirmed = await ask(
+    `Are you sure you want to remove duplicates from the Excel file?\nThis will overwrite the current file.`,
+    { title: 'Confirm Clean Duplicates', kind: 'warning' }
+  );
+  if (!confirmed) return;
+
+  const initialCount = dictionaryData.value.length;
+  const seen = new Set();
+  const cleaned = dictionaryData.value.filter(item => {
+    // Key is combination of Japanese and English
+    const key = `${normalize(item.jp).toLowerCase()}|||${normalize(item.en).toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const removedCount = initialCount - cleaned.length;
+  if (removedCount === 0) {
+    alert('No duplicates found.');
+    return;
+  }
+
+  try {
+    // 1. Prepare data for Excel (Array of Arrays with headers)
+    const aoa = [
+      ['JAPANESE', 'ENGLISH', 'VIETNAMESE'],
+      ...cleaned.map(item => [item.jp, item.en, item.vi])
+    ];
+
+    // 2. Create workbook
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Dictionary");
+
+    // 3. Generate binary data
+    const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    
+    // 4. Save to file
+    await invoke('write_file_binary', { 
+      path: dictionaryPath.value, 
+      data: Array.from(new Uint8Array(wbout)) 
+    });
+
+    // 5. Update local state
+    dictionaryData.value = cleaned;
+    updateCachedWords();
+    
+    alert(`Cleaned successfully! Removed ${removedCount} duplicate rows.`);
+  } catch (e) {
+    console.error('Failed to clean dictionary:', e);
+    alert('Failed to save cleaned dictionary: ' + e);
+  }
+};
+
+const normalize = (val: string) => val ? val.trim() : '';
+
 const updateCachedWords = () => {
   const sourceSet = new Set<string>();
   const targetSet = new Set<string>();
@@ -132,8 +219,8 @@ const updateCachedWords = () => {
 };
 
 const filteredDictionary = computed(() => {
-  if (!globalSearchQuery.value) return dictionaryData.value;
-  const q = globalSearchQuery.value.toLowerCase();
+  if (!localSearchQuery.value) return dictionaryData.value;
+  const q = localSearchQuery.value.toLowerCase().trim();
   
   return dictionaryData.value.filter(item => {
     if (isStrict.value) {
@@ -147,14 +234,15 @@ const filteredDictionary = computed(() => {
   });
 });
 
+
 const handleQuickTranslate = () => {
-  if (!sharedInput.value) {
-    sharedOutput.value = '';
+  if (!translateInput.value) {
+    translateOutput.value = '';
     return;
   }
 
   if (sourceWordsList.value.length === 0) {
-    sharedOutput.value = sharedInput.value;
+    translateOutput.value = translateInput.value;
     return;
   }
 
@@ -179,7 +267,7 @@ const handleQuickTranslate = () => {
 
   let result = '';
   let i = 0;
-  const text = sharedInput.value;
+  const text = translateInput.value;
 
   while (i < text.length) {
     let matchFound = false;
@@ -199,18 +287,54 @@ const handleQuickTranslate = () => {
     }
   }
 
-  sharedOutput.value = result;
+  translateOutput.value = result;
 };
 
 const clearAll = () => {
-  sharedInput.value = '';
-  sharedOutput.value = '';
+  translateInput.value = '';
+  translateOutput.value = '';
 };
 
+const formatInputText = () => {
+  let text = translateInput.value;
+  if (!text) return;
+
+  // New Logic: Extract SQL data from Java append strings
+  if (text.includes('.append(')) {
+    const lines = text.split('\n');
+    const results = lines.map(line => {
+      const match = line.match(/\.append\s*\(\s*["'](.*?)["']\s*\)/i);
+      if (match) {
+        let content = match[1].trim();
+        if (content.includes('?')) return null;
+        return content.replace(/,$/, '').trim();
+      }
+      return null;
+    }).filter(row => row !== null && row.length > 0);
+
+    if (results.length > 0) {
+      translateInput.value = results.join('\n');
+      nextTick(() => handleQuickTranslate());
+      return;
+    }
+  }
+
+  // Basic formatting fallback
+  const formatted = text
+    .split('\n')
+    .map(line => line.trim().replace(/\s+/g, ' '))
+    .filter(line => line.length > 0)
+    .join('\n')
+    .trim();
+  translateInput.value = formatted;
+};
+
+
+
 const copyResult = async () => {
-  if (!sharedOutput.value) return;
+  if (!translateOutput.value) return;
   try {
-    await navigator.clipboard.writeText(sharedOutput.value);
+    await navigator.clipboard.writeText(translateOutput.value);
     alert('Result copied to clipboard!');
   } catch (e) {
     console.error('Copy failed:', e);
@@ -251,12 +375,28 @@ const handleHighlighterClick = (event: MouseEvent) => {
   }
 };
 
-const highlightMatch = (text: string) => {
-  if (!globalSearchQuery.value || isStrict.value) return text;
-  const q = globalSearchQuery.value;
-  const regex = new RegExp(`(${q})`, 'gi');
-  return text.replace(regex, '<mark>$1</mark>');
+const handleHighlighterMouseOver = (event: MouseEvent) => {
+  const target = event.target as HTMLElement;
+  if (target.tagName === 'MARK') {
+    hoveredWord.value = target.innerText;
+  }
 };
+
+const handleHighlighterMouseOut = () => {
+  hoveredWord.value = null;
+};
+
+
+const highlightMatch = (text: string) => {
+  if (!localSearchQuery.value || isStrict.value) return text;
+  const q = localSearchQuery.value.trim();
+  if (!q) return text;
+  try {
+    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<mark class="local-match">$1</mark>');
+  } catch { return text; }
+};
+
 
 // --- CRUD ---
 const openAddModal = () => {
@@ -299,51 +439,106 @@ const renderHighlighted = (text: string, mode: 'source' | 'target') => {
   let result = escaped;
   if (regex) {
     result = escaped.replace(regex, (match) => {
-      return `<mark class="hl-${mode}">${match}</mark>`;
+      // Attribute safe escape
+      const attrMatch = match.replace(/"/g, '&quot;');
+      return `<mark class="hl-${mode}" data-word="${attrMatch}">${match}</mark>`;
     });
   }
 
-  // Global search highlighting
-  if (globalSearchQuery.value) {
-    const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const qRegex = new RegExp(`(${q})`, "gi");
-    result = result.split(/(<[^>]+>)/).map(part => {
-      if (part.startsWith('<')) return part;
-      return part.replace(qRegex, '<mark class="global-search-match">$1</mark>');
-    }).join('');
-  }
-
-  return result + '\n';
+  return result;
 };
 
-const highlightedInput = computed(() => renderHighlighted(debouncedInput.value, 'source'));
-const highlightedOutput = computed(() => renderHighlighted(sharedOutput.value, 'target'));
+
+const highlightedInput = ref('');
+const highlightedOutput = ref('');
+
+let translateHighlightTimeout: any = null;
+
+const updateAllHighlights = () => {
+    highlightedInput.value = renderHighlighted(debouncedInput.value, 'source');
+    highlightedOutput.value = renderHighlighted(translateOutput.value, 'target');
+};
+
+// Update highlights on content or search query change, but debounced and gated by visibility
+watch([debouncedInput, translateOutput, activeTab], () => {
+    if (translateHighlightTimeout) clearTimeout(translateHighlightTimeout);
+    
+    if (activeTab.value !== 'Translate') return;
+    
+    translateHighlightTimeout = setTimeout(() => {
+        updateAllHighlights();
+    }, 400);
+}, { immediate: true });
+
+const hoverStyleTag = ref<HTMLStyleElement | null>(null);
+watch(hoveredWord, (newWord) => {
+  if (!hoverStyleTag.value) {
+    hoverStyleTag.value = document.createElement('style');
+    hoverStyleTag.value.id = 'sync-hover-styles';
+    document.head.appendChild(hoverStyleTag.value);
+  }
+  
+  if (newWord && activeTab.value === 'Translate') {
+    const escaped = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(newWord) : newWord.replace(/["\\]/g, '\\$&');
+    hoverStyleTag.value.innerHTML = `
+      mark[data-word="${escaped}"] {
+        background: var(--accent-color) !important;
+        color: white !important;
+        border-radius: 4px;
+        box-shadow: 0 0 10px var(--accent-color);
+        text-decoration: none !important;
+      }
+    `;
+  } else {
+    hoverStyleTag.value.innerHTML = '';
+  }
+});
+
+
+// Ensure highlights are ready when user switches to this tab
+watch(activeTab, (newTab) => {
+    if (newTab === 'Translate') {
+        updateAllHighlights();
+    }
+});
 
 const handleScroll = (side: 'input' | 'result') => {
   syncScroll(side);
-  const ta = side === 'input' ? inputTextarea.value : resultTextarea.value;
-  const hl = side === 'input' ? inputHighlighter.value : resultHighlighter.value;
-  if (ta && hl) {
-    hl.scrollTop = ta.scrollTop;
-    hl.scrollLeft = ta.scrollLeft;
-  }
 };
+
 
 const inputHighlighter = ref<HTMLDivElement | null>(null);
 const resultHighlighter = ref<HTMLDivElement | null>(null);
 
 onMounted(() => {
   loadDictionary();
+  window.addEventListener('keydown', handleLocalKeyDown);
 });
 
-watch(sharedInput, (val) => {
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleLocalKeyDown);
+});
+
+const handleLocalKeyDown = (e: KeyboardEvent) => {
+  if (activeTab.value !== 'Translate') return;
+  
+  if (e.ctrlKey && e.key.toLowerCase() === 'f' && !e.shiftKey) {
+    if (subTab.value === 'dictionary') {
+      e.preventDefault();
+      dictionarySearchInput.value?.focus();
+      dictionarySearchInput.value?.select();
+    }
+  }
+};
+
+watch(translateInput, (val) => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     debouncedInput.value = val;
     handleQuickTranslate();
   }, 300);
 });
-watch(sharedOutput, async () => {
+watch(translateOutput, async () => {
   await nextTick();
   if (subTab.value === 'quick-translate') syncScroll('result');
 });
@@ -377,7 +572,7 @@ watch(triggerSettingsRefresh, () => {
 
 watch(dictionaryData, () => {
   updateCachedWords();
-  if (subTab.value === 'quick-translate' && sharedInput.value) {
+  if (subTab.value === 'quick-translate' && translateInput.value) {
     handleQuickTranslate();
   }
 }, { deep: true });
@@ -390,8 +585,21 @@ watch(dictionaryData, () => {
         <button @click="subTab = 'dictionary'" :class="{ active: subTab === 'dictionary' }" class="tab-pill-btn">DICTIONARY</button>
         <button @click="subTab = 'quick-translate'" :class="{ active: subTab === 'quick-translate' }" class="tab-pill-btn">QUICK TRANSLATE</button>
       </div>
+      
+      <div v-if="subTab === 'dictionary'" class="search-container">
+        <div class="search-box">
+          <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input v-model="localSearchQuery" ref="dictionarySearchInput" placeholder="Search dictionary..." class="header-search-input" />
+        </div>
+        <label class="strict-mode">
+          <input type="checkbox" v-model="isStrict" />
+          <span>STRICT</span>
+        </label>
+      </div>
+
 
       <div class="global-actions">
+        <button v-if="subTab === 'dictionary' && dictionaryData.length > 0" @click="cleanDictionaryDuplicates" class="action-btn-danger">CLEAN DUPLICATES</button>
         <button @click="openExcel" class="action-btn-mint">OPEN EXCEL</button>
       </div>
     </header>
@@ -454,12 +662,20 @@ watch(dictionaryData, () => {
       <div v-if="subTab === 'quick-translate'" class="quick-translate-container">
         <div class="split-panes">
           <div class="pane-group">
-            <div class="pane-header"><span class="pane-label">INPUT SOURCE</span><button @click="clearAll" class="clear-btn">CLEAR ALL</button></div>
+            <div class="pane-header">
+              <span class="pane-label">INPUT SOURCE</span>
+              <div class="header-right">
+                <button @click="formatInputText" class="ghost-btn format-btn">FORMAT</button>
+                <button @click="clearAll" class="clear-btn">CLEAR ALL</button>
+              </div>
+            </div>
             <div class="pane-editor glass">
-              <div class="line-numbers" ref="inputLineNumbers"><div v-for="n in inputLines" :key="n" class="line-num">{{ n }}</div></div>
+              <div class="line-numbers" ref="inputLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num">{{ n }}</div></div>
+
               <div class="editor-sub-container">
-                <textarea v-model="sharedInput" ref="inputTextarea" @scroll="handleScroll('input')" placeholder="Paste text here..."></textarea>
-                <div class="highlighter" v-html="highlightedInput" ref="inputHighlighter" @click="handleHighlighterClick"></div>
+                <textarea v-model="translateInput" ref="inputTextarea" @scroll="handleScroll('input')" placeholder="Paste text here..."></textarea>
+                <div class="highlighter" v-html="highlightedInput" ref="inputHighlighter" @click="handleHighlighterClick" @mouseover="handleHighlighterMouseOver" @mouseout="handleHighlighterMouseOut"></div>
+
               </div>
             </div>
           </div>
@@ -475,10 +691,12 @@ watch(dictionaryData, () => {
               <div class="header-right"><button @click="copyResult" class="ghost-btn">COPY RESULT</button></div>
             </div>
             <div class="pane-editor glass">
-              <div class="line-numbers" ref="resultLineNumbers"><div v-for="n in outputLines" :key="n" class="line-num">{{ n }}</div></div>
+              <div class="line-numbers" ref="resultLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num">{{ n }}</div></div>
+
               <div class="editor-sub-container">
-                <textarea v-model="sharedOutput" readonly ref="resultTextarea" @scroll="handleScroll('result')" placeholder="Translation..." class="clickable-result"></textarea>
-                <div class="highlighter" v-html="highlightedOutput" ref="resultHighlighter" @click="handleHighlighterClick"></div>
+                <textarea v-model="translateOutput" readonly ref="resultTextarea" @scroll="handleScroll('result')" placeholder="Translation..." class="clickable-result"></textarea>
+                <div class="highlighter" v-html="highlightedOutput" ref="resultHighlighter" @click="handleHighlighterClick" @mouseover="handleHighlighterMouseOver" @mouseout="handleHighlighterMouseOut"></div>
+
               </div>
             </div>
           </div>
@@ -555,7 +773,10 @@ watch(dictionaryData, () => {
 
 .search-icon { opacity: 0.5; margin-right: 10px; color: var(--text-color); }
 .header-search-input { flex: 1; background: transparent; border: none; color: #6366f1; font-weight: 800; font-size: 0.8rem; outline: none; }
-.strict-mode { display: flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 900; opacity: 0.5; color: var(--text-color); }
+.strict-mode { display: flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 900; opacity: 0.5; color: var(--text-color); cursor: pointer; }
+.strict-mode input { cursor: pointer; }
+:deep(.local-match) { background: #6366f1; color: white; border-radius: 2px; padding: 0 2px; }
+
 .fab-add-btn {
   position: absolute;
   bottom: 25px;
@@ -580,6 +801,8 @@ watch(dictionaryData, () => {
 }
 .global-actions { display: flex; gap: 10px; }
 .action-btn-mint { padding: 8px 15px; background: #ecfdf5; color: #10b981; border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; }
+.action-btn-danger { padding: 8px 15px; background: rgba(244, 63, 94, 0.1); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; margin-right: 5px; }
+.action-btn-danger:hover { background: rgba(244, 63, 94, 0.2); }
 .action-btn-purple { padding: 8px 15px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; }
 .dictionary-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 .dict-table-wrapper { flex: 1; overflow-y: auto; border-radius: 12px; }
@@ -604,31 +827,41 @@ watch(dictionaryData, () => {
 .pane-group { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .pane-header { display: flex; justify-content: space-between; align-items: center; height: 30px; }
 .pane-label { font-size: 0.6rem; font-weight: 950; opacity: 0.4; letter-spacing: 0.05em; color: var(--text-color); }
-.clear-btn { background: rgba(239,68,68,0.1); color: #f43f5e; border: none; padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; }
+.clear-btn { background: rgba(239,68,68,0.1); color: #f43f5e; border: none; padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+.clear-btn:hover { background: rgba(239,68,68,0.2); }
+.format-btn { margin-right: 6px; border-color: rgba(99,102,241,0.2); color: var(--accent-color); }
+.format-btn:hover { background: rgba(99,102,241,0.1); }
 .ghost-btn { background: rgba(128,128,128,0.05); border: 1px solid rgba(128,128,128,0.1); padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; color: var(--text-color); }
 .lang-segmented { display: flex; background: rgba(128, 128, 128, 0.06); padding: 2px; border-radius: 8px; }
 .lang-segmented button { padding: 4px 10px; font-size: 0.6rem; border: none; background: transparent; font-weight: 950; border-radius: 6px; cursor: pointer; opacity: 0.4; color: var(--text-color); }
 .lang-segmented button.active { background: #3b82f6; color: #fff; opacity: 1; }
 .pane-editor { flex: 1; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid rgba(128,128,128,0.12); }
 .line-numbers { width: 34px; background: rgba(0,0,0,0.02); padding: 15px 0; overflow: hidden; }
-.line-num { font-size: 0.7rem; line-height: 1.6; text-align: center; opacity: 0.2; font-family: monospace; color: var(--text-color); }
+.line-num { font-size: 0.85rem; line-height: 1.6; text-align: center; opacity: 0.2; font-family: 'Consolas', monospace; color: var(--text-color); }
 
 .editor-sub-container { position: relative; flex: 1; display: flex; overflow: hidden; }
 .highlighter {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
   padding: 15px; box-sizing: border-box;
   font-family: 'Consolas', monospace; font-size: 0.85rem; line-height: 1.6;
-  white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
+  white-space: pre; overflow: hidden; word-break: normal;
+
   color: transparent; pointer-events: none; z-index: 2;
 }
-:deep(mark.hl-source) { background: transparent; color: var(--accent-color); font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; }
-:deep(mark.hl-target) { background: transparent; color: #10b981; font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; }
+:deep(mark.hl-source) { background: transparent; color: var(--accent-color); font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; transition: all 0.2s; }
+:deep(mark.hl-target) { background: transparent; color: #10b981; font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; transition: all 0.2s; }
+
+
+
 
 textarea {
   flex: 1; background: transparent; border: none; padding: 15px;
   color: var(--text-color); font-family: 'Consolas', monospace; font-size: 0.85rem; line-height: 1.6;
   resize: none; outline: none; position: relative; z-index: 1;
+  white-space: pre; overflow: auto; word-break: normal;
+
 }
+
 .clickable-result { transition: background 0.2s; }
 .clickable-result:hover { background: rgba(99, 102, 241, 0.01); }
 .glass { background: var(--input-bg); }

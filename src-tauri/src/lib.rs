@@ -1,8 +1,7 @@
-﻿use std::fs;
+use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
-use tauri::Emitter;
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -14,19 +13,7 @@ pub struct FileNode {
     pub extension: String,
 }
 
-#[derive(Serialize, Clone)]
-pub struct SearchResult {
-    pub file_path: String,
-    pub line_num: usize,
-    pub line_text: String,
-}
 
-#[derive(Clone, Serialize)]
-pub struct SearchBatch {
-    pub results: Vec<SearchResult>,
-    pub done: bool,
-    pub total: usize,
-}
 
 #[tauri::command]
 fn get_settings(app: tauri::AppHandle) -> Result<String, String> {
@@ -245,127 +232,7 @@ fn test_tcp_connection(host: String, port: u16) -> Result<String, String> {
 }
 
 
-#[tauri::command]
-fn search_in_files(app: tauri::AppHandle, path: String, query: String) -> Result<(), String> {
-    use ignore::WalkBuilder;
-    use std::thread;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    let query_lower = query.to_lowercase();
-    let root_path = std::path::PathBuf::from(&path);
-
-    if !root_path.exists() || !root_path.is_dir() {
-        return Err("Invalid search directory".to_string());
-    }
-
-    thread::spawn(move || {
-        let walker = WalkBuilder::new(&root_path)
-            .hidden(false) // Don't skip hidden files
-            .ignore(false) // Don't skip ignored files for global search
-            .git_ignore(false)
-            .threads(std::cmp::min(8, num_cpus::get()))
-            .build_parallel();
-
-        let total_count = Arc::new(AtomicUsize::new(0));
-        const MAX_RESULTS: usize = 1000;
-        const BATCH_SIZE: usize = 40;
-
-        struct SearchWorker {
-            app: tauri::AppHandle,
-            batch: Vec<SearchResult>,
-            total_count: Arc<AtomicUsize>,
-            query_lower: String,
-        }
-
-        impl Drop for SearchWorker {
-            fn drop(&mut self) {
-                if !self.batch.is_empty() {
-                    let _ = self.app.emit("search:batch", SearchBatch {
-                        results: self.batch.drain(..).collect(),
-                        done: false,
-                        total: self.total_count.load(Ordering::SeqCst),
-                    });
-                }
-            }
-        }
-
-        walker.run(|| {
-            let mut worker = SearchWorker {
-                app: app.clone(),
-                batch: Vec::new(),
-                total_count: Arc::clone(&total_count),
-                query_lower: query_lower.clone(),
-            };
-
-            Box::new(move |entry| {
-                use ignore::WalkState;
-                if worker.total_count.load(Ordering::Relaxed) >= MAX_RESULTS {
-                    return WalkState::Quit;
-                }
-
-                let entry = match entry {
-                    Ok(e) => e,
-                    Err(_) => return WalkState::Continue,
-                };
-
-                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                    return WalkState::Continue;
-                }
-
-                let file_path = entry.path();
-                if let Ok(bytes) = fs::read(file_path) {
-                    let check_len = std::cmp::min(1024, bytes.len());
-                    if bytes[..check_len].contains(&0) { return WalkState::Continue; }
-
-                    let content = {
-                        let (res, _, has_errors) = encoding_rs::UTF_8.decode(&bytes);
-                        if !has_errors { res.into_owned() }
-                        else {
-                            let (res, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
-                            res.into_owned()
-                        }
-                    };
-
-                    let path_str = file_path.to_string_lossy().to_string();
-                    for (i, line) in content.lines().enumerate() {
-                        if line.to_lowercase().contains(&worker.query_lower) {
-                            worker.batch.push(SearchResult {
-                                file_path: path_str.clone(),
-                                line_num: i + 1,
-                                line_text: line.trim().to_string(),
-                            });
-
-                            let current_total = worker.total_count.fetch_add(1, Ordering::SeqCst);
-                            if worker.batch.len() >= BATCH_SIZE {
-                                let _ = worker.app.emit("search:batch", SearchBatch {
-                                    results: worker.batch.drain(..).collect(),
-                                    done: false,
-                                    total: current_total + 1,
-                                });
-                            }
-
-                            if current_total >= MAX_RESULTS {
-                                return WalkState::Quit;
-                            }
-                        }
-                    }
-                }
-
-                WalkState::Continue
-            })
-        });
-
-        // Final signal
-        let _ = app.emit("search:batch", SearchBatch {
-            results: Vec::new(),
-            done: true,
-            total: total_count.load(Ordering::SeqCst),
-        });
-    });
-
-    Ok(())
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -386,8 +253,8 @@ pub fn run() {
             read_dir_tree,
             git_execute,
             test_tcp_connection,
-            search_in_files,
             list_directory_files
+
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

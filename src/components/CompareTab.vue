@@ -1,27 +1,35 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { sharedInput, sharedOutput, theme as globalTheme, globalSearchQuery } from '../store';
+import { sharedInput, sharedOutput, theme as globalTheme } from '../store';
+
+
 
 // The two sides of the diff
 const originalText = ref(sharedInput.value);
 const modifiedText = ref(sharedOutput.value);
 const diffEditorRef = ref<any>(null);
 
+const normalize = (val: string) => val ? val.replace(/\r\n/g, '\n') : '';
+
 // Sync with shared store (from store to local)
 watch(sharedInput, (val) => {
-  if (originalText.value !== val) originalText.value = val;
+  const normVal = normalize(val);
+  if (normalize(originalText.value) !== normVal) originalText.value = normVal;
 });
 watch(sharedOutput, (val) => {
-  if (modifiedText.value !== val) modifiedText.value = val;
+  const normVal = normalize(val);
+  if (normalize(modifiedText.value) !== normVal) modifiedText.value = normVal;
 });
 
 // Sync local changes back to store (two-way)
 watch(originalText, (val) => {
-  if (sharedInput.value !== val) sharedInput.value = val;
+  const normVal = normalize(val);
+  if (normalize(sharedInput.value) !== normVal) sharedInput.value = normVal;
 });
 watch(modifiedText, (val) => {
-  if (sharedOutput.value !== val) sharedOutput.value = val;
+  const normVal = normalize(val);
+  if (normalize(sharedOutput.value) !== normVal) sharedOutput.value = normVal;
 });
 
 const handleEditorMount = (editor: any, _monaco: any) => {
@@ -32,56 +40,19 @@ const handleEditorMount = (editor: any, _monaco: any) => {
 
   // Robust synchronization from Monaco directly back to our refs
   original.onDidChangeModelContent(() => {
-    const val = original.getValue();
-    if (originalText.value !== val) originalText.value = val;
-    nextTick(() => updateSearchHighlights());
+    const val = normalize(original.getValue());
+    if (normalize(originalText.value) !== val) originalText.value = val;
   });
 
   modified.onDidChangeModelContent(() => {
-    const val = modified.getValue();
-    if (modifiedText.value !== val) modifiedText.value = val;
-    nextTick(() => updateSearchHighlights());
+    const val = normalize(modified.getValue());
+    if (normalize(modifiedText.value) !== val) modifiedText.value = val;
   });
-
-  // Initial highlights
-  updateSearchHighlights();
 };
 
-const originalDecorations = ref<string[]>([]);
-const modifiedDecorations = ref<string[]>([]);
-
-const updateSearchHighlights = () => {
-  if (!diffEditorRef.value) return;
-  
-  const originalEditor = diffEditorRef.value.getOriginalEditor();
-  const modifiedEditor = diffEditorRef.value.getModifiedEditor();
-  const query = globalSearchQuery.value;
-  
-  const getDecorations = (model: any, q: string) => {
-    if (!model || !q) return [];
-    const matches = model.findMatches(q, false, false, false, null, false);
-    return matches.map((m: any) => ({
-      range: m.range,
-      options: { inlineClassName: 'global-search-match' }
-    }));
-  };
-
-  originalDecorations.value = originalEditor.deltaDecorations(originalDecorations.value, 
-    query ? getDecorations(originalEditor.getModel(), query) : []
-  );
-  
-  modifiedDecorations.value = modifiedEditor.deltaDecorations(modifiedDecorations.value, 
-    query ? getDecorations(modifiedEditor.getModel(), query) : []
-  );
-};
-
-watch(globalSearchQuery, () => {
-  updateSearchHighlights();
-});
-
-// Sidebar state (removed analysis items)
 
 // Monaco instance for theme definition
+
 const monacoRef = ref<any>(null);
 
 const handleEditorBeforeMount = (monaco: any) => {
@@ -147,9 +118,52 @@ const clearInputs = () => {
   modifiedText.value = '';
 };
 
-// Watch for content changes to ensure reactive updates
+const sortIdenticalToTop = () => {
+  if (!originalText.value && !modifiedText.value) return;
+  
+  const lines1 = originalText.value.split(/\r?\n/);
+  const lines2 = modifiedText.value.split(/\r?\n/);
+  
+  const common: string[] = [];
+  const only1: string[] = [];
+  const only2: string[] = [];
+  
+  // Frequency map for lines2
+  const freq2 = new Map<string, number>();
+  lines2.forEach(l => freq2.set(l, (freq2.get(l) || 0) + 1));
+  
+  // Identify common lines in order of original text
+  lines1.forEach(l => {
+    const count = freq2.get(l) || 0;
+    if (count > 0) {
+      common.push(l);
+      freq2.set(l, count - 1);
+    } else {
+      only1.push(l);
+    }
+  });
+  
+  // What is left in freq2 is only in lines2
+  // We need to maintain some order for only2. Re-scan lines2.
+  const freq1_copy = new Map<string, number>();
+  lines1.forEach(l => freq1_copy.set(l, (freq1_copy.get(l) || 0) + 1));
+  
+  lines2.forEach(l => {
+    const count = freq1_copy.get(l) || 0;
+    if (count > 0) {
+      freq1_copy.set(l, count - 1);
+    } else {
+      only2.push(l);
+    }
+  });
+  
+  originalText.value = [...common, ...only1].join('\n');
+  modifiedText.value = [...common, ...only2].join('\n');
+};
+
+// Internal watcher for debugging (optional, normally silents)
 watch([originalText, modifiedText], () => {
-  console.log('Compare Content changed in refs');
+  // Silent or throttled logging
 }, { deep: true });
 
 const renderSideBySide = ref(true);
@@ -176,6 +190,11 @@ const currentOptions = computed(() => ({
           <button class="icon-btn" @click="swapInputs" title="Swap Sides">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M11 1l3 3-3 3V5H2V3h9V1zm-6 8l-3 3 3 3v-2h9v-2H5v-2z"/>
+            </svg>
+          </button>
+          <button class="icon-btn" @click="sortIdenticalToTop" title="Sort Identical to Top">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 1L4 5h3v4h2V5h3L8 1zM2 11h12v2H2v-2zm2 3h8v1H4v-1z"/>
             </svg>
           </button>
           <button class="icon-btn" @click="clearInputs" title="Clear All Texts">

@@ -4,6 +4,8 @@ export const theme = ref<'light' | 'dark' | '95'>('dark');
 
 export const sharedInput = ref('');
 export const sharedOutput = ref('');
+export const translateInput = ref('');
+export const translateOutput = ref('');
 export const sharedTargetLang = ref<'en' | 'jp' | 'vi'>('jp');
 export const triggerDictionaryFocus = ref(0);
 export const triggerOpenFile = ref(0);
@@ -31,7 +33,7 @@ export interface CursorPosition {
 export const cursorHistory = ref<CursorPosition[]>([]);
 export const cursorHistoryIndex = ref(-1);
 export const globalShortcuts = ref({
-    focus_search: 'ctrl+f',
+
     open_settings: 'ctrl+shift+s',
     open_file: 'ctrl+o',
     prev_tab: 'ctrl+arrowleft',
@@ -146,4 +148,5 @@ export const isGlobalSmoking = ref(false);
 export const triggerFlick = ref(0);
 export const smokedCount = ref(0);
 export const triggerSettingsRefresh = ref(0);
-export const globalSearchQuery = ref('');
+export const activeTab = ref('SQL-Helper');
+

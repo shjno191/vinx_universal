@@ -1,7 +1,8 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, reactive, onMounted, watch, nextTick } from "vue";
 
-import { globalShortcuts, showSettingsTrigger, triggerDictionaryFocus, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals, chillSettings, triggerFlick, globalSearchQuery } from "./store";
+import { globalShortcuts, showSettingsTrigger, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals, chillSettings, triggerFlick, activeTab } from "./store";
+
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -20,24 +21,45 @@ import { isGlobalSmoking } from "./store";
 
 const currentTab = ref("SQL-Helper");
 const allTabs = ["SQL-Helper", "Translate", "ConvertUI", "Compare", "Editor", "Git", "FlowChart", "Chill"];
-const currentTheme = ref("dark");
 const showSettingsModal = ref(false);
 const settingsRef = ref<any>(null);
-const globalSearchInputRef = ref<HTMLInputElement | null>(null);
-let lastCtrlFTime = 0;
+
+
+
+const currentTheme = ref("dark");
+
 
 // Lazy loading tabs: using reactive object for better stability than Set patching
 const initializedTabs = reactive<Record<string, boolean>>({
   "SQL-Helper": true
 });
 
+const chillWidgetRef = ref<any>(null);
+
+// Tab History for Mouse 4/5
+const tabHistory = ref<string[]>(["SQL-Helper"]);
+const tabHistoryIndex = ref(0);
+let isNavigatingHistory = false;
+
 watch(currentTab, (newTab) => {
+  activeTab.value = newTab; // Sync with global store for visibility-based optimizations
+  if (isNavigatingHistory) return;
+  
+  // If we were in the middle of history and clicked a new tab, truncate forward history
+  if (tabHistoryIndex.value < tabHistory.value.length - 1) {
+    tabHistory.value = tabHistory.value.slice(0, tabHistoryIndex.value + 1);
+  }
+  
+  // Don't add if it's the same as current (redundant)
+  if (tabHistory.value[tabHistoryIndex.value] === newTab) return;
+  
+  tabHistory.value.push(newTab);
+  tabHistoryIndex.value = tabHistory.value.length - 1;
+
   if (!initializedTabs[newTab]) {
     initializedTabs[newTab] = true;
   }
 }, { immediate: true });
-
-const chillWidgetRef = ref<any>(null);
 
 const handleChillShortcuts = (e: KeyboardEvent, isDown: boolean) => {
   const activeEl = document.activeElement;
@@ -63,26 +85,6 @@ const handleChillShortcuts = (e: KeyboardEvent, isDown: boolean) => {
     }
   }
 };
-
-// Tab History for Mouse 4/5
-const tabHistory = ref<string[]>(["SQL-Helper"]);
-const tabHistoryIndex = ref(0);
-let isNavigatingHistory = false;
-
-watch(currentTab, (newTab) => {
-  if (isNavigatingHistory) return;
-  
-  // If we were in the middle of history and clicked a new tab, truncate forward history
-  if (tabHistoryIndex.value < tabHistory.value.length - 1) {
-    tabHistory.value = tabHistory.value.slice(0, tabHistoryIndex.value + 1);
-  }
-  
-  // Don't add if it's the same as current (redundant)
-  if (tabHistory.value[tabHistoryIndex.value] === newTab) return;
-  
-  tabHistory.value.push(newTab);
-  tabHistoryIndex.value = tabHistory.value.length - 1;
-});
 
 const handleMouseUp = (e: MouseEvent) => {
   // Mouse buttons: 3 = Back, 4 = Forward
@@ -127,10 +129,8 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
     triggerCloseModals.value++;
   }
   
-  if (matchShortcut(e, globalShortcuts.value.focus_search)) {
-    e.preventDefault();
-    triggerDictionaryFocus.value++;
-  }
+  // Removed global focus_search interception to allow internal tab search (Monaco Find)
+
 
   if (matchShortcut(e, globalShortcuts.value.open_settings)) {
     e.preventDefault();
@@ -162,44 +162,20 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
 
   handleChillShortcuts(e, true);
 
-  // Ctrl+F+F logic
-  if (e.ctrlKey && e.key.toLowerCase() === 'f') {
-    e.preventDefault(); // Block browser search always when Ctrl+F is pressed
-    const now = Date.now();
-    if (now - lastCtrlFTime < 500) {
-      // Double tap detected
-      globalSearchInputRef.value?.focus();
-      globalSearchInputRef.value?.select();
-      lastCtrlFTime = 0; 
-    } else {
-      // First tap: trigger nothing yet, just mark time
-      lastCtrlFTime = now;
+  if (e.key === 'Escape') {
+    const activeEl = document.activeElement;
+    const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+    
+    if (isInput) {
+      (activeEl as HTMLElement).blur();
     }
-    return; // Don't proceed to chill shortcuts etc for this key
-  } else {
-    // Escape to clear global search or blur focused input
-    if (e.key === 'Escape') {
-      const activeEl = document.activeElement;
-      const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
-      
-      if (isInput) {
-        (activeEl as HTMLElement).blur();
-      }
-
-      if (globalSearchQuery.value) {
-        globalSearchQuery.value = '';
-      }
-    }
-    // Any other key reset the timer
-    lastCtrlFTime = 0;
   }
+
 };
 
 const handleKeyUpGlobal = (e: KeyboardEvent) => {
   handleChillShortcuts(e, false);
 };
-
-
 
 watch(showSettingsTrigger, (val) => {
   if (val && val.category) {
@@ -360,21 +336,7 @@ onMounted(() => {
         </button>
       </div>
       <div class="nav-actions">
-        <div class="global-search-wrapper">
-          <input 
-            ref="globalSearchInputRef"
-            v-model="globalSearchQuery" 
-            placeholder="Global search (Ctrl+F+F)" 
-            class="global-search-input"
-          />
-          <button 
-            v-if="globalSearchQuery" 
-            class="clear-search-btn" 
-            @click="globalSearchQuery = ''"
-          >
-            &times;
-          </button>
-        </div>
+
         <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
       </div>
     </nav>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { globalSearchQuery } from '../store';
+import { activeTab } from '../store';
+
 
 const logPath = ref('');
 const logContent = ref('');
@@ -61,14 +62,7 @@ const highlightSql = (sql: string) => {
   h = h.replace(/\b(FROM|JOIN)\b\s+([a-zA-Z0-9_]+)/gi, '$1 <span class="sql-tbl">$2</span>');
   h = h.replace(/'([^']*)'/g, '<span class="sql-str">\'$1\'</span>');
   
-  if (globalSearchQuery.value) {
-    const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const qRegex = new RegExp(`(${q})`, "gi");
-    h = h.split(/(<[^>]+>)/).map(part => {
-      if (part.startsWith('<')) return part;
-      return part.replace(qRegex, '<mark class="global-search-match">$1</mark>');
-    }).join('');
-  }
+
   
   return h;
 };
@@ -111,8 +105,6 @@ const processSql = (index: number) => {
   const lines = logContent.value.split(/\r?\n/);
   let foundSql = '', foundParams = '';
 
-  // Look for SQL and Params associated with the ID
-  // We scan all lines because SQL and Params might be on different lines
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const isIdMatch = line.toLowerCase().includes(`id=${idToFind}`) || line.toLowerCase().includes(`id=(${idToFind})`);
@@ -129,16 +121,13 @@ const processSql = (index: number) => {
   if (foundSql) {
     let result = foundSql;
     if (foundParams) {
-      // Split parameters by '][' or ',' (depending on log format)
-      // The user's example: [STRING:1:jp.co...][STRING:2:INFO]
       const paramParts = foundParams.match(/\[?([^\]\[]+)\]?/g) || foundParams.split(',');
       
       const formattedParams = paramParts.map(p => {
         let clean = p.replace(/[\[\]]/g, '').trim();
-        // Handle [TYPE:INDEX:VALUE] format
         const parts = clean.split(':');
         if (parts.length >= 3) {
-          return parts.slice(2).join(':'); // The value
+          return parts.slice(2).join(':'); 
         }
         return clean;
       });
@@ -147,7 +136,6 @@ const processSql = (index: number) => {
         result = result.replace('?', `'${p}'`);
       });
     }
-    // Decode common entities and collapse multiple whitespaces
     let decoded = result.replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/#039;/g, "'");
     extractions.value[index].resultSql = decoded.replace(/\s+/g, ' ').trim();
   } else {
@@ -159,7 +147,6 @@ const formatSql = (index: number) => {
   let sql = extractions.value[index].resultSql;
   if (!sql || sql.startsWith('--')) return;
 
-  // 1. Normalize: space out parentheses and collapse extra whitespace
   sql = sql.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').replace(/\s+/g, ' ').trim();
   
   const tokens = sql.split(' ');
@@ -175,7 +162,6 @@ const formatSql = (index: number) => {
     
     if (keywords.includes(upperToken)) {
       let combinedToken = token;
-      // Handle multi-word keywords
       if (['ORDER', 'GROUP', 'DELETE'].includes(upperToken)) {
         const next = tokens[i+1]?.toUpperCase();
         if ((upperToken === 'DELETE' && next === 'FROM') || (upperToken !== 'DELETE' && next === 'BY')) {
@@ -185,20 +171,16 @@ const formatSql = (index: number) => {
         combinedToken += ' ' + tokens[++i];
       }
       
-      // Start new line for keywords unless it's the very first token
       if (result.length > 0) {
         result = result.trimEnd() + '\n' + indentStep.repeat(indentLevel);
       }
       result += combinedToken + ' ';
     } else if (token === '(') {
-      // Opening paren: increase indent and start new line
       result = result.trimEnd() + ' (\n' + indentStep.repeat(++indentLevel);
     } else if (token === ')') {
-      // Closing paren: decrease indent and start new line before paren
       indentLevel = Math.max(0, indentLevel - 1);
       result = result.trimEnd() + '\n' + indentStep.repeat(indentLevel) + ') ';
     } else if (token === ',') {
-      // After comma, just a space (could add newline for multi-field SELECTs if needed later)
       result = result.trimEnd() + ', ';
     } else {
       result += token + ' ';
@@ -215,13 +197,11 @@ const handleLogClick = (e: MouseEvent) => {
   if (target.classList.contains('clickable-id')) {
     const id = target.getAttribute('data-id');
     if (id) {
-       // Search for existing ID in extractions and remove it if found
        const existingIdx = extractions.value.findIndex(ex => ex.searchId.toLowerCase() === id.toLowerCase());
        if (existingIdx !== -1) {
          extractions.value.splice(existingIdx, 1);
        }
        
-       // Try to find an empty slot first to avoid growing the list indefinitely
        let emptyIdx = extractions.value.findIndex(ex => !ex.searchId);
        if (emptyIdx === -1) {
          extractions.value.push({ searchId: id, resultSql: '' });
@@ -234,13 +214,21 @@ const handleLogClick = (e: MouseEvent) => {
   }
 };
 
-const formattedLog = computed(() => {
+const isLogTooLarge = computed(() => logContent.value.length > 500000);
+
+const displayHtml = ref('');
+let highlightTimeout: any = null;
+
+const updateDisplayHtml = () => {
   const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]||m));
   let decoded = logContent.value.replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/#039;/g, "'");
   let html = escapeHtml(decoded);
-  if (logContent.value.length > 500000) return html;
+  
+  if (isLogTooLarge.value) {
+    displayHtml.value = html;
+    return;
+  }
 
-  // 1. Linkify IDs
   html = html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (_match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
     const actualId = uniqId || idVal;
     const extra = existingIds.value.has(actualId.toLowerCase()) ? ' existing-id' : '';
@@ -250,49 +238,70 @@ const formattedLog = computed(() => {
     return `${idPre}<span class="clickable-id${extra}" data-id="${idVal}">${idVal}</span>`;
   });
 
-  // 2. Global search highlighting
-  if (globalSearchQuery.value) {
-    const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const qRegex = new RegExp(`(${q})`, "gi");
-    html = html.split(/(<[^>]+>)/).map(part => {
-      if (part.startsWith('<')) return part;
-      return part.replace(qRegex, '<mark class="global-search-match">$1</mark>');
-    }).join('');
+
+
+  displayHtml.value = html;
+};
+
+watch([logContent, activeTab], () => {
+
+  if (highlightTimeout) clearTimeout(highlightTimeout);
+  if (activeTab.value !== 'SQL-Helper') return;
+
+  highlightTimeout = setTimeout(() => {
+    updateDisplayHtml();
+  }, 500);
+}, { immediate: true });
+
+watch(activeTab, (newTab: string) => {
+  if (newTab === 'SQL-Helper') {
+    updateDisplayHtml();
   }
-
-  return html;
 });
-
-const isLogTooLarge = computed(() => logContent.value.length > 500000);
 </script>
 
 <template>
   <div class="sql-helper-container">
-    <div class="control-bar">
+    <div class="control-bar glass">
       <div class="file-picker-group">
-        <button @click="chooseFile" class="theme-button choose-btn">📂 Open Log</button>
+        <button @click="chooseFile" class="theme-button choose-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          Open Log
+        </button>
         <span v-if="logPath" class="file-path-display">{{ logPath.split(/[\\/]/).pop() }}</span>
       </div>
       <div class="action-group">
-        <button @click="clearAllExtractions" class="theme-button clear-all-btn">🗑 Clear All</button>
-        <button @click="() => extractions.push({searchId:'', resultSql:''})" class="theme-button add-query-btn">＋ Add Query</button>
+        <button @click="clearAllExtractions" class="theme-button clear-all-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          Clear All
+        </button>
+        <button @click="() => extractions.push({searchId:'', resultSql:''})" class="theme-button add-query-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Query
+        </button>
       </div>
     </div>
 
     <div class="sql-helper-split">
-      <div class="log-viewer-pane">
-        <div class="pane-header">
+      <div class="log-viewer-pane border-right">
+        <div class="pane-header glass-header">
           <div class="header-left">
-            <span>Log Viewer</span>
+            <span class="pane-title">LOG VIEWER</span>
             <div class="mode-toggles">
-              <button @click="isInputMode = false" :class="['mode-btn', !isInputMode ? 'active' : '']" title="Interactive View">👁 View</button>
-              <button @click="isInputMode = true" :class="['mode-btn', isInputMode ? 'active' : '']" title="Edit/Paste">✏️ Edit</button>
+              <button @click="isInputMode = false" :class="['mode-btn', !isInputMode ? 'active' : '']" title="Interactive View">VIEW</button>
+              <button @click="isInputMode = true" :class="['mode-btn', isInputMode ? 'active' : '']" title="Edit/Paste">EDIT</button>
             </div>
           </div>
           <div class="header-actions">
-            <button @click="pasteFromClipboard" class="mini-icon-btn" title="Paste from Clipboard">📋</button>
-            <button @click="clearLog" class="mini-icon-btn" title="Clear All">🗑</button>
-            <button v-if="logPath" @click="loadFromFile" class="refresh-log-btn" title="Reload File">🔄</button>
+            <button @click="pasteFromClipboard" class="mini-icon-btn" title="Paste from Clipboard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+            </button>
+            <button @click="clearLog" class="mini-icon-btn" title="Clear All">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+            <button v-if="logPath" @click="loadFromFile" class="mini-icon-btn refresh-btn" title="Reload File">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </button>
           </div>
         </div>
         
@@ -308,7 +317,7 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
             class="log-display" 
             ref="logDisplayRef" 
             @click="handleLogClick" 
-            v-html="formattedLog"
+            v-html="displayHtml"
           ></div>
           
           <div v-if="!isInputMode && isLogTooLarge" class="log-warning-overlay">
@@ -318,18 +327,20 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
       </div>
 
       <div class="extraction-pane">
-        <div class="pane-header">SQL Extractions</div>
+        <div class="pane-header glass-header">
+           <span class="pane-title">SQL EXTRACTIONS</span>
+        </div>
         <div class="extraction-list">
-          <div v-for="(ext, i) in extractions" :key="i" class="extraction-unit">
+          <div v-for="(ext, i) in extractions" :key="i" class="extraction-unit glass">
             <div class="unit-header">
-              <input v-model="ext.searchId" @keyup.enter="processSql(i)" class="theme-input mini-id" placeholder="id=..." />
+              <input v-model="ext.searchId" @keyup.enter="processSql(i)" class="theme-input mini-id" placeholder="ID to extract (e.g. jp.co...)" />
               <div class="unit-actions">
                 <button @click="removeExtraction(i)" class="remove-btn" title="Remove">&times;</button>
               </div>
             </div>
             <div v-if="ext.resultSql" class="result-area">
               <div class="result-toolbar">
-                <span>Result SQL</span>
+                <span class="result-label">RESULT SQL</span>
                 <div class="toolbar-btns">
                   <button @click="formatSql(i)" class="format-btn">Format</button>
                   <button @click="copyResult(ext.resultSql)" class="copy-btn">Copy</button>
@@ -345,61 +356,106 @@ const isLogTooLarge = computed(() => logContent.value.length > 500000);
 </template>
 
 <style scoped>
-.sql-helper-container { display: flex; flex-direction: column; height: 100%; background: var(--main-bg); overflow: hidden; }
-.control-bar { padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: var(--border-style); }
-.file-picker-group { display: flex; align-items: center; gap: 12px; }
-.file-path-display { font-size: 0.85rem; opacity: 0.7; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.action-group { display: flex; gap: 10px; }
-.clear-all-btn { border-color: #ef4444; color: #ef4444; }
-.clear-all-btn:hover { background: rgba(239, 68, 68, 0.1); }
+.sql-helper-container { display: flex; flex-direction: column; height: 100%; background: var(--bg-color); gap: 10px; box-sizing: border-box; overflow: hidden; padding: 10px 15px; }
 
-.sql-helper-split { display: flex; flex: 1; overflow: hidden; }
-.log-viewer-pane { flex: 1; display: flex; flex-direction: column; border-right: var(--border-style); }
-.extraction-pane { flex: 1; display: flex; flex-direction: column; background: var(--container-bg); }
-.pane-header { padding: 8px 15px; background: var(--button-bg); border-bottom: var(--border-style); font-weight: bold; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; min-height: 40px; }
-.header-left { display: flex; align-items: center; gap: 15px; }
-.mode-toggles { display: flex; background: var(--input-bg); border-radius: 4px; padding: 2px; }
-.mode-btn { 
-  background: none; border: none; font-size: 0.7rem; padding: 2px 8px; color: var(--text-color); opacity: 0.6; cursor: pointer; border-radius: 3px; border: 1px solid transparent; transition: all 0.2s; 
+.glass {
+  background: rgba(128, 128, 128, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 12px;
 }
-.mode-btn.active { opacity: 1; background: var(--button-bg); border-color: var(--accent-color); color: var(--accent-color); font-weight: bold; }
+
+.glass-header {
+  background: rgba(128, 128, 128, 0.08);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+  border-radius: 12px 12px 0 0;
+}
+
+.control-bar { padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.file-picker-group { display: flex; align-items: center; gap: 12px; }
+.file-path-display { font-size: 0.75rem; opacity: 0.6; font-weight: 700; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-group { display: flex; gap: 10px; }
+
+.btn-icon { margin-right: 6px; }
+
+.sql-helper-split { display: flex; flex: 1; overflow: hidden; gap: 12px; }
+.log-viewer-pane { flex: 1.2; display: flex; flex-direction: column; background: var(--container-bg); border-radius: 12px; border: 1px solid rgba(128, 128, 128, 0.1); }
+.extraction-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.pane-header { padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; min-height: 40px; flex-shrink: 0; }
+.pane-title { font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; color: var(--accent-color); opacity: 0.8; }
+.header-left { display: flex; align-items: center; gap: 15px; }
+.mode-toggles { display: flex; background: rgba(0,0,0,0.1); border-radius: 50px; padding: 2px; }
+.mode-btn { 
+  background: none; border: none; font-size: 0.6rem; padding: 4px 12px; color: var(--text-color); opacity: 0.4; cursor: pointer; border-radius: 40px; font-weight: 800; transition: all 0.2s; 
+}
+.mode-btn.active { opacity: 1; background: #fff; color: #6366f1; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+.theme-light .mode-btn.active { color: #4f46e5; }
+
 .header-actions { display: flex; align-items: center; gap: 8px; }
-.mini-icon-btn { background: none; border: 1px solid transparent; cursor: pointer; font-size: 1rem; padding: 2px 4px; border-radius: 4px; filter: grayscale(1); opacity: 0.7; }
-.mini-icon-btn:hover { background: var(--input-bg); border-color: var(--border-color); opacity: 1; filter: none; }
+.mini-icon-btn { background: rgba(128, 128, 128, 0.1); border: 1px solid rgba(128, 128, 128, 0.15); cursor: pointer; color: var(--text-color); padding: 6px; border-radius: 8px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; opacity: 0.7; }
+.mini-icon-btn:hover { background: rgba(128, 128, 128, 0.2); opacity: 1; transform: translateY(-1px); }
 
 .log-pane-content { flex: 1; position: relative; display: flex; flex-direction: column; overflow: hidden; }
-.log-display { flex: 1; padding: 15px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: var(--input-bg); }
+.log-display { flex: 1; padding: 15px; font-family: \'Consolas\', monospace; font-size: 0.8rem; line-height: 1.5; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: transparent; color: var(--text-color); }
 .log-editor { 
-  flex: 1; width: 100%; border: none; background: var(--input-bg); color: var(--text-color); padding: 15px; 
-  font-family: 'Consolas', monospace; font-size: 0.85rem; resize: none; outline: none;
+  flex: 1; width: 100%; border: none; background: transparent; color: var(--text-color); padding: 15px; 
+  font-family: \'Consolas\', monospace; font-size: 0.8rem; line-height: 1.5; resize: none; outline: none;
 }
 .log-warning-overlay {
   position: absolute; bottom: 10px; right: 20px; background: rgba(245, 158, 11, 0.9);
-  color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold;
-  pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.65rem; font-weight: bold;
+  pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
-.extraction-list { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
-.extraction-unit { border: var(--border-style); border-radius: 8px; padding: 12px; background: var(--main-bg); }
-.unit-header { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+
+.extraction-list { flex: 1; overflow-y: auto; padding: 0; display: flex; flex-direction: column; gap: 15px; }
+.extraction-unit { border: 1px solid rgba(128, 128, 128, 0.1); border-radius: 12px; padding: 12px; transition: all 0.3s; }
+.extraction-unit:hover { border-color: var(--accent-color); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
+.unit-header { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; }
 .mini-id { flex: 1; min-width: 0; }
-.remove-btn { background: none; border: none; color: #ef4444; font-size: 1.5rem; cursor: pointer; line-height: 1; padding: 0 5px; }
-.result-area { margin-top: 10px; }
-.result-toolbar { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; opacity: 0.7; margin-bottom: 5px; }
+.remove-btn { background: transparent; border: none; color: #f43f5e; font-size: 1.2rem; cursor: pointer; opacity: 0.4; transition: 0.2s; }
+.remove-btn:hover { opacity: 1; transform: scale(1.1); }
+
+.result-area { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,0.1); }
+.result-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.result-label { font-size: 0.6rem; font-weight: 800; opacity: 0.4; letter-spacing: 0.05em; }
+
 .toolbar-btns { display: flex; gap: 8px; }
 .format-btn, .copy-btn { 
-  background: var(--button-bg); border: 1px solid var(--accent-color); 
-  color: var(--accent-color); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem;
+  background: rgba(128, 128, 128, 0.08); border: 1px solid rgba(128, 128, 128, 0.1); 
+  color: var(--text-color); padding: 3px 10px; border-radius: 6px; cursor: pointer; font-size: 0.65rem; font-weight: 700; transition: 0.2s;
 }
-.format-btn:hover, .copy-btn:hover { background: var(--accent-color); color: white; }
-.sql-output { margin: 0; padding: 10px; background-color: #1e1e1e; color: #d4d4d4; overflow-x: auto; border-radius: 4px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; }
-:deep(.clickable-id) { color: var(--accent-color); text-decoration: underline; cursor: pointer; }
-:deep(.clickable-id.existing-id) { font-weight: bold; color: #f59e0b; }
+.format-btn:hover, .copy-btn:hover { background: var(--accent-color); color: white; border-color: var(--accent-color); }
+
+.sql-output { margin: 0; padding: 12px; background-color: rgba(0,0,0,0.2); color: #d4d4d4; overflow-x: auto; border-radius: 8px; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; font-family: \'Consolas\', monospace; border: 1px solid rgba(255,255,255,0.03); }
+
+:deep(.clickable-id) { color: var(--accent-color); text-decoration: underline; cursor: pointer; font-weight: bold; }
+:deep(.clickable-id.existing-id) { color: #f59e0b; }
 :deep(.sql-kwd) { color: #569cd6; font-weight: bold; }
 :deep(.sql-tbl) { color: #4ec9b0; font-weight: bold; text-decoration: underline; }
 :deep(.sql-str) { color: #ce9178; }
-.theme-button { padding: 6px 12px; border-radius: 4px; border: var(--border-style); background: var(--button-bg); color: var(--text-color); cursor: pointer; font-size: 0.85rem; }
-.choose-btn { background: var(--accent-color); color: white; border: none; }
-.add-query-btn { border-color: var(--accent-color); color: var(--accent-color); }
-.theme-input { padding: 6px 10px; border-radius: 4px; border: var(--border-style); background: var(--input-bg); color: var(--text-color); font-size: 0.85rem; }
-.refresh-log-btn { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 0 5px; }
+
+.theme-button { padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(128, 128, 128, 0.2); background: rgba(128, 128, 128, 0.1); color: var(--text-color); cursor: pointer; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; transition: all 0.2s; }
+.theme-button:hover { background: rgba(128, 128, 128, 0.2); transform: translateY(-1px); }
+
+.choose-btn { background: var(--accent-color); color: white; border: none; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
+.choose-btn:hover { background: #6366f1; box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4); }
+
+.clear-all-btn { color: #f43f5e; border-color: rgba(244, 63, 94, 0.3); }
+.clear-all-btn:hover { background: rgba(244, 63, 94, 0.1); }
+
+.add-query-btn { border-color: rgba(99, 102, 241, 0.3); color: var(--accent-color); }
+
+.theme-input { padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.15); background: rgba(0,0,0,0.1); color: var(--text-color); font-size: 0.75rem; outline: none; transition: 0.2s; }
+.theme-input:focus { border-color: var(--accent-color); background: rgba(0,0,0,0.15); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+
+/* Theme specific overrides */
+.theme-light .glass { background: rgba(255, 255, 255, 0.7); border-color: rgba(0,0,0,0.1); }
+.theme-light .log-viewer-pane { background: #fff; }
+.theme-light .sql-output { background-color: #f1f5f9; color: #1e293b; border-color: #e2e8f0; }
+
+.theme-95 .glass, .theme-95 .glass-header, .theme-95 .extraction-unit { background: #c0c0c0 !important; border: 2px solid !important; border-color: #fff #808080 #808080 #fff !important; border-radius: 0 !important; backdrop-filter: none !important; }
+.theme-95 .theme-button, .theme-95 .mini-icon-btn, .theme-95 .format-btn, .theme-95 .copy-btn { border: 2px solid !important; border-color: #fff #808080 #808080 #fff !important; border-radius: 0 !important; background: #c0c0c0 !important; color: #000 !important; }
+.theme-95 .theme-input { border: 2px solid !important; border-color: #808080 #fff #fff #808080 !important; border-radius: 0 !important; }
 </style>

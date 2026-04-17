@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
-import { chillSettings, triggerFlick, smokedCount } from '../store';
+import { chillSettings, triggerFlick, smokedCount, activeTab } from '../store';
+
 
 const props = defineProps({
   isWidget: {
@@ -21,6 +22,8 @@ const isFlicking = ref(false);
 
 let particleId = 0;
 let burnInterval: any = null;
+const isWindowFocused = ref(true);
+
 
 const TOTAL_BODY_WIDTH = 180;
 const FILTER_WIDTH = 60;
@@ -54,7 +57,16 @@ const createSmoke = (isHeavy = false) => {
 };
 
 const updateBurn = () => {
+  // If window is not focused, or we are not in Chill tab and widget is not enabled, pause logic to save CPU
+  const isCigVisible = props.isWidget ? chillSettings.value.enableWidget : (activeTab.value === 'Chill');
+  if (!isWindowFocused.value || !isCigVisible) {
+    // Clear particles if hidden long enough
+    if (smokeParticles.value.length > 0 && Math.random() < 0.1) smokeParticles.value = [];
+    return;
+  }
+
   createSmoke(isSmoking.value);
+
   
   const burnTime = chillSettings.value.burnTimeMinutes || 5;
   const baseIncrement = 100 / (burnTime * 60 * 5); // 5 ticks per sec
@@ -102,13 +114,21 @@ watch(() => props.forceSmoking, (val) => {
   isSmoking.value = val;
 });
 
+const handleBlur = () => { isWindowFocused.value = false; };
+const handleFocus = () => { isWindowFocused.value = true; };
+
 onMounted(() => {
   burnInterval = setInterval(updateBurn, 200);
+  window.addEventListener('blur', handleBlur);
+  window.addEventListener('focus', handleFocus);
 });
 
 onUnmounted(() => {
   if (burnInterval) clearInterval(burnInterval);
+  window.removeEventListener('blur', handleBlur);
+  window.removeEventListener('focus', handleFocus);
 });
+
 
 defineExpose({ flickAsh });
 </script>

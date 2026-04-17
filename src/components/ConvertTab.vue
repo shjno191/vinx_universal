@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue';
 import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { theme as globalTheme, globalSearchQuery } from '../store';
+import { theme as globalTheme } from '../store';
+
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 // import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -18,9 +19,7 @@ const status = ref({ type: '', msg: '' });
 const leftEditorRef = ref<any>(null);
 const rightEditorRef = ref<any>(null);
 const diffEditorRef = ref<any>(null);
-const leftDecorations = ref<string[]>([]);
-const rightDecorations = ref<string[]>([]);
-const diffDecorations = ref<{ original: string[]; modified: string[] }>({ original: [], modified: [] });
+
 
 // --- Monaco Options ---
 const editorOptions = computed(() => ({
@@ -51,33 +50,10 @@ const handleDiffMount = (editor: any) => { diffEditorRef.value = editor; updateS
 
 // --- Search Highlighting ---
 const updateSearchHighlights = () => {
-  const query = globalSearchQuery.value;
-  const getDecorations = (model: any, q: string) => {
-    if (!model || !q) return [];
-    try {
-      const matches = model.findMatches(q, false, false, false, null, false);
-      return (matches || []).map((m: any) => ({ range: m.range, options: { inlineClassName: 'global-search-match' } }));
-    } catch { return []; }
-  };
-  if (leftEditorRef.value && !showDiff.value) {
-    const model = leftEditorRef.value.getModel();
-    if (model) leftDecorations.value = leftEditorRef.value.deltaDecorations(leftDecorations.value, query ? getDecorations(model, query) : []);
-  }
-  if (rightEditorRef.value && !showDiff.value) {
-    const model = rightEditorRef.value.getModel();
-    if (model) rightDecorations.value = rightEditorRef.value.deltaDecorations(rightDecorations.value, query ? getDecorations(model, query) : []);
-  }
-  if (diffEditorRef.value && showDiff.value) {
-    const original = diffEditorRef.value.getOriginalEditor();
-    const modified = diffEditorRef.value.getModifiedEditor();
-    const oModel = original?.getModel();
-    const mModel = modified?.getModel();
-    if (oModel) diffDecorations.value.original = original.deltaDecorations(diffDecorations.value.original, query ? getDecorations(oModel, query) : []);
-    if (mModel) diffDecorations.value.modified = modified.deltaDecorations(diffDecorations.value.modified, query ? getDecorations(mModel, query) : []);
-  }
+  // Feature removed
 };
 
-watch(globalSearchQuery, () => updateSearchHighlights());
+
 watch(showDiff, () => nextTick(() => updateSearchHighlights()));
 
 // Encoding Re-open logic
@@ -120,8 +96,6 @@ const clearAll = () => {
   inputText.value = '';
   resultText.value = '';
   lastOpenedPath.value = '';
-  inputText.value = '';
-  resultText.value = '';
   status.value = { type: '', msg: '' };
   showDiff.value = false;
 };
@@ -576,6 +550,25 @@ const normalizeIndent = (code: string): string => {
   border-color: #ffffff #808080 #808080 #ffffff !important;
   backdrop-filter: none !important;
   box-shadow: none !important;
+}
+
+.t-btn-icon:hover { 
+  background: rgba(239, 68, 68, 0.1); 
+  color: #ef4444; 
+  transform: translateY(-1px);
+}
+
+.t-btn-primary:active {
+  transform: translateY(1px);
+}
+
+.w-pane {
+  transition: all 0.3s ease;
+}
+
+.w-pane:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
 }
 </style>
 

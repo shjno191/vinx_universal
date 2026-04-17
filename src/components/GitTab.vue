@@ -3,17 +3,15 @@ import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick } fr
 import { open, message, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload, type GitFile, triggerCloseModals, theme as globalTheme, projectRootPath, globalSearchQuery } from '../store';
+import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload, type GitFile, triggerCloseModals, theme as globalTheme, projectRootPath } from '../store';
+
+
+
 
 const highlightSearch = (text: string) => {
-  if (!globalSearchQuery.value) return text;
-  const q = globalSearchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${q})`, "gi");
-  // Simple highlight for text nodes (not robust for nested HTML, but fine for commit messages)
-  return text.replace(regex, '<mark class="global-search-match">$1</mark>');
+  return text;
 };
 
-// ─── State ────────────────────────────────────────────────────────────
 // ─── State ────────────────────────────────────────────────────────────
 const isLoading       = ref(false);
 const statusMessage   = ref('');
@@ -92,27 +90,14 @@ const handleDiffMount = (editor: any) => {
   updateDiffSearchHighlights();
 };
 
-const diffDecorations = ref<{ original: string[], modified: string[] }>({ original: [], modified: [] });
+
 
 const updateDiffSearchHighlights = () => {
-  if (!lastDiffEditor.value) return;
-  const original = lastDiffEditor.value.getOriginalEditor();
-  const modified = lastDiffEditor.value.getModifiedEditor();
-  const query = globalSearchQuery.value;
-
-  const getDecs = (model: any) => {
-    if (!model || !query) return [];
-    return model.findMatches(query, false, false, false, null, false).map((m: any) => ({
-      range: m.range,
-      options: { inlineClassName: 'global-search-match' }
-    }));
-  };
-
-  diffDecorations.value.original = original.deltaDecorations(diffDecorations.value.original, getDecs(original.getModel()));
-  diffDecorations.value.modified = modified.deltaDecorations(diffDecorations.value.modified, getDecs(modified.getModel()));
+    // Feature removed
 };
 
-watch(globalSearchQuery, () => updateDiffSearchHighlights());
+
+
 
 const prevDiff = () => {
   if (lastDiffEditor.value) {
@@ -492,27 +477,30 @@ const gitPop = async () => {
   }
 };
 
-const checkoutCommit = async (hash: string) => {
-  const doCheckout = async (useStash = false) => {
+const smartGitOp = async (opName: string, opFn: () => Promise<void>) => {
+  const doOp = async (useStash = false) => {
     isLoading.value = true;
     try {
       if (useStash) {
+        const stashMsg = `Auto-stash before ${opName}`;
         setStatus('⟳ Stashing changes…');
-        await git(['stash', 'push', '-u', '-m', `Auto-stash before checkout commit ${hash}`]);
+        await git(['stash', 'push', '-u', '-m', stashMsg]);
       }
       
-      await git(['checkout', hash]);
+      await opFn();
       
       if (useStash) {
         setStatus('⟳ Popping stash…');
-        try { await git(['stash', 'pop']); } catch (e) { console.warn('Pop failure:', e); }
+        try { await git(['stash', 'pop']); } catch (e) { 
+          console.warn('Pop failure (might be conflict):', e); 
+          setStatus('✁EStash pop conflict' + String(e), 5000);
+        }
       }
       
-      setStatus('✁EChecked out ' + hash);
       triggerEditorReload.value++; 
       await refresh();
     } catch(e) {
-      await message(String(e), { title: 'Checkout Failed', kind: 'error' });
+      await message(String(e), { title: `${opName} Failed`, kind: 'error' });
     } finally {
       isLoading.value = false;
     }
@@ -520,13 +508,20 @@ const checkoutCommit = async (hash: string) => {
 
   if (changesCount.value > 0) {
     const ok = await ask(
-      `You have ${changesCount.value} uncommitted changes. \n\nWould you like to stash them automatically, checkout the commit, and then pop the stash?`,
-      { title: 'Uncommitted Changes', kind: 'warning', okLabel: 'Stash & Checkout', cancelLabel: 'Cancel' }
+      `You have ${changesCount.value} uncommitted changes. \n\nWould you like to stash them automatically, perform "${opName}", and then pop the stash?`,
+      { title: 'Uncommitted Changes', kind: 'warning', okLabel: 'Stash & Continue', cancelLabel: 'Cancel' }
     );
-    if (ok) await doCheckout(true);
+    if (ok) await doOp(true);
   } else {
-    await doCheckout(false);
+    await doOp(false);
   }
+};
+
+const checkoutCommit = async (hash: string) => {
+  await smartGitOp(`Checkout ${hash.substring(0, 7)}`, async () => {
+    await git(['checkout', hash]);
+    setStatus('✁EChecked out ' + hash);
+  });
 };
 
 const openCommitMenu = (e: MouseEvent, c: GraphCommit) => {
@@ -694,51 +689,20 @@ const switchBranch = async (branch: GitBranch) => {
   if (branch.isCurrent) return;
   if (!gitTabRepoPath.value) return;
 
-  const doSwitch = async (useStash = false) => {
-    isLoading.value = true;
-    try {
-      if (useStash) {
-        setStatus('⟳ Stashing changes…');
-        await git(['stash', 'push', '-u', '-m', `Auto-stash before switch to ${branch.name}`]);
-      }
-
-      if (branch.isRemote) {
-        const localName = branch.name.replace(/^origin\//, '');
-        const exists = gitBranches.value.some(b => !b.isRemote && b.name === localName);
-        if (exists) {
-          await git(['checkout', localName]);
-        } else {
-          await git(['checkout', '-b', localName, '--track', branch.name]);
-        }
+  await smartGitOp(`Switch to ${branch.name}`, async () => {
+    if (branch.isRemote) {
+      const localName = branch.name.replace(/^origin\//, '');
+      const exists = gitBranches.value.some(b => !b.isRemote && b.name === localName);
+      if (exists) {
+        await git(['checkout', localName]);
       } else {
-        await git(['checkout', branch.name]);
+        await git(['checkout', '-b', localName, '--track', branch.name]);
       }
-
-      if (useStash) {
-        setStatus('⟳ Popping stash…');
-        try { await git(['stash', 'pop']); } catch (e) { console.warn('Pop failure (expected if no files changed):', e); }
-      }
-
-      setStatus('✁ESwitched to ' + branch.name);
-      triggerEditorReload.value++;
-      await refresh();
-    } catch (e) {
-      await message(String(e), { title: 'Checkout Failed', kind: 'error' });
-    } finally {
-      isLoading.value = false;
+    } else {
+      await git(['checkout', branch.name]);
     }
-  };
-
-  // Smart check: uncommitted changes?
-  if (changesCount.value > 0) {
-    const ok = await ask(
-      `You have ${changesCount.value} uncommitted changes. \n\nWould you like to stash them automatically, switch branches, and then pop the stash?`,
-      { title: 'Uncommitted Changes', kind: 'warning', okLabel: 'Stash & Checkout', cancelLabel: 'Cancel' }
-    );
-    if (ok) await doSwitch(true);
-  } else {
-    await doSwitch(false);
-  }
+    setStatus('✁ESwitched to ' + branch.name);
+  });
 };
 
 // ─── File diff modal ───────────────────────────────────────────────────
@@ -857,8 +821,8 @@ watch(gitTabRepoPath, (v) => {
   else resetGitState();
 });
 watch(triggerGitRefresh, () => {
-  if (gitTabRepoPath.value && expandedSections.value.has('changes')) {
-    loadStatus();
+  if (gitTabRepoPath.value) {
+    refresh();
   }
 });
 watch(triggerCloseModals, closeMenus);

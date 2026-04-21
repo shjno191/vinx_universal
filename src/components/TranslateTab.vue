@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { ref, shallowRef, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
@@ -11,7 +11,7 @@ defineProps<{ theme?: string }>();
 
 
 const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
-const dictionaryData = ref<any[]>([]);
+const dictionaryData = shallowRef<any[]>([]);
 const isLoading = ref(false);
 const dictionaryPath = ref('');
 const dictionarySearchInput = ref<HTMLInputElement | null>(null);
@@ -21,7 +21,10 @@ const isStrict = ref(false);
 
 const advancedDictData = ref<Map<string, Map<string, string>>>(new Map());
 const advancedDictKeys = ref<string[]>([]);
+// Cache for pre-processed words per sheet to speed up highlight indexing
+const sheetCacheMap = new Map<string, { sources: Set<string>, targets: Set<string> }>();
 const showAdvancedModal = ref(false);
+
 
 const selectedAdvancedFile = ref<string>('');
 const selectedAdvancedSheet = ref<string>('');
@@ -49,6 +52,11 @@ const sourceRegex = ref<RegExp | null>(null);
 const targetRegex = ref<RegExp | null>(null);
 const sourceWordsList = ref<string[]>([]);
 const targetWordsList = ref<string[]>([]);
+
+// Optimized Translation Engine State
+const cachedLookup = ref<Map<string, string>>(new Map());
+const translationRegex = ref<RegExp | null>(null);
+
 
 // Copy feedback
 const showCopyToast = ref(false);
@@ -146,7 +154,13 @@ const loadDictionary = async () => {
     }
 
     await loadAdvancedDictionaries();
+    
+    // Restore selections AFTER loading dictionaries to ensure they are valid and don't get wiped
+    // if (s?.last_advanced_file) selectedAdvancedFile.value = s.last_advanced_file;
+    // if (s?.last_advanced_sheet) selectedAdvancedSheet.value = s.last_advanced_sheet;
+
     updateCachedWords();
+    handleQuickTranslate(); // Ensure initial translation triggers
   } catch (e) {
     console.error('Failed to load dictionaries:', e);
   } finally {
@@ -163,6 +177,8 @@ onMounted(() => {
 const loadAdvancedDictionaries = async () => {
   advancedDictData.value.clear();
   advancedDictKeys.value = [];
+  sheetCacheMap.clear();
+
 
   for (const path of advancedTranslatePaths.value) {
 
@@ -181,15 +197,17 @@ const loadAdvancedDictionaries = async () => {
         let logicalColIdx = -1;
         let physicalColIdx = -1;
         
-        for (let i = 0; i < Math.min(jsonData.length, 20); i++) {
+        for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
           const row = jsonData[i] || [];
           const logicalIdx = row.findIndex((c: any) => {
-              const s = String(c || '');
-              return s.includes('論理カラム名') || s.includes('論理カラ') || s.includes('論理');
+              const s = String(c || '').toLowerCase();
+              return s.includes('論理カラム名') || s.includes('論理カラ') || s.includes('論理') || 
+                     s.includes('logical') || s.includes('tên logic');
             });
             const physicalIdx = row.findIndex((c: any) => {
-              const s = String(c || '');
-              return s.includes('物理カラム名') || s.includes('物理カラ') || s.includes('物理');
+              const s = String(c || '').toLowerCase();
+              return s.includes('物理カラム名') || s.includes('物理カラ') || s.includes('物理') || 
+                     s.includes('physical') || s.includes('tên vật lý');
             });
           
           if (logicalIdx !== -1 && physicalIdx !== -1) {
@@ -210,9 +228,46 @@ const loadAdvancedDictionaries = async () => {
               mapping.set(src, target);
             }
           }
-          const sheetKey = `${filename}::${sheetName}`;
+          const sheetKey = `${path}::${sheetName}`;
           advancedDictData.value.set(sheetKey, mapping);
           advancedDictKeys.value.push(sheetKey);
+
+          // Populate incremental cache
+          const sheetSources = new Set<string>();
+          const sheetTargets = new Set<string>();
+          mapping.forEach((target, src) => {
+            if (src) sheetSources.add(src);
+            if (target) sheetTargets.add(target);
+          });
+          sheetCacheMap.set(sheetKey, { sources: sheetSources, targets: sheetTargets });
+        } else {
+
+          // FALLBACK: If no headers found, try to use first two columns if they contain data
+          const mapping = new Map<string, string>();
+          for (let i = 0; i < jsonData.length; i++) {
+            const row = jsonData[i] || [];
+            if (row.length >= 2) {
+              const src = String(row[0] || '').trim();
+              const target = String(row[1] || '').trim();
+              if (src && target && src.length < 200) { // basic heuristic to avoid large text blocks
+                mapping.set(src, target);
+              }
+            }
+          }
+          if (mapping.size > 0) {
+            const sheetKey = `${path}::${sheetName}`;
+            advancedDictData.value.set(sheetKey, mapping);
+            advancedDictKeys.value.push(sheetKey);
+
+            // Populate incremental cache
+            const sheetSources = new Set<string>();
+            const sheetTargets = new Set<string>();
+            mapping.forEach((target, src) => {
+              if (src) sheetSources.add(src);
+              if (target) sheetTargets.add(target);
+            });
+            sheetCacheMap.set(sheetKey, { sources: sheetSources, targets: sheetTargets });
+          }
         }
       }
     } catch (e) {
@@ -220,6 +275,8 @@ const loadAdvancedDictionaries = async () => {
     }
   }
 
+  // Force reactivity update by triggering a change that others watch
+  advancedDictKeys.value = [...advancedDictKeys.value];
 };
 
 
@@ -229,7 +286,12 @@ const saveGlobalSettings = async () => {
   try {
     const raw = await invoke('get_settings') as string;
     const s = JSON.parse(raw || "{}");
-    const newSettings = { ...s, advanced_translate_paths: advancedTranslatePaths.value };
+    const newSettings = { 
+      ...s, 
+      advanced_translate_paths: advancedTranslatePaths.value,
+      last_advanced_file: selectedAdvancedFile.value,
+      last_advanced_sheet: selectedAdvancedSheet.value
+    };
     await invoke('save_settings', { settings: JSON.stringify(newSettings, null, 2) });
     triggerSettingsRefresh.value++;
   } catch (e) {
@@ -298,63 +360,139 @@ const cleanDictionaryDuplicates = async () => {
 
 const normalize = (val: string) => val ? val.trim() : '';
 
+let updateCacheDebounceTimer: any = null;
+
 const updateCachedWords = () => {
+  if (updateCacheDebounceTimer) clearTimeout(updateCacheDebounceTimer);
+  
+  // Use a slight debounce to prevent UI stutter during rapid toggles
+  updateCacheDebounceTimer = setTimeout(() => {
+    performUpdateCachedWords();
+  }, 200);
+};
+
+const performUpdateCachedWords = () => {
   const sourceSet = new Set<string>();
   const targetSet = new Set<string>();
   const targetKey = sharedTargetLang.value;
 
-  dictionaryData.value.forEach(d => {
-    const tVal = (d[targetKey] || '').trim();
-    if (tVal && tVal.length > 0) targetSet.add(tVal);
-    
-    ['jp', 'en', 'vi'].forEach(l => {
-      if (l !== targetKey) {
-        const sVal = (d[l as 'jp'|'en'|'vi'] || '').trim();
-        if (sVal && sVal.length > 0) sourceSet.add(sVal);
-      }
-    });
-  });
-
-  // Include advanced dictionary words
-  if (isStrictAdvancedSheet.value && selectedAdvancedSheet.value) {
-    sourceSet.clear(); 
-    targetSet.clear();
-    const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
-    if (specificMapping) {
-      specificMapping.forEach((val, key) => {
-        if (key && key.length > 0) sourceSet.add(key);
-        if (val && val.length > 0) targetSet.add(val);
+  // OPTIMIZED LOGIC: 
+  // Advanced features only activate if a sheet is EXPLICITLY selected.
+  // This satisfies the "only activate when chosen" requirement.
+  
+  if (!selectedAdvancedSheet.value) {
+    // NO SHEET PICKED: Only use Base Dictionary
+    dictionaryData.value.forEach(d => {
+      const tVal = (d[targetKey] || '').trim();
+      if (tVal && tVal.length > 0) targetSet.add(tVal);
+      ['jp', 'en', 'vi'].forEach(l => {
+        if (l !== targetKey) {
+          const sVal = (d[l as 'jp'|'en'|'vi'] || '').trim();
+          if (sVal && sVal.length > 0) sourceSet.add(sVal);
+        }
       });
+    });
+  } else if (isStrictAdvancedSheet.value) {
+    // STRICT MODE + SHEET PICKED: Only use the selected sheet
+    const cache = sheetCacheMap.get(selectedAdvancedSheet.value);
+    if (cache) {
+      cache.sources.forEach(s => sourceSet.add(s));
+      cache.targets.forEach(t => targetSet.add(t));
     }
   } else {
-    if (selectedAdvancedSheet.value) {
-      const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
-      if (specificMapping) {
-        specificMapping.forEach((val, key) => {
-          if (key && key.length > 0) sourceSet.add(key);
-          if (val && val.length > 0) targetSet.add(val);
-        });
-      }
-    }
+    // NORMAL MODE + SHEET PICKED: Base Dictionary + All Advanced Sheets
+    // Base Dictionary
+    dictionaryData.value.forEach(d => {
+      const tVal = (d[targetKey] || '').trim();
+      if (tVal && tVal.length > 0) targetSet.add(tVal);
+      ['jp', 'en', 'vi'].forEach(l => {
+        if (l !== targetKey) {
+          const sVal = (d[l as 'jp'|'en'|'vi'] || '').trim();
+          if (sVal && sVal.length > 0) sourceSet.add(sVal);
+        }
+      });
+    });
+
+    // All Advanced Sheets
+    sheetCacheMap.forEach((cache) => {
+      cache.sources.forEach(s => sourceSet.add(s));
+      cache.targets.forEach(t => targetSet.add(t));
+    });
   }
 
-  const sList = Array.from(sourceSet).sort((a, b) => b.length - a.length);
 
+  const sList = Array.from(sourceSet).sort((a, b) => b.length - a.length);
   const tList = Array.from(targetSet).sort((a, b) => b.length - a.length);
   
   sourceWordsList.value = sList;
   targetWordsList.value = tList;
 
+  // Build the Cached Translation Engine structures
+  const lookup = new Map<string, string>();
+  
+  if (!selectedAdvancedSheet.value) {
+    // NO SHEET PICKED: Only use Base Dictionary
+    dictionaryData.value.forEach(entry => {
+      ['jp', 'en', 'vi'].forEach(l => {
+        if (l !== targetKey) {
+          const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
+          const tVal = (entry[targetKey] || '').toString().trim();
+          if (sVal && tVal && sVal !== tVal) lookup.set(sVal, tVal);
+        }
+      });
+    });
+  } else if (isStrictAdvancedSheet.value) {
+    // STRICT MODE + SHEET PICKED
+    const mapping = advancedDictData.value.get(selectedAdvancedSheet.value);
+    if (mapping) {
+      mapping.forEach((val, key) => { if (key && val) lookup.set(key, val); });
+    }
+  } else {
+    // NORMAL MODE + SHEET PICKED: Priority: Base > All Adv > Selected Sheet (highest)
+    dictionaryData.value.forEach(entry => {
+      ['jp', 'en', 'vi'].forEach(l => {
+        if (l !== targetKey) {
+          const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
+          const tVal = (entry[targetKey] || '').toString().trim();
+          if (sVal && tVal && sVal !== tVal) lookup.set(sVal, tVal);
+        }
+      });
+    });
+    advancedDictData.value.forEach((mapping, key) => {
+      if (key !== selectedAdvancedSheet.value) {
+        mapping.forEach((val, k) => { if (k && val) lookup.set(k, val); });
+      }
+    });
+    const mapping = advancedDictData.value.get(selectedAdvancedSheet.value);
+    if (mapping) {
+      mapping.forEach((val, k) => { if (k && val) lookup.set(k, val); });
+    }
+  }
+
+
+  cachedLookup.value = lookup;
+  const sortedKeys = Array.from(lookup.keys()).sort((a, b) => b.length - a.length);
   const escape = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   
-  if (sList.length > 0) {
-    sourceRegex.value = new RegExp('(' + sList.map(escape).join('|') + ')', 'g');
+  if (sortedKeys.length > 0) {
+    translationRegex.value = new RegExp(sortedKeys.map(escape).join('|'), 'g');
+  } else {
+    translationRegex.value = null;
+  }
+
+  // Optimize Highlighter: Limit to top 1,000 longest words to prevent UI lag
+  const highlightLimit = 1000;
+  const sListLimited = sList.slice(0, highlightLimit);
+  const tListLimited = tList.slice(0, highlightLimit);
+
+  if (sListLimited.length > 0) {
+    sourceRegex.value = new RegExp('(' + sListLimited.map(escape).join('|') + ')', 'g');
   } else {
     sourceRegex.value = null;
   }
   
-  if (tList.length > 0) {
-    targetRegex.value = new RegExp('(' + tList.map(escape).join('|') + ')', 'g');
+  if (tListLimited.length > 0) {
+    targetRegex.value = new RegExp('(' + tListLimited.map(escape).join('|') + ')', 'g');
   } else {
     targetRegex.value = null;
   }
@@ -383,74 +521,14 @@ const handleQuickTranslate = () => {
     return;
   }
 
-  const targetKey = sharedTargetLang.value;
-  const lookup = new Map<string, string>();
-
-  if (isStrictAdvancedSheet.value && selectedAdvancedSheet.value) {
-    // STRICT MODE: Only load the specifically selected sheet
-    const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
-    if (specificMapping) {
-      specificMapping.forEach((val, key) => {
-        if (key && val) lookup.set(key, val);
-      });
-    }
-  } else {
-    // NORMAL MODE: 1. Base Dictionary, 2. All Adv Sheets, 3. Selected Adv Sheet (Highest)
-    dictionaryData.value.forEach(entry => {
-      const tVal = (entry[targetKey] || '').toString().trim();
-      if (!tVal) return;
-      ['jp', 'en', 'vi'].forEach(l => {
-        if (l !== targetKey) {
-          const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
-          if (sVal && sVal !== tVal) {
-            lookup.set(sVal, tVal);
-          }
-        }
-      });
-    });
-
-    if (selectedAdvancedSheet.value) {
-      const specificMapping = advancedDictData.value.get(selectedAdvancedSheet.value);
-      if (specificMapping) {
-        specificMapping.forEach((val, k) => {
-          if (k && val) lookup.set(k, val);
-        });
-      }
-    }
-  }
-
-  if (lookup.size === 0) {
-
+  if (!translationRegex.value) {
     translateOutput.value = translateInput.value;
     return;
   }
 
-  // Create a sorted list based purely on what we are matching against so we don't consume chars incorrectly
-  const sortedPairs = Array.from(lookup.keys()).sort((a, b) => b.length - a.length);
-
-  let result = '';
-  let i = 0;
-  const text = translateInput.value;
-
-  while (i < text.length) {
-    let matchFound = false;
-
-    for (const sourceWord of sortedPairs) {
-      if (text.startsWith(sourceWord, i)) {
-        result += lookup.get(sourceWord) || sourceWord;
-        i += sourceWord.length;
-        matchFound = true;
-        break;
-      }
-    }
-
-    if (!matchFound) {
-      result += text[i];
-      i++;
-    }
-  }
-
-  translateOutput.value = result;
+  translateOutput.value = translateInput.value.replace(translationRegex.value, (match) => {
+    return cachedLookup.value.get(match) || match;
+  });
 };
 
 
@@ -577,11 +655,13 @@ const openEditModal = (item: any) => {
 };
 
 const saveModalData = () => {
+  const newArr = [...dictionaryData.value];
   if (modalMode.value === 'add') {
-    dictionaryData.value.unshift({ ...editBuffer.value });
+    newArr.unshift({ ...editBuffer.value });
   } else if (editingIdx.value !== null) {
-    dictionaryData.value[editingIdx.value] = { ...editBuffer.value };
+    newArr[editingIdx.value] = { ...editBuffer.value };
   }
+  dictionaryData.value = newArr; // Trigger reference update for shallowRef
   showDictModal.value = false;
   editingIdx.value = null;
 };
@@ -589,14 +669,16 @@ const saveModalData = () => {
 const deleteRow = async (item: any) => {
   const c = await ask('Are you sure you want to delete this row?', { title: 'Confirm', kind: 'warning' });
   if (c) {
-    const idx = dictionaryData.value.indexOf(item);
-    if (idx !== -1) dictionaryData.value.splice(idx, 1);
+    dictionaryData.value = dictionaryData.value.filter(i => i !== item); // Trigger reference update
   }
 };
 
 // Highlighting Logic
 const renderHighlighted = (text: string, mode: 'source' | 'target') => {
   if (!text) return '';
+  // CORE FIX: Kill-switch for large text (> 5000 chars) to prevent DOM reflow lag
+  if (text.length > 5000) return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
   let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const regex = mode === 'source' ? sourceRegex.value : targetRegex.value;
   
@@ -773,23 +855,31 @@ watch(subTab, async () => {
   }
 });
 
+let mouseMoveFrame: any = null;
 const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null) => {
   if (!target) return;
-  const rect = target.getBoundingClientRect();
-  const y = e.clientY - rect.top;
-  const scrollY = target.scrollTop;
+  // CORE FIX: Throttle to 60fps using requestAnimationFrame
+  if (mouseMoveFrame) return;
   
-  const contentY = y + scrollY - 15; // 15px is textarea padding
-  if (contentY < 0) {
-    hoveredLineIndex.value = null;
-    return;
-  }
-  
-  const remValue = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  const lineHeightPx = 0.85 * remValue * 1.6;
-  
-  const idx = Math.floor(contentY / lineHeightPx) + 1;
-  hoveredLineIndex.value = idx <= maxLines.value ? idx : null;
+  mouseMoveFrame = requestAnimationFrame(() => {
+    const rect = target.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const scrollY = target.scrollTop;
+    
+    const contentY = y + scrollY - 15; // 15px is textarea padding
+    if (contentY < 0) {
+      hoveredLineIndex.value = null;
+      mouseMoveFrame = null;
+      return;
+    }
+    
+    const remValue = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const lineHeightPx = 0.85 * remValue * 1.6;
+    
+    const idx = Math.floor(contentY / lineHeightPx) + 1;
+    hoveredLineIndex.value = idx <= maxLines.value ? idx : null;
+    mouseMoveFrame = null;
+  });
 };
 
 const advancedFileOptions = computed(() => {
@@ -804,8 +894,8 @@ const availableFileSheets = computed(() => {
   const fname = selectedAdvancedFile.value.split(/[/\\]/).pop() || selectedAdvancedFile.value;
   const options = [];
   for (const key of advancedDictKeys.value) {
-    if (key.startsWith(fname + '::')) {
-      const sheetName = key.split('::')[1];
+    if (key.startsWith(selectedAdvancedFile.value + '::')) {
+      const sheetName = key.split('::').pop(); // Handle potential multiple :: in path
       options.push({ value: key, label: sheetName });
     }
   }
@@ -831,24 +921,21 @@ watch(advancedTranslatePaths, (newPaths) => {
 }, { immediate: true });
 
 watch(selectedAdvancedFile, (newVal) => {
-  if (newVal) {
-    const fname = newVal.split(/[/\\]/).pop() || newVal;
-    const firstMatch = advancedDictKeys.value.find(k => k.startsWith(fname + '::'));
-    if (firstMatch) {
-      selectedAdvancedSheet.value = firstMatch;
-    } else {
-      selectedAdvancedSheet.value = '';
-    }
-  } else {
-    selectedAdvancedSheet.value = '';
-  }
+  // New Design: Do NOT auto-select a sheet when a file is chosen.
+  // This keeps the advanced logic "off" until the user explicitly picks a sheet.
+  selectedAdvancedSheet.value = '';
+});
+
+watch(advancedDictKeys, () => {
+  updateCachedWords();
+  handleQuickTranslate();
 });
 
 watch([sharedTargetLang, selectedAdvancedSheet, isStrictAdvancedSheet], () => {
-
+  if (activeTab.value !== 'Translate') return;
   updateCachedWords();
-
   handleQuickTranslate();
+  saveGlobalSettings();
 });
 
 watch(triggerDictionaryFocus, async () => {
@@ -869,11 +956,13 @@ watch(triggerSettingsRefresh, () => {
 });
 
 watch(dictionaryData, () => {
+  // Logic here only triggers when the entire dictionary array reference changes
+  // which is much faster than watching every single property deep.
   updateCachedWords();
   if (subTab.value === 'quick-translate' && translateInput.value) {
     handleQuickTranslate();
   }
-}, { deep: true });
+});
 </script>
 
 <template>
@@ -992,44 +1081,15 @@ watch(dictionaryData, () => {
                 </div>
               </div>
               <div class="header-right">
-                <div class="advanced-sheet-controls" v-if="advancedTranslatePaths.length > 0">
-                  <div class="searchable-dropdown file-dropdown" @click.stop>
-                    <div class="dropdown-trigger" @click="openDropdown = openDropdown === 'file' ? null : 'file'" :title="selectedAdvancedFile" style="max-width: 150px;">
-                      {{ advancedFileOptions.find(o => o.value === selectedAdvancedFile)?.label || 'Select File' }}
-                    </div>
-                    <div class="dropdown-menu" v-if="openDropdown === 'file'">
-                      <input type="text" v-model="fileSearch" placeholder="Search file..." class="dropdown-search" />
-                      <div class="dropdown-list">
-                        <div v-for="opt in filteredAdvancedFileOptions" :key="opt.value" 
-                             class="dropdown-item" :class="{active: selectedAdvancedFile === opt.value}"
-                             @click="selectedAdvancedFile = opt.value; openDropdown = null; fileSearch = ''" :title="opt.label">
-                          {{ opt.label }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div class="searchable-dropdown sheet-dropdown" @click.stop v-if="selectedAdvancedFile">
-                    <div class="dropdown-trigger" @click="openDropdown = openDropdown === 'sheet' ? null : 'sheet'" :title="selectedAdvancedSheet" style="max-width: 120px;">
-                      {{ availableFileSheets.find(o => o.value === selectedAdvancedSheet)?.label || 'Select Sheet' }}
-                    </div>
-                    <div class="dropdown-menu" v-if="openDropdown === 'sheet'">
-                      <input type="text" v-model="sheetSearch" placeholder="Search sheet..." class="dropdown-search" />
-                      <div class="dropdown-list">
-                        <div v-for="opt in filteredAvailableFileSheets" :key="opt.value" 
-                             class="dropdown-item" :class="{active: selectedAdvancedSheet === opt.value}"
-                             @click="selectedAdvancedSheet = opt.value; openDropdown = null; sheetSearch = ''" :title="opt.label">
-                          {{ opt.label }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <label class="strict-checkbox" title="If checked, only search within the exact selected sheet">
-                    <input type="checkbox" v-model="isStrictAdvancedSheet" />
-                    Strict Sheet
-                  </label>
+                <div class="active-source-indicator" v-if="selectedAdvancedSheet">
+                  <span class="indicator-label">Source:</span>
+                  <span class="indicator-value">{{ availableFileSheets.find(o => o.value === selectedAdvancedSheet)?.label }}</span>
                 </div>
+                
+                <label class="strict-checkbox" :class="{ disabled: !selectedAdvancedSheet }" title="If checked, only search within the exact selected sheet">
+                  <input type="checkbox" v-model="isStrictAdvancedSheet" :disabled="!selectedAdvancedSheet" />
+                  Advance Translate
+                </label>
                 <button @click="copyResult" class="ghost-btn">COPY RESULT</button>
               </div>
 
@@ -1084,6 +1144,46 @@ watch(dictionaryData, () => {
               <button @click="addAdvancedPath" class="browse-fab" title="Browse Files">&#128194;</button>
             </div>
             <p v-if="pathError" class="modal-error">{{ pathError }}</p>
+
+            <div class="modal-selection-area" v-if="advancedTranslatePaths.length > 0">
+              <div class="selection-title">Dictionary Selection</div>
+              <div class="selection-controls">
+                <div class="searchable-dropdown file-dropdown" @click.stop>
+                  <div class="dropdown-trigger" @click="openDropdown = openDropdown === 'file' ? null : 'file'" :title="selectedAdvancedFile">
+                    {{ advancedFileOptions.find(o => o.value === selectedAdvancedFile)?.label || 'Select File to Translate' }}
+                  </div>
+                  <div class="dropdown-menu" v-if="openDropdown === 'file'">
+                    <input type="text" v-model="fileSearch" placeholder="Search file..." class="dropdown-search" />
+                    <div class="dropdown-list">
+                      <div v-for="opt in filteredAdvancedFileOptions" :key="opt.value" 
+                           class="dropdown-item" :class="{active: selectedAdvancedFile === opt.value}"
+                           @click="selectedAdvancedFile = opt.value; openDropdown = null; fileSearch = ''" :title="opt.label">
+                        {{ opt.label }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="searchable-dropdown sheet-dropdown" @click.stop>
+                  <div class="dropdown-trigger" 
+                       :class="{ disabled: !selectedAdvancedFile }"
+                       @click="selectedAdvancedFile ? (openDropdown = openDropdown === 'sheet' ? null : 'sheet') : null" 
+                       :title="selectedAdvancedSheet || 'Please select a file first'">
+                    {{ availableFileSheets.find(o => o.value === selectedAdvancedSheet)?.label || 'Select Sheet' }}
+                  </div>
+                  <div class="dropdown-menu" v-if="openDropdown === 'sheet' && selectedAdvancedFile">
+                    <input type="text" v-model="sheetSearch" placeholder="Search sheet..." class="dropdown-search" />
+                    <div class="dropdown-list">
+                      <div v-for="opt in filteredAvailableFileSheets" :key="opt.value" 
+                           class="dropdown-item" :class="{active: selectedAdvancedSheet === opt.value}"
+                           @click="selectedAdvancedSheet = opt.value; openDropdown = null; sheetSearch = ''" :title="opt.label">
+                        {{ opt.label }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
           </div>
         </div>
@@ -1281,6 +1381,7 @@ watch(dictionaryData, () => {
   position: absolute;
   left: 0;
   width: 100%;
+  height: 1.36rem;
   background: rgba(99, 102, 241, 0.08);
   pointer-events: none;
   z-index: 0;
@@ -1363,14 +1464,26 @@ textarea {
 
 .advanced-modal.win95-border .remove-btn { color: #000; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; background: #c0c0c0; border-radius: 0; }
 
-.strict-checkbox { display: flex; align-items: center; gap: 4px; font-size: 0.65rem; font-weight: 800; cursor: pointer; color: var(--accent-color); }
+.strict-checkbox { display: flex; align-items: center; gap: 4px; font-size: 0.65rem; font-weight: 800; cursor: pointer; color: var(--accent-color); transition: opacity 0.2s; }
+.strict-checkbox.disabled { opacity: 0.3; cursor: not-allowed; }
 .strict-checkbox input { accent-color: var(--accent-color); }
 
 .advanced-sheet-controls { display: flex; align-items: center; gap: 8px; margin-right: 15px; }
 
+.active-source-indicator { display: flex; align-items: center; gap: 6px; background: rgba(99, 102, 241, 0.08); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.15); margin-right: 10px; }
+.indicator-label { font-size: 0.6rem; font-weight: 800; opacity: 0.5; color: var(--text-color); }
+.indicator-value { font-size: 0.65rem; font-weight: 950; color: var(--accent-color); }
+
+.modal-selection-area { margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,0.1); }
+.selection-title { font-size: 0.7rem; font-weight: 900; color: var(--text-color); margin-bottom: 12px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.05em; }
+.selection-controls { display: flex; flex-direction: column; gap: 10px; }
+.selection-controls .searchable-dropdown { width: 100%; }
+.selection-controls .dropdown-trigger { width: 100%; box-sizing: border-box; height: 36px; display: flex; align-items: center; }
+
 /* Custom Searchable Dropdown Styles */
 .searchable-dropdown { position: relative; }
 .dropdown-trigger { background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 4px 25px 4px 10px; font-size: 0.7rem; font-weight: 800; color: var(--text-color); cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23666666%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right 8px center; background-size: 8px auto; transition: 0.2s; user-select: none; }
+.dropdown-trigger.disabled { opacity: 0.3; cursor: not-allowed; background-image: none; border-style: dashed; }
 .dropdown-trigger:hover { background-color: rgba(128,128,128,0.1); border-color: var(--accent-color); }
 .dropdown-menu { position: absolute; top: calc(100% + 4px); right: 0; min-width: 250px; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); z-index: 500; display: flex; flex-direction: column; overflow: hidden; }
 .dropdown-search { padding: 10px 12px; border: none; border-bottom: 1px solid rgba(128,128,128,0.1); background: transparent; font-size: 0.75rem; color: var(--text-color); outline: none; font-weight: 800; font-family: inherit; width: 100%; box-sizing: border-box; }
@@ -1388,5 +1501,3 @@ textarea {
 .browse-fab { background: rgba(128,128,128,0.1); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 0 10px; cursor: pointer; color: var(--text-color); }
 .modal-error { color: #f43f5e; font-size: 0.7rem; font-weight: bold; margin: 4px 0 0; }
 </style>
-
-

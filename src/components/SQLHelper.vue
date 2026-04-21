@@ -214,7 +214,7 @@ const handleLogClick = (e: MouseEvent) => {
   }
 };
 
-const isLogTooLarge = computed(() => logContent.value.length > 500000);
+const isLogTooLarge = computed(() => logContent.value.length > 200000); // Reduced limit for better responsiveness
 
 const displayHtml = ref('');
 let highlightTimeout: any = null;

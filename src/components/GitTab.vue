@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick } fr
 import { open, message, ask } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
-import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload, type GitFile, triggerCloseModals, theme as globalTheme, projectRootPath } from '../store';
+import { gitBranches, gitTabRepoPath, type GitBranch, triggerGitRefresh, triggerEditorReload, type GitFile, triggerCloseModals, theme as globalTheme, projectRootPath, activeTab } from '../store';
 
 
 
@@ -255,6 +255,9 @@ const refresh = async () => {
     resetGitState();
     return;
   }
+  // OPTIMIZATION: Only refresh if tab is visible
+  if (activeTab.value !== 'Git') return;
+
   isLoading.value = true;
   try { await Promise.all([loadBranches(), loadStatus()]); }
   finally { isLoading.value = false; }
@@ -388,7 +391,7 @@ const loadBranchHistory = async (branch?: GitBranch) => {
   const targetBranch = selectedBranch.value;
 
   try {
-    const args = ['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '2000'];
+    const args = ['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '500']; // Reduced from 2000 for performance
     if (showAllHistory.value) {
       args.push('--all');
     } else if (targetBranch) {
@@ -402,7 +405,7 @@ const loadBranchHistory = async (branch?: GitBranch) => {
   } catch (e) {
     console.warn(`Failed history load, trying generic log...`);
     try {
-      const rawHead = await git(['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '2000']);
+      const rawHead = await git(['log', '--format=%h|%p|%s|%an|%cr|%D', '-n', '500']);
       parseGraphData(rawHead);
     } catch {
       graphCommits.value = [];

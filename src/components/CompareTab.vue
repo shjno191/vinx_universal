@@ -9,6 +9,8 @@ import { sharedInput, sharedOutput, theme as globalTheme } from '../store';
 const originalText = ref(sharedInput.value);
 const modifiedText = ref(sharedOutput.value);
 const diffEditorRef = ref<any>(null);
+import { activeTab } from '../store';
+
 
 const normalize = (val: string) => val ? val.replace(/\r\n/g, '\n') : '';
 
@@ -18,6 +20,7 @@ watch(sharedInput, (val) => {
   if (normalize(originalText.value) !== normVal) originalText.value = normVal;
 });
 watch(sharedOutput, (val) => {
+  if (activeTab.value !== 'Compare') return;
   const normVal = normalize(val);
   if (normalize(modifiedText.value) !== normVal) modifiedText.value = normVal;
 });

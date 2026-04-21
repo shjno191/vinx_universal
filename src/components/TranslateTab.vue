@@ -12,6 +12,7 @@ defineProps<{ theme?: string }>();
 
 const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
 const dictionaryData = shallowRef<any[]>([]);
+const hoveredLineIndex = ref<number | null>(null);
 const isLoading = ref(false);
 const dictionaryPath = ref('');
 const dictionarySearchInput = ref<HTMLInputElement | null>(null);
@@ -27,13 +28,19 @@ const showAdvancedModal = ref(false);
 
 
 const selectedAdvancedFile = ref<string>('');
-const selectedAdvancedSheet = ref<string>('');
 const isStrictAdvancedSheet = ref<boolean>(false);
-const hoveredLineIndex = ref<number | null>(null);
 
-const openDropdown = ref<'file' | 'sheet' | null>(null);
+const openDropdown = ref<string | null>(null);
+const dropdownPosition = ref({ top: 0, left: 0, width: 0 });
 const fileSearch = ref('');
 const sheetSearch = ref('');
+
+interface AdvancedConfig {
+  sheet: string;
+  priority: number;
+  enabled: boolean;
+}
+const advancedConfigs = ref<Record<string, AdvancedConfig>>({});
 
 
 const newManualPath = ref('');
@@ -57,6 +64,11 @@ const targetWordsList = ref<string[]>([]);
 const cachedLookup = ref<Map<string, string>>(new Map());
 const translationRegex = ref<RegExp | null>(null);
 
+// Memoization cache for the Base Dictionary (to prevent redundant loops)
+const baseSourceWords = ref<Set<string>>(new Set());
+const baseTargetWords = ref<Set<string>>(new Set());
+const baseLookupPart = ref<Map<string, string>>(new Map());
+
 
 // Copy feedback
 const showCopyToast = ref(false);
@@ -67,7 +79,6 @@ const hoveredWord = ref<string | null>(null);
 // Modal state
 const showDictModal = ref(false);
 const modalMode = ref<'add' | 'edit'>('add');
-const editingIdx = ref<number | null>(null);
 const editBuffer = ref({ jp: '', en: '', vi: '' });
 
 // References for syncing scroll
@@ -155,9 +166,19 @@ const loadDictionary = async () => {
 
     await loadAdvancedDictionaries();
     
-    // Restore selections AFTER loading dictionaries to ensure they are valid and don't get wiped
-    // if (s?.last_advanced_file) selectedAdvancedFile.value = s.last_advanced_file;
-    // if (s?.last_advanced_sheet) selectedAdvancedSheet.value = s.last_advanced_sheet;
+    // Restore selections
+    if (s?.advanced_configs) {
+      advancedConfigs.value = s.advanced_configs;
+    } else {
+      // Fallback/Legacy migration
+      if (s?.last_advanced_file && s?.last_advanced_sheet) {
+        advancedConfigs.value[s.last_advanced_file] = {
+          sheet: s.last_advanced_sheet,
+          priority: 1,
+          enabled: true
+        };
+      }
+    }
 
     updateCachedWords();
     handleQuickTranslate(); // Ensure initial translation triggers
@@ -181,6 +202,9 @@ const loadAdvancedDictionaries = async () => {
 
 
   for (const path of advancedTranslatePaths.value) {
+    if (!advancedConfigs.value[path]) {
+      advancedConfigs.value[path] = { sheet: '', priority: 1, enabled: false };
+    }
 
     try {
       const bytes = await invoke('read_file_binary', { path }) as number[];
@@ -289,8 +313,8 @@ const saveGlobalSettings = async () => {
     const newSettings = { 
       ...s, 
       advanced_translate_paths: advancedTranslatePaths.value,
-      last_advanced_file: selectedAdvancedFile.value,
-      last_advanced_sheet: selectedAdvancedSheet.value
+      advanced_configs: advancedConfigs.value,
+      is_strict_advanced: isStrictAdvancedSheet.value
     };
     await invoke('save_settings', { settings: JSON.stringify(newSettings, null, 2) });
     triggerSettingsRefresh.value++;
@@ -360,142 +384,98 @@ const cleanDictionaryDuplicates = async () => {
 
 const normalize = (val: string) => val ? val.trim() : '';
 
-let updateCacheDebounceTimer: any = null;
-
 const updateCachedWords = () => {
   if (updateCacheDebounceTimer) clearTimeout(updateCacheDebounceTimer);
   
   // Use a slight debounce to prevent UI stutter during rapid toggles
   updateCacheDebounceTimer = setTimeout(() => {
     performUpdateCachedWords();
-  }, 200);
+  }, 100); // Reduced delay for better feel
+};
+
+const rebuildBaseDictionaryCache = () => {
+  const sourceSet = new Set<string>();
+  const targetSet = new Set<string>();
+  const lookup = new Map<string, string>();
+  const targetKey = sharedTargetLang.value;
+
+  dictionaryData.value.forEach(d => {
+    const tVal = (d[targetKey] || '').toString().trim();
+    if (tVal) targetSet.add(tVal);
+
+    ['jp', 'en', 'vi'].forEach(l => {
+      if (l !== targetKey) {
+        const sVal = (d[l as 'jp'|'en'|'vi'] || '').toString().trim();
+        if (sVal) {
+          sourceSet.add(sVal);
+          if (tVal && sVal !== tVal) lookup.set(sVal, tVal);
+        }
+      }
+    });
+  });
+
+  baseSourceWords.value = sourceSet;
+  baseTargetWords.value = targetSet;
+  baseLookupPart.value = lookup;
 };
 
 const performUpdateCachedWords = () => {
-  const sourceSet = new Set<string>();
-  const targetSet = new Set<string>();
-  const targetKey = sharedTargetLang.value;
+  const sourceSet = new Set(baseSourceWords.value);
+  const targetSet = new Set(baseTargetWords.value);
+  const lookup = new Map(baseLookupPart.value);
 
-  // OPTIMIZED LOGIC: 
-  // Advanced features only activate if a sheet is EXPLICITLY selected.
-  // This satisfies the "only activate when chosen" requirement.
-  
-  if (!selectedAdvancedSheet.value) {
-    // NO SHEET PICKED: Only use Base Dictionary
-    dictionaryData.value.forEach(d => {
-      const tVal = (d[targetKey] || '').trim();
-      if (tVal && tVal.length > 0) targetSet.add(tVal);
-      ['jp', 'en', 'vi'].forEach(l => {
-        if (l !== targetKey) {
-          const sVal = (d[l as 'jp'|'en'|'vi'] || '').trim();
-          if (sVal && sVal.length > 0) sourceSet.add(sVal);
-        }
-      });
-    });
-  } else if (isStrictAdvancedSheet.value) {
-    // STRICT MODE + SHEET PICKED: Only use the selected sheet
-    const cache = sheetCacheMap.get(selectedAdvancedSheet.value);
-    if (cache) {
-      cache.sources.forEach(s => sourceSet.add(s));
-      cache.targets.forEach(t => targetSet.add(t));
+  const activeConfigs = Object.entries(advancedConfigs.value)
+    .filter(([path, cfg]) => cfg.enabled && cfg.sheet)
+    .map(([path, cfg]) => ({ path, ...cfg }))
+    .sort((a, b) => a.priority - b.priority);
+
+  const hasActiveAdvanced = activeConfigs.length > 0;
+
+  if (hasActiveAdvanced) {
+    if (isStrictAdvancedSheet.value) {
+      // STRICT MODE: Start fresh (do not use base)
+      sourceSet.clear();
+      targetSet.clear();
+      lookup.clear();
     }
-  } else {
-    // NORMAL MODE + SHEET PICKED: Base Dictionary + All Advanced Sheets
-    // Base Dictionary
-    dictionaryData.value.forEach(d => {
-      const tVal = (d[targetKey] || '').trim();
-      if (tVal && tVal.length > 0) targetSet.add(tVal);
-      ['jp', 'en', 'vi'].forEach(l => {
-        if (l !== targetKey) {
-          const sVal = (d[l as 'jp'|'en'|'vi'] || '').trim();
-          if (sVal && sVal.length > 0) sourceSet.add(sVal);
-        }
-      });
-    });
 
-    // All Advanced Sheets
-    sheetCacheMap.forEach((cache) => {
-      cache.sources.forEach(s => sourceSet.add(s));
-      cache.targets.forEach(t => targetSet.add(t));
+    activeConfigs.forEach(cfg => {
+      // Add lookup mappings
+      const mapping = advancedDictData.value.get(cfg.sheet);
+      if (mapping) {
+        mapping.forEach((val, key) => {
+          if (key && val) lookup.set(key, val);
+        });
+      }
+
+      // Add highlight words
+      const cache = sheetCacheMap.get(cfg.sheet);
+      if (cache) {
+        cache.sources.forEach(s => sourceSet.add(s));
+        cache.targets.forEach(t => targetSet.add(t));
+      }
     });
   }
-
 
   const sList = Array.from(sourceSet).sort((a, b) => b.length - a.length);
   const tList = Array.from(targetSet).sort((a, b) => b.length - a.length);
-  
   sourceWordsList.value = sList;
   targetWordsList.value = tList;
-
-  // Build the Cached Translation Engine structures
-  const lookup = new Map<string, string>();
-  
-  if (!selectedAdvancedSheet.value) {
-    // NO SHEET PICKED: Only use Base Dictionary
-    dictionaryData.value.forEach(entry => {
-      ['jp', 'en', 'vi'].forEach(l => {
-        if (l !== targetKey) {
-          const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
-          const tVal = (entry[targetKey] || '').toString().trim();
-          if (sVal && tVal && sVal !== tVal) lookup.set(sVal, tVal);
-        }
-      });
-    });
-  } else if (isStrictAdvancedSheet.value) {
-    // STRICT MODE + SHEET PICKED
-    const mapping = advancedDictData.value.get(selectedAdvancedSheet.value);
-    if (mapping) {
-      mapping.forEach((val, key) => { if (key && val) lookup.set(key, val); });
-    }
-  } else {
-    // NORMAL MODE + SHEET PICKED: Priority: Base > All Adv > Selected Sheet (highest)
-    dictionaryData.value.forEach(entry => {
-      ['jp', 'en', 'vi'].forEach(l => {
-        if (l !== targetKey) {
-          const sVal = (entry[l as 'jp'|'en'|'vi'] || '').toString().trim();
-          const tVal = (entry[targetKey] || '').toString().trim();
-          if (sVal && tVal && sVal !== tVal) lookup.set(sVal, tVal);
-        }
-      });
-    });
-    advancedDictData.value.forEach((mapping, key) => {
-      if (key !== selectedAdvancedSheet.value) {
-        mapping.forEach((val, k) => { if (k && val) lookup.set(k, val); });
-      }
-    });
-    const mapping = advancedDictData.value.get(selectedAdvancedSheet.value);
-    if (mapping) {
-      mapping.forEach((val, k) => { if (k && val) lookup.set(k, val); });
-    }
-  }
-
-
   cachedLookup.value = lookup;
-  const sortedKeys = Array.from(lookup.keys()).sort((a, b) => b.length - a.length);
-  const escape = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  
-  if (sortedKeys.length > 0) {
-    translationRegex.value = new RegExp(sortedKeys.map(escape).join('|'), 'g');
+  if (lookup.size > 0) {
+    try {
+      const sortedKeys = Array.from(lookup.keys()).sort((a, b) => b.length - a.length);
+      const pattern = sortedKeys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+      translationRegex.value = new RegExp(`(${pattern})`, 'g');
+    } catch (e) {
+      console.error('Failed to create translation regex:', e);
+      translationRegex.value = null;
+    }
   } else {
     translationRegex.value = null;
   }
-
-  // Optimize Highlighter: Limit to top 1,000 longest words to prevent UI lag
-  const highlightLimit = 1000;
-  const sListLimited = sList.slice(0, highlightLimit);
-  const tListLimited = tList.slice(0, highlightLimit);
-
-  if (sListLimited.length > 0) {
-    sourceRegex.value = new RegExp('(' + sListLimited.map(escape).join('|') + ')', 'g');
-  } else {
-    sourceRegex.value = null;
-  }
   
-  if (tListLimited.length > 0) {
-    targetRegex.value = new RegExp('(' + tListLimited.map(escape).join('|') + ')', 'g');
-  } else {
-    targetRegex.value = null;
-  }
+  updateAllHighlights();
 };
 
 const filteredDictionary = computed(() => {
@@ -770,13 +750,14 @@ const validateAndAddPath = async () => {
       return;
     }
     advancedTranslatePaths.value.push(p);
+    advancedConfigs.value[p] = { sheet: '', priority: 1, enabled: true };
+    selectedAdvancedFile.value = p; // Auto-expand new path
     newManualPath.value = '';
     pathError.value = '';
 
     await loadAdvancedDictionaries();
     updateCachedWords();
     await saveGlobalSettings();
-    selectedAdvancedFile.value = p; // auto select newly added
   } catch (e) {
 
     pathError.value = 'Error validating path';
@@ -793,6 +774,9 @@ const addAdvancedPath = async () => {
     if (selected && Array.isArray(selected) && selected.length > 0) {
       const newPaths = selected.filter(p => !advancedTranslatePaths.value.includes(p));
       advancedTranslatePaths.value = [...advancedTranslatePaths.value, ...newPaths];
+      newPaths.forEach(p => {
+        advancedConfigs.value[p] = { sheet: '', priority: 1, enabled: true };
+      });
       await loadAdvancedDictionaries();
       updateCachedWords();
 
@@ -809,6 +793,8 @@ const addAdvancedPath = async () => {
 
 const removeAdvancedPath = async (path: string) => {
   advancedTranslatePaths.value = advancedTranslatePaths.value.filter(p => p !== path);
+  delete advancedConfigs.value[path];
+  if (selectedAdvancedFile.value === path) selectedAdvancedFile.value = '';
   await loadAdvancedDictionaries();
   updateCachedWords();
   await saveGlobalSettings();
@@ -890,16 +876,11 @@ const advancedFileOptions = computed(() => {
 });
 
 const availableFileSheets = computed(() => {
-  if (!selectedAdvancedFile.value) return [];
-  const fname = selectedAdvancedFile.value.split(/[/\\]/).pop() || selectedAdvancedFile.value;
-  const options = [];
-  for (const key of advancedDictKeys.value) {
-    if (key.startsWith(selectedAdvancedFile.value + '::')) {
-      const sheetName = key.split('::').pop(); // Handle potential multiple :: in path
-      options.push({ value: key, label: sheetName });
-    }
-  }
-  return options;
+  const path = selectedAdvancedFile.value;
+  if (!path) return [];
+  return advancedDictKeys.value
+    .filter(k => k.startsWith(path + '::'))
+    .map(k => ({ label: k.split('::').pop() || '', value: k }));
 });
 
 const filteredAdvancedFileOptions = computed(() => {
@@ -908,8 +889,14 @@ const filteredAdvancedFileOptions = computed(() => {
 });
 
 const filteredAvailableFileSheets = computed(() => {
-  if (!sheetSearch.value) return availableFileSheets.value;
-  return availableFileSheets.value.filter(opt => opt.label.toLowerCase().includes(sheetSearch.value.toLowerCase()));
+  if (!openDropdown.value) return [];
+  const path = openDropdown.value;
+  const sheets = advancedDictKeys.value
+    .filter(k => k.startsWith(path + '::'))
+    .map(k => ({ label: k.split('::').pop() || '', value: k }));
+    
+  if (!debouncedSheetSearch.value) return sheets;
+  return sheets.filter(opt => opt.label.toLowerCase().includes(debouncedSheetSearch.value.toLowerCase()));
 });
 
 watch(advancedTranslatePaths, (newPaths) => {
@@ -921,9 +908,7 @@ watch(advancedTranslatePaths, (newPaths) => {
 }, { immediate: true });
 
 watch(selectedAdvancedFile, (newVal) => {
-  // New Design: Do NOT auto-select a sheet when a file is chosen.
-  // This keeps the advanced logic "off" until the user explicitly picks a sheet.
-  selectedAdvancedSheet.value = '';
+  // Navigation: Expanding a new file card
 });
 
 watch(advancedDictKeys, () => {
@@ -931,12 +916,19 @@ watch(advancedDictKeys, () => {
   handleQuickTranslate();
 });
 
-watch([sharedTargetLang, selectedAdvancedSheet, isStrictAdvancedSheet], () => {
+watch([sharedTargetLang, isStrictAdvancedSheet], () => {
   if (activeTab.value !== 'Translate') return;
+  rebuildBaseDictionaryCache();
   updateCachedWords();
   handleQuickTranslate();
   saveGlobalSettings();
 });
+
+// Watch for changes in advanced configs
+watch(advancedConfigs, () => {
+  updateCachedWords();
+  saveGlobalSettings();
+}, { deep: true });
 
 watch(triggerDictionaryFocus, async () => {
 
@@ -956,13 +948,42 @@ watch(triggerSettingsRefresh, () => {
 });
 
 watch(dictionaryData, () => {
-  // Logic here only triggers when the entire dictionary array reference changes
-  // which is much faster than watching every single property deep.
+  rebuildBaseDictionaryCache();
   updateCachedWords();
   if (subTab.value === 'quick-translate' && translateInput.value) {
     handleQuickTranslate();
   }
 });
+
+const debouncedSheetSearch = ref('');
+let sheetSearchTimer: any = null;
+
+watch(sheetSearch, (val) => {
+  if (sheetSearchTimer) clearTimeout(sheetSearchTimer);
+  sheetSearchTimer = setTimeout(() => {
+    debouncedSheetSearch.value = val;
+  }, 200);
+});
+
+const toggleSheetDropdown = (path: string, event: MouseEvent) => {
+  if (openDropdown.value === path) {
+    openDropdown.value = null;
+    return;
+  }
+  
+  const target = event.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  
+  // Calculate position in screen space
+  dropdownPosition.value = {
+    top: rect.bottom + window.scrollY,
+    left: rect.left + window.scrollX,
+    width: rect.width
+  };
+  
+  openDropdown.value = path;
+  sheetSearch.value = '';
+};
 </script>
 
 <template>
@@ -1081,13 +1102,13 @@ watch(dictionaryData, () => {
                 </div>
               </div>
               <div class="header-right">
-                <div class="active-source-indicator" v-if="selectedAdvancedSheet">
-                  <span class="indicator-label">Source:</span>
-                  <span class="indicator-value">{{ availableFileSheets.find(o => o.value === selectedAdvancedSheet)?.label }}</span>
+                <div class="active-source-indicator" v-if="Object.values(advancedConfigs).some(c => c.enabled && c.sheet)">
+                  <span class="indicator-label">Active Sources:</span>
+                  <span class="indicator-value">{{ Object.values(advancedConfigs).filter(c => c.enabled && c.sheet).length }}</span>
                 </div>
                 
-                <label class="strict-checkbox" :class="{ disabled: !selectedAdvancedSheet }" title="If checked, only search within the exact selected sheet">
-                  <input type="checkbox" v-model="isStrictAdvancedSheet" :disabled="!selectedAdvancedSheet" />
+                <label class="strict-checkbox" :class="{ disabled: !Object.values(advancedConfigs).some(c => c.enabled && c.sheet) }" title="If checked, only search within the exact selected sheets">
+                  <input type="checkbox" v-model="isStrictAdvancedSheet" :disabled="!Object.values(advancedConfigs).some(c => c.enabled && c.sheet)" />
                   Advance Translate
                 </label>
                 <button @click="copyResult" class="ghost-btn">COPY RESULT</button>
@@ -1124,66 +1145,67 @@ watch(dictionaryData, () => {
           <div class="modal-body">
             <p class="modal-info">Load specialized Excel files (mapping <b>論理カラム名</b> to <b>物理カラム名</b>). Takes priority over main dict.</p>
             
-            <div class="advanced-list">
-              <div v-if="advancedTranslatePaths.length === 0" class="empty-list-hint">No advanced files loaded.</div>
-
-              <div v-for="path in advancedTranslatePaths" :key="path" class="advanced-item">
-                <div class="item-info">
-                  <span class="item-name">{{ path.split(/[/\\]/).pop() }}</span>
-                  <span class="item-path">{{ path }}</span>
+            <div class="advanced-list" @scroll="openDropdown = null">
+              <div v-for="path in advancedTranslatePaths" :key="path" 
+                   class="advanced-row" :class="{ 'is-active': advancedConfigs[path]?.enabled }">
+                <div class="row-left" v-if="advancedConfigs[path]">
+                  <div class="selection-check">
+                    <input type="checkbox" v-model="advancedConfigs[path].enabled" />
+                  </div>
+                  <div class="file-info" :title="path">
+                    <div class="file-name">{{ path.split(/[/\\]/).pop() }}</div>
+                    <div class="file-path">{{ path }}</div>
+                  </div>
                 </div>
-                <button @click="removeAdvancedPath(path)" class="remove-btn">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
+
+                <div class="row-middle" v-if="advancedConfigs[path]">
+                  <div class="searchable-dropdown sheet-dropdown" @click.stop>
+                    <div class="dropdown-trigger compact" 
+                         @click="toggleSheetDropdown(path, $event)">
+                      {{ advancedConfigs[path].sheet ? advancedConfigs[path].sheet.split('::').pop() : 'Select Sheet' }}
+                    </div>
+                    
+                    <Teleport to="body">
+                      <div class="floating-dropdown-menu" 
+                           v-if="openDropdown === path"
+                           :style="{ 
+                             top: dropdownPosition.top + 'px', 
+                             left: dropdownPosition.left + 'px',
+                             minWidth: dropdownPosition.width + 'px'
+                           }"
+                           @click.stop>
+                        <input type="text" v-model="sheetSearch" placeholder="Search sheet..." class="dropdown-search" />
+                        <div class="dropdown-list">
+                          <div v-for="opt in filteredAvailableFileSheets" :key="opt.value" 
+                               class="dropdown-item" :class="{active: advancedConfigs[path].sheet === opt.value}"
+                               @click="advancedConfigs[path].sheet = opt.value; openDropdown = null; sheetSearch = ''; updateCachedWords()" :title="opt.label">
+                            {{ opt.label }}
+                          </div>
+                        </div>
+                      </div>
+                    </Teleport>
+                  </div>
+                </div>
+
+                <div class="row-right" v-if="advancedConfigs[path]">
+                    <div class="priority-dashboard" v-if="advancedConfigs[path].enabled">
+                      <button @click.stop="advancedConfigs[path].priority = Math.max(1, advancedConfigs[path].priority - 1)" class="prio-mini-btn">-</button>
+                      <input type="number" v-model.number="advancedConfigs[path].priority" min="1" max="99" class="prio-mini-input" />
+                      <button @click.stop="advancedConfigs[path].priority = Math.min(99, advancedConfigs[path].priority + 1)" class="prio-mini-btn">+</button>
+                    </div>
+                  <button @click="removeAdvancedPath(path)" class="remove-mini-btn" title="Remove Source">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </div>
               </div>
             </div>
 
             <div class="manual-add-row">
               <input v-model="newManualPath" class="path-input-field" placeholder="Paste path here (C:\...)" @keyup.enter="validateAndAddPath" />
-              <button @click="validateAndAddPath" class="add-manual-btn">Add</button>
+              <button @click="validateAndAddPath" class="add-manual-btn">Add File</button>
               <button @click="addAdvancedPath" class="browse-fab" title="Browse Files">&#128194;</button>
             </div>
             <p v-if="pathError" class="modal-error">{{ pathError }}</p>
-
-            <div class="modal-selection-area" v-if="advancedTranslatePaths.length > 0">
-              <div class="selection-title">Dictionary Selection</div>
-              <div class="selection-controls">
-                <div class="searchable-dropdown file-dropdown" @click.stop>
-                  <div class="dropdown-trigger" @click="openDropdown = openDropdown === 'file' ? null : 'file'" :title="selectedAdvancedFile">
-                    {{ advancedFileOptions.find(o => o.value === selectedAdvancedFile)?.label || 'Select File to Translate' }}
-                  </div>
-                  <div class="dropdown-menu" v-if="openDropdown === 'file'">
-                    <input type="text" v-model="fileSearch" placeholder="Search file..." class="dropdown-search" />
-                    <div class="dropdown-list">
-                      <div v-for="opt in filteredAdvancedFileOptions" :key="opt.value" 
-                           class="dropdown-item" :class="{active: selectedAdvancedFile === opt.value}"
-                           @click="selectedAdvancedFile = opt.value; openDropdown = null; fileSearch = ''" :title="opt.label">
-                        {{ opt.label }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div class="searchable-dropdown sheet-dropdown" @click.stop>
-                  <div class="dropdown-trigger" 
-                       :class="{ disabled: !selectedAdvancedFile }"
-                       @click="selectedAdvancedFile ? (openDropdown = openDropdown === 'sheet' ? null : 'sheet') : null" 
-                       :title="selectedAdvancedSheet || 'Please select a file first'">
-                    {{ availableFileSheets.find(o => o.value === selectedAdvancedSheet)?.label || 'Select Sheet' }}
-                  </div>
-                  <div class="dropdown-menu" v-if="openDropdown === 'sheet' && selectedAdvancedFile">
-                    <input type="text" v-model="sheetSearch" placeholder="Search sheet..." class="dropdown-search" />
-                    <div class="dropdown-list">
-                      <div v-for="opt in filteredAvailableFileSheets" :key="opt.value" 
-                           class="dropdown-item" :class="{active: selectedAdvancedSheet === opt.value}"
-                           @click="selectedAdvancedSheet = opt.value; openDropdown = null; sheetSearch = ''" :title="opt.label">
-                        {{ opt.label }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
 
           </div>
         </div>
@@ -1281,25 +1303,41 @@ watch(dictionaryData, () => {
 .active-advanced-badge svg { color: #10b981; }
 
 /* Advanced Modal Styles */
-.advanced-modal { width: 600px; max-width: 90vw; }
-.modal-info { font-size: 0.75rem; opacity: 0.7; margin-bottom: 20px; line-height: 1.5; }
-.advanced-list { display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; margin-bottom: 20px; }
-.advanced-item {
-  display: flex; align-items: center; justify-content: space-between;
-  background: rgba(0,0,0,0.03); padding: 10px 15px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.1);
+.advanced-modal { width: 850px; max-width: 95vw; }
+.advanced-list { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; margin-bottom: 25px; padding-right: 5px; }
+
+/* New Dashboard Rows */
+.advanced-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 180px;
+  align-items: center;
+  gap: 15px;
+  background: rgba(128, 128, 128, 0.04);
+  border: 1px solid rgba(128, 128, 128, 0.1);
+  border-radius: 10px;
+  padding: 8px 15px;
+  transition: 0.2s;
+  position: relative;
 }
-.item-info { display: flex; flex-direction: column; gap: 2px; }
-.item-name { font-size: 0.8rem; font-weight: 700; color: var(--accent-color); }
-.item-path { font-size: 0.6rem; opacity: 0.4; }
-.remove-btn { background: transparent; border: none; color: #ef4444; opacity: 0.6; cursor: pointer; padding: 5px; }
-.remove-btn:hover { opacity: 1; background: rgba(239, 68, 68, 0.1); border-radius: 4px; }
-.empty-list-hint { text-align: center; padding: 30px; opacity: 0.3; font-size: 0.8rem; font-style: italic; }
-.modal-footer { display: flex; justify-content: flex-end; }
-.add-path-btn {
-  background: var(--accent-color); color: white; border: none; padding: 10px 20px; border-radius: 8px;
-  font-size: 0.75rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 8px;
+.advanced-row:hover { background: rgba(128, 128, 128, 0.07); }
+.advanced-row.is-active { border-color: rgba(99, 102, 241, 0.3); background: rgba(99, 102, 241, 0.03); }
+
+.row-left { display: flex; align-items: center; gap: 12px; overflow: hidden; }
+.file-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.file-name { font-size: 0.75rem; font-weight: 800; color: var(--accent-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-path { font-size: 0.55rem; opacity: 0.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.row-middle { min-width: 0; }
+.dropdown-trigger.compact { 
+  padding: 4px 25px 4px 10px; font-size: 0.65rem; height: 28px; line-height: 18px;
 }
-.add-path-btn:hover { filter: brightness(1.1); }
+
+.row-right { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.priority-dashboard { display: flex; align-items: center; background: rgba(0,0,0,0.04); border-radius: 6px; padding: 2px; height: 28px; }
+.prio-mini-btn { background: transparent; border: none; color: var(--accent-color); font-size: 0.8rem; font-weight: bold; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.prio-mini-input { background: transparent; border: none; width: 26px; font-size: 0.75rem; font-weight: 900; color: #6366f1; outline: none; text-align: center; }
+.remove-mini-btn { color: #f43f5e; opacity: 0.3; background: transparent; border: none; cursor: pointer; padding: 5px; transition: 0.2s; }
+.remove-mini-btn:hover { opacity: 1; transform: scale(1.1); }
 
 .fab-add-btn {
 
@@ -1474,24 +1512,58 @@ textarea {
 .indicator-label { font-size: 0.6rem; font-weight: 800; opacity: 0.5; color: var(--text-color); }
 .indicator-value { font-size: 0.65rem; font-weight: 950; color: var(--accent-color); }
 
-.modal-selection-area { margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,0.1); }
+.expand-enter-active, .expand-leave-active { transition: all 0.3s ease; max-height: 100px; overflow: hidden; }
+.expand-enter-from, .expand-leave-to { opacity: 0; max-height: 0; transform: translateY(-10px); }
+
 .selection-title { font-size: 0.7rem; font-weight: 900; color: var(--text-color); margin-bottom: 12px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.05em; }
 .selection-controls { display: flex; flex-direction: column; gap: 10px; }
 .selection-controls .searchable-dropdown { width: 100%; }
 .selection-controls .dropdown-trigger { width: 100%; box-sizing: border-box; height: 36px; display: flex; align-items: center; }
 
 /* Custom Searchable Dropdown Styles */
-.searchable-dropdown { position: relative; }
-.dropdown-trigger { background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 4px 25px 4px 10px; font-size: 0.7rem; font-weight: 800; color: var(--text-color); cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23666666%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right 8px center; background-size: 8px auto; transition: 0.2s; user-select: none; }
-.dropdown-trigger.disabled { opacity: 0.3; cursor: not-allowed; background-image: none; border-style: dashed; }
-.dropdown-trigger:hover { background-color: rgba(128,128,128,0.1); border-color: var(--accent-color); }
-.dropdown-menu { position: absolute; top: calc(100% + 4px); right: 0; min-width: 250px; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); z-index: 500; display: flex; flex-direction: column; overflow: hidden; }
-.dropdown-search { padding: 10px 12px; border: none; border-bottom: 1px solid rgba(128,128,128,0.1); background: transparent; font-size: 0.75rem; color: var(--text-color); outline: none; font-weight: 800; font-family: inherit; width: 100%; box-sizing: border-box; }
-.dropdown-search:focus { background: rgba(99,102,241,0.05); }
-.dropdown-list { max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; }
-.dropdown-item { padding: 10px 12px; font-size: 0.75rem; cursor: pointer; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; color: var(--text-color); border-left: 2px solid transparent; transition: background 0.1s; }
-.dropdown-item:hover { background: rgba(99,102,241,0.05); }
-.dropdown-item.active { background: rgba(99,102,241,0.1); font-weight: 800; color: #6366f1; border-left-color: #6366f1; }
+.floating-dropdown-menu {
+  position: absolute;
+  z-index: 99999;
+  background: var(--container-bg);
+  border: 1px solid var(--accent-color);
+  border-radius: 12px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+  padding: 10px;
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  backdrop-filter: blur(12px);
+  animation: dropdownFade 0.2s ease-out;
+}
+
+@keyframes dropdownFade {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.searchable-dropdown { position: relative; width: 100%; }
+.dropdown-trigger { 
+  background: rgba(0,0,0,0.05); border: 1px solid rgba(128,128,128,0.15); 
+  border-radius: 8px; padding: 6px 12px; font-size: 0.75rem; 
+  color: var(--text-color); cursor: pointer; display: flex; 
+  align-items: center; justify-content: space-between;
+  width: 100%; box-sizing: border-box;
+}
+
+.dropdown-search { 
+  width: 100%; background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.15); 
+  border-radius: 6px; padding: 6px 10px; color: var(--text-color); 
+  font-size: 0.7rem; outline: none; box-sizing: border-box;
+}
+
+.dropdown-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.dropdown-item { 
+  padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s; 
+  font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dropdown-item:hover { background: rgba(99, 102, 241, 0.1); color: #6366f1; }
+.dropdown-item.active { background: #6366f1; color: #fff; }
 
 
 .manual-add-row { display: flex; gap: 8px; margin-top: 10px; }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { ask, open } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
 import { translateInput, translateOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh, activeTab, advancedTranslatePaths } from '../store';
 
@@ -741,7 +741,7 @@ const inputHighlighter = ref<HTMLDivElement | null>(null);
 const resultHighlighter = ref<HTMLDivElement | null>(null);
 
 const validateAndAddPath = async () => {
-  const p = newManualPath.value.trim();
+  const p = newManualPath.value.trim().replace(/\\/g, '/');
   if (!p) return;
   try {
     const exists = await invoke('check_path_exists', { path: p });
@@ -781,8 +781,10 @@ const addAdvancedPath = async () => {
       multiple: true,
       filters: [{ name: 'Excel Files', extensions: ['xlsx', 'xls'] }]
     });
-    if (selected && Array.isArray(selected) && selected.length > 0) {
-      const newPaths = selected.filter(p => !advancedTranslatePaths.value.includes(p));
+    if (selected) {
+      const selectionArr = Array.isArray(selected) ? selected : [selected];
+      const paths = selectionArr.map(p => p.replace(/\\/g, '/'));
+      const newPaths = paths.filter(p => !advancedTranslatePaths.value.includes(p));
       
       // IMMEDIATE UI Feedback
       advancedTranslatePaths.value = [...advancedTranslatePaths.value, ...newPaths];

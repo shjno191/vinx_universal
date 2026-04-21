@@ -195,16 +195,20 @@ onMounted(() => {
   });
 });
 
-const loadAdvancedDictionaries = async () => {
-  advancedDictData.value.clear();
-  advancedDictKeys.value = [];
-  sheetCacheMap.clear();
-
+const loadAdvancedDictionaries = async (forceRefresh = false) => {
+  if (forceRefresh) {
+    advancedDictData.value.clear();
+    sheetCacheMap.clear();
+  }
 
   for (const path of advancedTranslatePaths.value) {
     if (!advancedConfigs.value[path]) {
-      advancedConfigs.value[path] = { sheet: '', priority: 1, enabled: false };
+      advancedConfigs.value[path] = { sheet: '', priority: 1, enabled: true };
     }
+    
+    // SKIP if already loaded and not forcing refresh
+    const hasData = Array.from(advancedDictData.value.keys()).some(k => k.startsWith(path + '::'));
+    if (hasData && !forceRefresh) continue;
 
     try {
       const bytes = await invoke('read_file_binary', { path }) as number[];
@@ -299,8 +303,8 @@ const loadAdvancedDictionaries = async () => {
     }
   }
 
-  // Force reactivity update by triggering a change that others watch
-  advancedDictKeys.value = [...advancedDictKeys.value];
+  // REBUILD keys list from all data currently in cache (incremental)
+  advancedDictKeys.value = Array.from(advancedDictData.value.keys());
 };
 
 
@@ -749,12 +753,18 @@ const validateAndAddPath = async () => {
       pathError.value = 'Path already added';
       return;
     }
-    advancedTranslatePaths.value.push(p);
-    advancedConfigs.value[p] = { sheet: '', priority: 1, enabled: true };
-    selectedAdvancedFile.value = p; // Auto-expand new path
+    // IMMEDIATE UI Feedback: Update references first
+    advancedTranslatePaths.value = [...advancedTranslatePaths.value, p];
+    advancedConfigs.value = {
+      ...advancedConfigs.value,
+      [p]: { sheet: '', priority: 1, enabled: true }
+    };
+    
+    selectedAdvancedFile.value = p; 
     newManualPath.value = '';
     pathError.value = '';
 
+    // LATER: Load the data in the background (awaited but row is already visible)
     await loadAdvancedDictionaries();
     updateCachedWords();
     await saveGlobalSettings();
@@ -773,17 +783,23 @@ const addAdvancedPath = async () => {
     });
     if (selected && Array.isArray(selected) && selected.length > 0) {
       const newPaths = selected.filter(p => !advancedTranslatePaths.value.includes(p));
+      
+      // IMMEDIATE UI Feedback
       advancedTranslatePaths.value = [...advancedTranslatePaths.value, ...newPaths];
+      const nextConfigs = { ...advancedConfigs.value };
       newPaths.forEach(p => {
-        advancedConfigs.value[p] = { sheet: '', priority: 1, enabled: true };
+        nextConfigs[p] = { sheet: '', priority: 1, enabled: true };
       });
+      advancedConfigs.value = nextConfigs;
+
+      if (newPaths.length > 0) {
+        selectedAdvancedFile.value = newPaths[0];
+      }
+
+      // BACKGROUND Loading
       await loadAdvancedDictionaries();
       updateCachedWords();
-
       await saveGlobalSettings();
-      if (newPaths.length > 0) {
-        selectedAdvancedFile.value = newPaths[0]; // Auto select first newly added
-      }
     }
   } catch (e) {
 
@@ -1559,8 +1575,9 @@ textarea {
 
 .dropdown-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .dropdown-item { 
-  padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s; 
-  font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: center; 
+  padding: 0 15px; min-height: 40px; border-radius: 6px; cursor: pointer; transition: 0.2s; 
+  font-size: 0.8rem; line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dropdown-item:hover { background: rgba(99, 102, 241, 0.1); color: #6366f1; }
 .dropdown-item.active { background: #6366f1; color: #fff; }

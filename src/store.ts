@@ -161,3 +161,5 @@ export interface SystemControl {
 
 export const systemControlSettings = ref<SystemControl[]>([]);
 
+export const globalDictionaryPath = ref('');
+

@@ -8,7 +8,8 @@ import {
   theme, 
   aiSettings, 
   chillSettings, 
-  triggerSettingsRefresh 
+  triggerSettingsRefresh,
+  globalDictionaryPath
 } from '../store';
 
 export function useSettings() {
@@ -74,6 +75,7 @@ export function useSettings() {
         theme.value = settings.value.theme as 'light' | 'dark' | '95';
         aiSettings.value = settings.value.ai as any;
         chillSettings.value = settings.value.chill;
+        globalDictionaryPath.value = settings.value.dictionary_path || '';
       }
     } catch (e) {
       console.error('[useSettings] Failed to get settings:', e);
@@ -110,6 +112,7 @@ export function useSettings() {
       });
       if (selected) {
         settings.value.dictionary_path = Array.isArray(selected) ? selected[0] : selected;
+        globalDictionaryPath.value = settings.value.dictionary_path;
         await saveSettings();
       }
     } catch (e) {

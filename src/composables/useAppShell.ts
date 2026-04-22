@@ -9,7 +9,8 @@ import {
   projectRootPath, 
   gitTabRepoPath, 
   triggerCloseModals, 
-  activeTab 
+  activeTab,
+  globalDictionaryPath
 } from '../store';
 
 export function useAppShell() {
@@ -82,6 +83,7 @@ export function useAppShell() {
       }
       if (s.last_project_root) projectRootPath.value = s.last_project_root;
       if (s.last_git_repo) gitTabRepoPath.value = s.last_git_repo;
+      if (s.dictionary_path) globalDictionaryPath.value = s.dictionary_path;
     } catch (e) {
       console.error('Failed to load settings:', e);
     }

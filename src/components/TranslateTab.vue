@@ -4,6 +4,7 @@ import { useTranslateManager } from '../composables/useTranslateManager';
 import { useClipboard } from '../composables/useClipboard';
 import { Icons } from '../utils/icons';
 import { listSystemControls } from '../utils/systemControl';
+import { invoke } from '@tauri-apps/api/core';
 
 // Sub-components
 import DictionaryTable from './translate/DictionaryTable.vue';
@@ -15,7 +16,8 @@ import {
   translateOutput, 
   sharedTargetLang, 
   activeTab,
-  systemControlSettings
+  systemControlSettings,
+  globalDictionaryPath
 } from '../store';
 
 const props = defineProps<{ theme?: string }>();
@@ -25,7 +27,6 @@ const {
   subTab,
   dictionaryData,
   isLoading,
-  dictionaryPath,
   localSearchQuery,
   isOnlySelectedSheets,
   isStrict,
@@ -48,7 +49,8 @@ const {
   loadSingleSheet,
   updateCachedWords,
   performQuickTranslate,
-  rebuildBaseDictionaryCache
+  rebuildBaseDictionaryCache,
+  saveDictionaryFile
 } = useTranslateManager();
 
 const { copyToClipboard } = useClipboard();
@@ -130,11 +132,47 @@ const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null
 // --- Dictionary CRUD ---
 const openAddModal = () => { modalMode.value = 'add'; editBuffer.value = { jp: '', en: '', vi: '' }; showDictModal.value = true; };
 const openEditModal = (item: any) => { modalMode.value = 'edit'; editingIdx.value = dictionaryData.value.indexOf(item); editBuffer.value = { ...item }; showDictModal.value = true; };
-const saveModalData = () => {
+const saveModalData = async () => {
   const newArr = [...dictionaryData.value];
   if (modalMode.value === 'add') newArr.unshift({ ...editBuffer.value });
   else if (editingIdx.value !== null) newArr[editingIdx.value] = { ...editBuffer.value };
-  dictionaryData.value = newArr; showDictModal.value = false;
+  
+  dictionaryData.value = newArr; 
+  showDictModal.value = false;
+  
+  // Persist to physical file
+  if (globalDictionaryPath.value) {
+    try {
+      await saveDictionaryFile(globalDictionaryPath.value, newArr);
+      showToast(modalMode.value === 'add' ? 'Entry Added & Saved!' : 'Entry Updated & Saved!');
+      rebuildBaseDictionaryCache();
+      updateCachedWords();
+    } catch (e) {
+      showToast('Data updated locally, but failed to save to file.');
+    }
+  }
+};
+
+const deleteEntry = async (item: any) => {
+  const newArr = dictionaryData.value.filter(i => i !== item);
+  dictionaryData.value = newArr;
+  
+  if (globalDictionaryPath.value) {
+    try {
+      await saveDictionaryFile(globalDictionaryPath.value, newArr);
+      showToast('Entry Deleted & Saved!');
+      rebuildBaseDictionaryCache();
+      updateCachedWords();
+    } catch (e) {
+      showToast('Deleted locally, but failed to sync file.');
+    }
+  }
+};
+
+const toastMessage = ref('');
+const showToast = (message: string) => {
+  toastMessage.value = message;
+  setTimeout(() => { toastMessage.value = ''; }, 3000);
 };
 
 const formatInputText = () => {
@@ -142,6 +180,16 @@ const formatInputText = () => {
   if (!text) return;
   translateInput.value = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(line => line.length > 0).join('\n').trim();
   nextTick(() => performQuickTranslate());
+};
+
+const openExcelFile = async () => {
+  if (!globalDictionaryPath.value) return;
+  try {
+    // Use open_path to open with the actual app (Excel), not just reveal in folder
+    await invoke('open_path', { path: globalDictionaryPath.value });
+  } catch (error) {
+    console.error('[TranslateTab] Failed to open excel file:', error);
+  }
 };
 
 // --- Lifecycle & Watchers ---
@@ -157,9 +205,26 @@ const loadSystemControls = async () => {
 
 onMounted(async () => {
   await loadSystemControls();
-  await loadDictionary();
+  // We rely on the immediate watch of globalDictionaryPath for the initial load
   window.addEventListener('keydown', handleGlobalKeyDown);
 });
+
+const handleRefresh = async () => {
+  const res = await loadDictionary(globalDictionaryPath.value);
+  if (res) {
+    if (res.removed > 0) {
+      // Actively clean the file when the user presses Refresh
+      try {
+        await saveDictionaryFile(globalDictionaryPath.value, dictionaryData.value);
+        showToast(`Refreshed! Cleaned & Saved ${res.removed} duplicate rows.`);
+      } catch (e) {
+        showToast(`Refreshed & Cleaned ${res.removed} rows, but failed to save file.`);
+      }
+    } else {
+      showToast('Refreshed! No duplicates found.');
+    }
+  }
+};
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeyDown);
@@ -211,6 +276,13 @@ watch(hoveredWord, (newWord) => {
   } else { hoverStyleTag.value.innerHTML = ''; }
 });
 
+watch(globalDictionaryPath, (newPath) => {
+  if (newPath) {
+    console.log('[TranslateTab] globalDictionaryPath changed, loading:', newPath);
+    loadDictionary(newPath);
+  }
+}, { immediate: true });
+
 // Sync triggers
 watch(isOnlySelectedSheets, () => updateCachedWords());
 watch(sharedTargetLang, () => { rebuildBaseDictionaryCache(); updateCachedWords(); });
@@ -237,10 +309,23 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
       </div>
 
       <div class="header-actions">
+        <button v-if="subTab === 'dictionary'" class="action-btn-rect" @click="openExcelFile" title="Open Excel">
+          <span v-html="Icons.ExternalLink" class="btn-icon"></span>
+          OPEN EXCEL
+        </button>
         <button v-if="subTab === 'dictionary'" class="action-btn-circle" @click="openAddModal" title="Add Entry" v-html="Icons.Plus"></button>
-        <button v-if="subTab === 'dictionary'" class="action-btn-circle" @click="loadDictionary" title="Refresh" v-html="Icons.RefreshCw"></button>
+        <button v-if="subTab === 'dictionary'" class="action-btn-circle" @click="handleRefresh" title="Refresh" v-html="Icons.RefreshCw"></button>
       </div>
     </header>
+
+    <Teleport to="body">
+      <transition name="toast">
+        <div v-if="toastMessage" class="vinx-toast glass">
+          <span class="toast-icon">✨</span>
+          <span class="toast-text">{{ toastMessage }}</span>
+        </div>
+      </transition>
+    </Teleport>
 
     <div class="tab-body">
       <DictionaryTable 
@@ -249,9 +334,9 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         :isLoading="isLoading"
         :searchQuery="localSearchQuery"
         :isStrict="isStrict"
-        :dictionaryPath="dictionaryPath"
+        :dictionaryPath="globalDictionaryPath"
         @edit="openEditModal"
-        @delete="(item) => dictionaryData = dictionaryData.filter(i => i !== item)"
+        @delete="deleteEntry"
         @copy="handleCopyFeedback"
       />
 
@@ -370,6 +455,29 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 .action-btn-circle { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-color); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
 .action-btn-circle:hover { border-color: var(--accent-color); color: var(--accent-color); transform: translateY(-1px); }
 
+.action-btn-rect { 
+  display: flex; 
+  align-items: center; 
+  gap: 8px; 
+  padding: 0 16px; 
+  height: 32px; 
+  border-radius: 16px; 
+  border: 1px solid var(--accent-color); 
+  background: var(--accent-color); 
+  color: #fff; 
+  font-size: 0.65rem; 
+  font-weight: 900; 
+  cursor: pointer; 
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+.action-btn-rect:hover { 
+  transform: translateY(-1px); 
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+  filter: brightness(1.1);
+}
+.btn-icon { display: flex; align-items: center; }
+
 .tab-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; }
@@ -401,4 +509,37 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 .bubble-enter-active, .bubble-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
 .bubble-enter-from { opacity: 0; transform: translate(-50%, 15px) scale(0.8); }
 .bubble-leave-to { opacity: 0; transform: translate(-50%, -15px) scale(0.8); }
+
+/* Toast Notification */
+.vinx-toast {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 10000;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  border-radius: 50px;
+  white-space: nowrap;
+}
+
+.toast-icon { font-size: 1.2rem; }
+.toast-text { font-size: 0.85rem; font-weight: 700; color: #fff; letter-spacing: 0.05em; }
+
+.toast-enter-active, .toast-leave-active { transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+.toast-enter-from { opacity: 0; transform: translate(-50%, 20px) scale(0.9); }
+.toast-leave-to { opacity: 0; transform: translate(-50%, -20px) scale(0.9); }
+
+.is-win95 .vinx-toast {
+  border-radius: 0;
+  background: #c0c0c0 !important;
+  border: 2px outset #fff !important;
+  transform: translateX(-50%);
+  bottom: 40px;
+}
+.is-win95 .toast-text { color: #000; }
 </style>

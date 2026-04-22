@@ -102,6 +102,11 @@ fn open_file_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_path(path: String) -> Result<(), String> {
+    opener::open(Path::new(&path)).map_err(|e: opener::OpenError| e.to_string())
+}
+
+#[tauri::command]
 fn check_path_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
@@ -265,6 +270,7 @@ pub fn run() {
             read_file_binary,
             write_file_binary,
             open_file_path,
+            open_path,
             read_dir_tree,
             git_execute,
             test_tcp_connection,

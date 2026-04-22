@@ -1,0 +1,155 @@
+import { ref, reactive, watch, nextTick } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import { check } from '@tauri-apps/plugin-updater';
+import { ask } from '@tauri-apps/plugin-dialog';
+import { relaunch } from '@tauri-apps/plugin-process';
+import { 
+  globalShortcuts, 
+  showSettingsTrigger, 
+  projectRootPath, 
+  gitTabRepoPath, 
+  triggerCloseModals, 
+  activeTab 
+} from '../store';
+
+export function useAppShell() {
+  const currentTab = ref('SQL-Helper');
+  const allTabs = ["SQL-Helper", "Translate", "Compare", "ConvertUI", "Editor", "Git", "FlowChart", "Chill"];
+  
+  const currentTheme = ref('dark');
+  const showSettingsModal = ref(false);
+  
+  const initializedTabs = reactive<Record<string, boolean>>({
+    'SQL-Helper': true
+  });
+
+  // Tab History management
+  const tabHistory = ref<string[]>(['SQL-Helper']);
+  const tabHistoryIndex = ref(0);
+  let isNavigatingHistory = false;
+
+  watch(currentTab, (newTab) => {
+    activeTab.value = newTab;
+    if (isNavigatingHistory) return;
+
+    if (tabHistoryIndex.value < tabHistory.value.length - 1) {
+      tabHistory.value = tabHistory.value.slice(0, tabHistoryIndex.value + 1);
+    }
+
+    if (tabHistory.value[tabHistoryIndex.value] === newTab) return;
+
+    tabHistory.value.push(newTab);
+    tabHistoryIndex.value = tabHistory.value.length - 1;
+
+    if (!initializedTabs[newTab]) {
+      initializedTabs[newTab] = true;
+    }
+  }, { immediate: true });
+
+  const navigateBack = () => {
+    if (tabHistoryIndex.value > 0) {
+      tabHistoryIndex.value--;
+      isNavigatingHistory = true;
+      currentTab.value = tabHistory.value[tabHistoryIndex.value];
+      nextTick(() => { isNavigatingHistory = false; });
+    }
+  };
+
+  const navigateForward = () => {
+    if (tabHistoryIndex.value < tabHistory.value.length - 1) {
+      tabHistoryIndex.value++;
+      isNavigatingHistory = true;
+      currentTab.value = tabHistory.value[tabHistoryIndex.value];
+      nextTick(() => { isNavigatingHistory = false; });
+    }
+  };
+
+  const applyTheme = (theme: string) => {
+    currentTheme.value = theme;
+    document.documentElement.classList.remove('theme-95', 'theme-light', 'theme-dark');
+    if (theme === '95') document.documentElement.classList.add('theme-95');
+    else if (theme === 'light') document.documentElement.classList.add('theme-light');
+    else document.documentElement.classList.add('theme-dark');
+  };
+
+  const loadSettings = async () => {
+    try {
+      const raw = await invoke('get_settings') as string;
+      const s = JSON.parse(raw || '{}');
+      if (s.theme) applyTheme(s.theme);
+      if (s.shortcuts) {
+        globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
+      }
+      if (s.last_project_root) projectRootPath.value = s.last_project_root;
+      if (s.last_git_repo) gitTabRepoPath.value = s.last_git_repo;
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+    }
+  };
+
+  const saveSettings = async (updates: any) => {
+    try {
+      const raw = await invoke('get_settings') as string;
+      const current = JSON.parse(raw || '{}');
+      const next = { ...current, ...updates };
+      await invoke('save_settings', { settings: JSON.stringify(next, null, 2) });
+    } catch (e) {
+      console.error('Failed to save settings:', e);
+    }
+  };
+
+  const checkForUpdates = async () => {
+    try {
+      const lastCheck = localStorage.getItem('last_update_check_date');
+      const today = new Date().toDateString();
+      if (lastCheck === today) return;
+
+      const update = await check();
+      if (update) {
+        const yes = await ask(
+          `A new version (${update.version}) is available.\n\nDo you want to update now?`,
+          { title: 'Update Available', kind: 'info' }
+        );
+        if (yes) {
+          await update.downloadAndInstall();
+          await relaunch();
+        } else {
+          localStorage.setItem('last_update_check_date', today);
+        }
+      }
+    } catch (e) {
+      console.error('Update check failed:', e);
+    }
+  };
+
+  const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
+    if (!shortcutStr) return false;
+    const parts = shortcutStr.toLowerCase().split('+');
+    const key = parts.pop();
+    const ctrl = parts.includes('ctrl');
+    const shift = parts.includes('shift');
+    const alt = parts.includes('alt');
+    const meta = parts.includes('meta');
+    
+    return e.key.toLowerCase() === key &&
+           e.ctrlKey === ctrl &&
+           e.shiftKey === shift &&
+           e.altKey === alt &&
+           e.metaKey === meta;
+  };
+
+  return {
+    currentTab,
+    allTabs,
+    currentTheme,
+    showSettingsModal,
+    initializedTabs,
+    navigateBack,
+    navigateForward,
+    applyTheme,
+    loadSettings,
+    saveSettings,
+    checkForUpdates,
+    matchShortcut
+  };
+}

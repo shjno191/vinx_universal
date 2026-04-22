@@ -1,6 +1,5 @@
-﻿<script setup lang="ts">
-import { computed } from 'vue';
-import { activeContextMenu } from '../store';
+<script setup lang="ts">
+import { Icons } from '../utils/icons';
 
 interface FileNode {
   name: string;
@@ -42,14 +41,6 @@ const handleRightClick = (e: MouseEvent) => {
   };
 };
 
-// Icons (Premium SVGs)
-const ChevronRight = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
-const ChevronDown = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
-const FolderIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" opacity="0.9"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path></svg>';
-const FolderOpenIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" opacity="0.9"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"></path></svg>';
-const FileIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>';
-const FileCodeIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14.5 2 14.5 7.5 20 7.5"></polyline><polyline points="8 13 10 15 8 17"></polyline><line x1="13" y1="13" x2="15" y2="17"></line></svg>';
-
 const shouldRender = computed(() => {
   if (!props.searchQuery) return true;
   const query = props.searchQuery.toLowerCase();
@@ -62,11 +53,11 @@ const shouldRender = computed(() => {
 });
 
 const getIcon = () => {
-  if (props.node.is_dir) return isExpanded() ? FolderOpenIcon : FolderIcon;
+  if (props.node.is_dir) return isExpanded() ? Icons.FolderOpen : Icons.Folder;
   const ext = props.node.extension.toLowerCase();
   const codeExts = ['ts', 'tsx', 'js', 'jsx', 'vue', 'rs', 'py', 'java', 'go', 'sql', 'html', 'css', 'scss', 'xml'];
-  if (codeExts.includes(ext)) return FileCodeIcon;
-  return FileIcon;
+  if (codeExts.includes(ext)) return Icons.File; // Could add more specific ones later
+  return Icons.File;
 };
 </script>
 

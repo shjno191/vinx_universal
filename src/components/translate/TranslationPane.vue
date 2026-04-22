@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { sanitize } from '../../utils/security';
+import { Icons } from '../../utils/icons';
 
 const props = defineProps<{
   input: string;
@@ -29,7 +30,7 @@ const emit = defineEmits<{
   (e: 'update:targetLang', val: 'en' | 'jp' | 'vi'): void;
   (e: 'format'): void;
   (e: 'clear'): void;
-  (e: 'copy'): void;
+  (e: 'copy', text: string, event: MouseEvent): void;
   (e: 'scroll', side: 'input' | 'result'): void;
   (e: 'highlighterClick', event: MouseEvent): void;
   (e: 'highlighterMouseOver', event: MouseEvent): void;
@@ -144,7 +145,7 @@ const handleScroll = (side: 'input' | 'result') => {
             <span class="pane-label">FILES LIST</span>
           </div>
           <div class="header-right">
-            <button @click="emit('selectFolder')" class="ghost-btn">Folder</button>
+            <button @click="emit('selectFolder')" class="icon-btn-ghost" title="Select Folder" v-html="Icons.Folder"></button>
           </div>
         </div>
         <div class="pane-editor glass side-body">
@@ -158,10 +159,11 @@ const handleScroll = (side: 'input' | 'result') => {
 
             <div v-if="!folderPath" class="empty-hint">No folder selected</div>
             <div v-for="file in excelFiles" :key="file"
+                 v-memo="[file, selectedFile === file, fileSheetCounts[file]]"
                  class="file-item" :class="{ active: selectedFile === file }"
                  @click="emit('selectFile', file)"
                  :title="file">
-              <span class="file-icon">File</span>
+              <span class="file-icon" v-html="Icons.File"></span>
               <div class="file-info-v">
                 <span class="file-name-label">{{ file.split(/[/\\]/).pop() }}</span>
                 <span class="item-stats" v-if="fileSheetCounts[file]">({{ fileSheetCounts[file] }} sheets)</span>
@@ -186,6 +188,7 @@ const handleScroll = (side: 'input' | 'result') => {
         <div class="pane-editor glass">
           <div class="line-numbers" ref="inputLineNumbers">
             <div v-for="n in maxLines" :key="n" 
+                 v-memo="[n, hoveredLineIndex === n]"
                  class="line-num" 
                  @mouseover="emit('update:hoveredLineIndex', n)" 
                  @mouseout="emit('update:hoveredLineIndex', null)" 
@@ -231,12 +234,13 @@ const handleScroll = (side: 'input' | 'result') => {
             </div>
           </div>
           <div class="header-right">
-            <button @click="emit('copy')" class="ghost-btn">COPY RESULT</button>
+            <button @click="emit('copy', props.output, $event)" class="ghost-btn">COPY RESULT</button>
           </div>
         </div>
         <div class="pane-editor glass">
           <div class="line-numbers" ref="resultLineNumbers">
             <div v-for="n in maxLines" :key="n" 
+                 v-memo="[n, hoveredLineIndex === n]"
                  class="line-num" 
                  @mouseover="emit('update:hoveredLineIndex', n)" 
                  @mouseout="emit('update:hoveredLineIndex', null)" 
@@ -285,7 +289,7 @@ const handleScroll = (side: 'input' | 'result') => {
             </label>
           </div>
           <div class="header-right">
-            <button v-if="sheets.length > 0" @click="emit('toggleAllSheets')" class="ghost-btn check-all-btn">CHECK ALL</button>
+            <button v-if="sheets.length > 0" @click="emit('toggleAllSheets')" class="icon-btn-ghost check-all-btn" title="Toggle All" v-html="Icons.CheckAll"></button>
             <span class="sheet-count" v-if="selectedSheets.size > 0">{{ selectedSheets.size }}</span>
           </div>
         </div>
@@ -299,7 +303,9 @@ const handleScroll = (side: 'input' | 'result') => {
             </div>
 
             <div v-if="!selectedFile" class="empty-hint">Select a file first</div>
-            <label v-for="sheet in sheets" :key="sheet" class="sheet-item" :title="sheetMetadata[sheet]?.physical || sheet">
+            <label v-for="sheet in sheets" :key="sheet" 
+                   v-memo="[sheet, selectedSheets.has(sheet), sheetRowCounts[sheet]]"
+                   class="sheet-item" :title="sheetMetadata[sheet]?.physical || sheet">
               <input type="checkbox" 
                      :checked="selectedSheets.has(sheet)"
                      @change="emit('toggleSheet', sheet)" />
@@ -369,6 +375,9 @@ const handleScroll = (side: 'input' | 'result') => {
 .check-all-btn { font-size: 0.55rem !important; padding: 3px 8px !important; border-color: rgba(99,102,241,0.3) !important; color: var(--accent-color) !important; }
 .empty-hint { font-size: 0.7rem; opacity: 0.3; text-align: center; padding: 40px 10px; font-style: italic; }
 
+.icon-btn-ghost { background: transparent; border: 1px solid rgba(128,128,128,0.15); color: var(--text-color); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; transition: 0.2s; }
+.icon-btn-ghost:hover { background: var(--button-hover); border-color: var(--accent-color); color: var(--accent-color); }
+.file-icon { display: flex; align-items: center; justify-content: center; opacity: 0.5; color: var(--text-color); }
 .lang-segmented { display: flex; background: rgba(128, 128, 128, 0.08); padding: 3px; border-radius: 10px; }
 .lang-segmented button { padding: 4px 12px; font-size: 0.65rem; border: none; background: transparent; font-weight: 950; border-radius: 8px; cursor: pointer; opacity: 0.4; color: var(--text-color); transition: all 0.2s; }
 .lang-segmented button.active { background: var(--accent-color); color: #fff; opacity: 1; box-shadow: 0 4px 12px rgba(99,102,241,0.2); }

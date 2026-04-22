@@ -2,7 +2,8 @@ use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
-
+mod db;
+mod system_control;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileNode {
@@ -247,6 +248,10 @@ fn test_tcp_connection(host: String, port: u16) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            db::init_db(app.handle())?;
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -264,9 +269,10 @@ pub fn run() {
             git_execute,
             test_tcp_connection,
             list_files_in_dir,
-            check_path_exists
-
-
+            check_path_exists,
+            system_control::get_system_control,
+            system_control::list_system_controls,
+            system_control::set_system_control
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

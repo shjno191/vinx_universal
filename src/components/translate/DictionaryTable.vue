@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { sanitize } from '../../utils/security';
+import { Icons } from '../../utils/icons';
 
 interface DictionaryEntry {
   jp: string;
@@ -74,7 +75,10 @@ const highlightMatch = (text: string) => {
               {{ dictionaryPath ? 'No matches found.' : 'Please configure dictionary path in Settings.' }}
             </td>
           </tr>
-          <tr v-for="(item, idx) in filteredData.slice(0, 100)" :key="idx" v-else>
+          <tr v-for="(item, idx) in filteredData.slice(0, 100)" 
+              :key="idx" 
+              v-else
+              v-memo="[item.jp, item.en, item.vi, props.searchQuery, props.isStrict]">
             <td class="col-index">{{ idx + 1 }}</td>
             <td @click="emit('copy', item.jp, $event)" class="clickable-cell">
               <span v-html="highlightMatch(item.jp)"></span>
@@ -88,10 +92,10 @@ const highlightMatch = (text: string) => {
             <td class="col-actions">
               <div class="action-icons">
                 <button @click="emit('edit', item)" class="icon-action-btn edit" title="Edit">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                  <span v-html="Icons.Edit || Icons.Save"></span>
                 </button>
                 <button @click="emit('delete', item)" class="icon-action-btn delete" title="Delete">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                  <span v-html="Icons.Trash"></span>
                 </button>
               </div>
             </td>

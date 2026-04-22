@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { ref, shallowRef } from 'vue';
 
 export const theme = ref<'light' | 'dark' | '95'>('dark');
 
@@ -31,7 +31,7 @@ export interface CursorPosition {
     column: number;
 }
 
-export const cursorHistory = ref<CursorPosition[]>([]);
+export const cursorHistory = shallowRef<CursorPosition[]>([]);
 export const cursorHistoryIndex = ref(-1);
 export const globalShortcuts = ref({
 
@@ -97,11 +97,11 @@ export interface GitBranch {
     behind?: number;
 }
 
-export const gitStatus = ref<GitFile[]>([]);
+export const gitStatus = shallowRef<GitFile[]>([]);
 export const triggerOpenDiff = ref<{ path: string; name: string; original: string; modified: string; label: string } | null>(null);
 
 // Standalone GIT Tab state
-export const gitBranches = ref<GitBranch[]>([]);
+export const gitBranches = shallowRef<GitBranch[]>([]);
 export const gitTabRepoPath = ref<string>('');
 export const triggerGitRefresh = ref(0);
 export const triggerEditorReload = ref(0);
@@ -150,4 +150,14 @@ export const triggerFlick = ref(0);
 export const smokedCount = ref(0);
 export const triggerSettingsRefresh = ref(0);
 export const activeTab = ref('SQL-Helper');
+
+// System Control State
+export interface SystemControl {
+    controlKey: string;
+    section: string;
+    controlValue: string | null;
+    description: string | null;
+}
+
+export const systemControlSettings = ref<SystemControl[]>([]);
 

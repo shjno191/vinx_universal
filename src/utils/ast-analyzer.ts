@@ -1,5 +1,5 @@
 /**
- * AstAnalyzer.ts
+ * ast-analyzer.ts
  * 
  * AST-based Flow Chart generator for JavaScript/TypeScript.
  * Uses @babel/parser to parse source -> AST, then walks the tree
@@ -13,7 +13,7 @@
  */
 
 import * as babelParser from '@babel/parser';
-import { analyzeJava, looksLikeJava } from './JavaAnalyzer';
+import { analyzeJava, looksLikeJava } from './java-analyzer';
 
 // == Data Structures ============================================================
 

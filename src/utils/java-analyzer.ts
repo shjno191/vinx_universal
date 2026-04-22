@@ -1,5 +1,5 @@
 /**
- * JavaAnalyzer.ts
+ * java-analyzer.ts
  * 
  * A targeted recursive-descent parser for Java source code.
  * Generates Mermaid.js flowchart syntax from the logical control flow of Java methods.
@@ -642,7 +642,7 @@ function extractMethods(tokens: Token[], depth = 0): JavaMethod[] {
             cur.skipUntil('SEMI'); cur.next(); continue;
         }
 
-        // ── Method declaration pattern: ReturnType methodName ( params ) [throws ...] { body }
+        // Method declaration pattern: ReturnType methodName ( params ) [throws ...] { body }
         // ReturnType can be: IDENT | void | int | long | double | float | boolean | byte | short | char
         const isReturnType = (tk: Token) =>
             (tk.kind === 'IDENT' && !JAVA_KEYWORDS.has(tk.value)) ||

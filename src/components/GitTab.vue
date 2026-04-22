@@ -1,222 +1,78 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
-import { gitStatus, gitTabRepoPath, activeTab } from '../store';
+import { ref, computed, onMounted, watch, shallowRef } from 'vue';
+import { activeTab } from '../store';
+import { Icons } from '../utils/icons';
+import { useGit, type GitFile } from '../composables/useGit';
 
-interface GitFile {
-  name: string;
-  status: string;
-  staged: boolean;
-}
+// == Logic ===================================================
+const {
+  repoPath,
+  branches,
+  currentBranch,
+  changedFiles,
+  stagedFiles,
+  commitMsg,
+  history,
+  isSyncing,
+  isLoading,
+  init,
+  refresh,
+  checkout,
+  stage,
+  unstage,
+  commit,
+  gitOp,
+  getDiff,
+  getCommitDiff,
+  createBranch,
+  mergeBranch
+} = useGit();
 
-interface GitBranch {
-  name: string;
-  isCurrent: boolean;
-  isRemote: boolean;
-}
-
-interface GitCommit {
-  hash: string;
-  short: string;
-  message: string;
-  author: string;
-  date: string;
-}
-
-// == State ===================================================
-const repoPath = ref('');
-const branches = ref<GitBranch[]>([]);
-const currentBranch = ref('');
 const showBranchDropdown = ref(false);
-
-const changedFiles = ref<GitFile[]>([]); // unstaged
-const stagedFiles = ref<GitFile[]>([]);  // staged
-const commitMsg = ref('');
-
 const rightPanel = ref<'history' | 'diff'>('history');
-const history = ref<GitCommit[]>([]);
 const selectedCommit = ref<string | null>(null);
 
 const diffContent = ref('');
 const diffSource = ref('');
+const diffLines = shallowRef<string[]>([]);
 
-const isSyncing = ref(false);
-const isLoading = ref(false);
+watch(diffContent, (val) => {
+  diffLines.value = val ? val.split('\n') : [];
+});
 
-const diffLines = computed(() => diffContent.value.split('\n'));
-
-// == Logic ===================================================
-
-const refresh = async () => {
-  if (isSyncing.value) return;
-  isSyncing.value = true;
-  try {
-    // Sync repo path from settings if needed
-    if (!repoPath.value) {
-      const raw = await invoke('get_settings') as string;
-      const s = JSON.parse(raw || "{}");
-      if (s.project_root) repoPath.value = s.project_root.replace(/\\/g, '/');
-    }
-
-    if (repoPath.value) {
-      await Promise.all([loadStatus(), loadBranches(), loadHistory()]);
-    }
-  } catch (e) {
-    console.error('Git refresh failed:', e);
-  } finally {
-    isSyncing.value = false;
-  }
+const handleRefresh = async () => {
+  await refresh();
 };
 
-const loadStatus = async () => {
+const handleCheckout = async (branch: string) => {
   try {
-    const raw = await invoke('git_execute', { 
-      args: ['status', '--porcelain'], 
-      cwd: repoPath.value 
-    }) as string;
-    
-    const lines = raw.split('\n').filter(l => l.trim());
-    const unstaged: GitFile[] = [];
-    const staged: GitFile[] = [];
-
-    lines.forEach(line => {
-      const s1 = line[0];
-      const s2 = line[1];
-      const name = line.substring(3).trim().replace(/^"(.*)"$/, '$1');
-      
-      // X is staged status, Y is unstaged status
-      // If X is not space and not ?, it's staged
-      if (s1 !== ' ' && s1 !== '?') {
-        staged.push({ name, status: s1, staged: true });
-      }
-      // If Y is not space, it's unstaged
-      if (s2 !== ' ' || s1 === '?') {
-        unstaged.push({ name, status: s1 === '?' ? '??' : s2, staged: false });
-      }
-    });
-
-    changedFiles.value = unstaged;
-    stagedFiles.value = staged;
-    // Sync to store for other components if needed
-    gitStatus.value = [...staged, ...unstaged].map(f => ({ ...f, path: `${repoPath.value}/${f.name}` }));
-  } catch (e) {
-    console.error('Failed to load status:', e);
-  }
-};
-
-const loadBranches = async () => {
-  try {
-    const raw = await invoke('git_execute', { 
-      args: ['branch', '-a'], 
-      cwd: repoPath.value 
-    }) as string;
-    
-    const lines = raw.split('\n').filter(l => l.trim());
-    branches.value = lines.map(line => {
-      const isCurrent = line.startsWith('*');
-      const name = line.substring(2).trim();
-      if (isCurrent) currentBranch.value = name;
-      return { name, isCurrent, isRemote: name.includes('remotes/') };
-    });
-  } catch (e) {
-    console.error('Failed to load branches:', e);
-  }
-};
-
-const loadHistory = async () => {
-  isLoading.value = true;
-  try {
-    const raw = await invoke('git_execute', { 
-      args: ['log', '--pretty=format:%H|%h|%s|%an|%ar', '-n', '100'], 
-      cwd: repoPath.value 
-    }) as string;
-    
-    const lines = raw.split('\n').filter(l => l.trim());
-    history.value = lines.map(line => {
-      const [hash, short, message, author, date] = line.split('|');
-      return { hash, short, message, author, date };
-    });
-  } catch (e) {
-    console.error('Failed to load history:', e);
-    history.value = [];
-  } finally {
-    isLoading.value = false;
-  }
-};
-
-const checkout = async (branch: string) => {
-  try {
-    isSyncing.value = true;
-    await invoke('git_execute', { 
-      args: ['checkout', branch.replace('remotes/origin/', '')], 
-      cwd: repoPath.value 
-    });
+    await checkout(branch);
     showBranchDropdown.value = false;
-    await refresh();
   } catch (e) {
-    alert('Checkout failed: ' + e);
-  } finally {
-    isSyncing.value = false;
+    alert(e);
   }
 };
 
-const stage = async (file?: GitFile) => {
+const handleGitOp = async (op: 'pull' | 'push' | 'fetch' | 'stash' | 'pop') => {
   try {
-    const args = file ? ['add', file.name] : ['add', '-A'];
-    await invoke('git_execute', { args, cwd: repoPath.value });
-    await loadStatus();
+    await gitOp(op);
   } catch (e) {
-    alert('Stage failed: ' + e);
+    alert(e);
   }
 };
 
-const unstage = async (file?: GitFile) => {
+const handleCommit = async () => {
   try {
-    const args = file ? ['reset', 'HEAD', '--', file.name] : ['reset', 'HEAD'];
-    await invoke('git_execute', { args, cwd: repoPath.value });
-    await loadStatus();
+    await commit();
   } catch (e) {
-    alert('Unstage failed: ' + e);
-  }
-};
-
-const commit = async () => {
-  if (!commitMsg.value.trim() || !stagedFiles.value.length) return;
-  try {
-    isLoading.value = true;
-    await invoke('git_execute', { 
-      args: ['commit', '-m', commitMsg.value.trim()], 
-      cwd: repoPath.value 
-    });
-    commitMsg.value = '';
-    await refresh();
-  } catch (e) {
-    alert('Commit failed: ' + e);
-  } finally {
-    isLoading.value = false;
-  }
-};
-
-const gitOp = async (op: 'pull' | 'push' | 'fetch' | 'stash' | 'pop') => {
-  isSyncing.value = true;
-  try {
-    const args = op === 'pop' ? ['stash', 'pop'] : [op];
-    await invoke('git_execute', { args, cwd: repoPath.value });
-    await refresh();
-  } catch (e) {
-    alert(`Git ${op} failed: ` + e);
-  } finally {
-    isSyncing.value = false;
+    alert(e);
   }
 };
 
 const showFileDiff = async (file: GitFile) => {
   rightPanel.value = 'diff';
   try {
-    const args = file.staged 
-      ? ['diff', '--cached', '--', file.name]
-      : ['diff', 'HEAD', '--', file.name];
-    diffContent.value = await invoke('git_execute', { args, cwd: repoPath.value }) as string;
+    diffContent.value = await getDiff(file);
     diffSource.value = `${file.name} (${file.staged ? 'staged' : 'local'})`;
     selectedCommit.value = null;
   } catch (e) {
@@ -228,10 +84,7 @@ const showCommitDiff = async (hash: string) => {
   selectedCommit.value = hash;
   rightPanel.value = 'diff';
   try {
-    diffContent.value = await invoke('git_execute', { 
-      args: ['show', hash, '--stat', '-p'], 
-      cwd: repoPath.value 
-    }) as string;
+    diffContent.value = await getCommitDiff(hash);
     diffSource.value = hash.substring(0, 7);
   } catch (e) {
     console.error('Show commit failed:', e);
@@ -239,32 +92,27 @@ const showCommitDiff = async (hash: string) => {
 };
 
 const newBranchName = ref('');
-const createBranch = async () => {
+const handleCreateBranch = async () => {
   if (!newBranchName.value.trim()) return;
   try {
-    await invoke('git_execute', { 
-      args: ['checkout', '-b', newBranchName.value.trim()], 
-      cwd: repoPath.value 
-    });
+    await createBranch(newBranchName.value);
     newBranchName.value = '';
     showBranchDropdown.value = false;
-    await refresh();
   } catch (e) {
-    alert('Failed to create branch: ' + e);
+    alert(e);
   }
 };
 
-const mergeBranch = async (branch: string) => {
+const handleMergeBranch = async (branch: string) => {
   try {
-    await invoke('git_execute', { args: ['merge', branch], cwd: repoPath.value });
-    await refresh();
+    await mergeBranch(branch);
   } catch (e) {
-    alert('Merge failed: ' + e);
+    alert(e);
   }
 };
 
 onMounted(() => {
-  refresh();
+  init();
 });
 
 watch(activeTab, (tab) => {
@@ -280,24 +128,24 @@ watch(activeTab, (tab) => {
         <div class="branch-selector" @click="showBranchDropdown = !showBranchDropdown">
           <span class="repo-name">{{ repoPath.split('/').pop() || 'No Repo' }}</span>
           <span class="separator">/</span>
-          <span class="branch-icon">branch</span>
+          <span class="branch-icon" v-html="Icons.Branch"></span>
           <span class="branch-name">{{ currentBranch || 'master' }}</span>
-          <span class="caret">v</span>
+          <span class="caret" v-html="Icons.ChevronDown"></span>
         </div>
         
         <div v-if="showBranchDropdown" class="branch-dropdown glass-effect">
           <div class="dropdown-header">SWITCH BRANCH</div>
           <div class="branch-list">
             <div v-for="b in branches" :key="b.name" 
-                 @click.stop="checkout(b.name)"
+                 @click.stop="handleCheckout(b.name)"
                  class="branch-item" :class="{ active: b.isCurrent }">
               <span class="b-name">{{ b.name }}</span>
-              <button v-if="!b.isCurrent" class="merge-btn" @click.stop="mergeBranch(b.name)">MERGE</button>
+              <button v-if="!b.isCurrent" class="merge-btn" @click.stop="handleMergeBranch(b.name)">MERGE</button>
             </div>
           </div>
           <div class="new-branch-box">
             <input v-model="newBranchName" placeholder="New branch name..." 
-                   @keyup.enter="createBranch" />
+                   @keyup.enter="handleCreateBranch" />
           </div>
         </div>
       </div>
@@ -305,21 +153,24 @@ watch(activeTab, (tab) => {
       <div class="toolbar-divider"></div>
       
       <div class="git-ops">
-        <button @click="gitOp('pull')" :disabled="isSyncing" class="op-btn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+        <button @click="handleGitOp('pull')" :disabled="isSyncing" class="op-btn">
+          <span v-html="Icons.Pull"></span>
           PULL
         </button>
-        <button @click="gitOp('push')" :disabled="isSyncing" class="op-btn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        <button @click="handleGitOp('push')" :disabled="isSyncing" class="op-btn">
+          <span v-html="Icons.Push"></span>
           PUSH
         </button>
-        <button @click="gitOp('fetch')" :disabled="isSyncing" class="op-btn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        <button @click="handleGitOp('fetch')" :disabled="isSyncing" class="op-btn">
+          <span v-html="Icons.Refresh"></span>
           FETCH
         </button>
         <div class="toolbar-divider mini"></div>
-        <button @click="gitOp('stash')" :disabled="isSyncing" class="op-btn">STASH</button>
-        <button @click="gitOp('pop')" :disabled="isSyncing" class="op-btn">POP</button>
+        <button @click="handleGitOp('stash')" :disabled="isSyncing" class="op-btn">
+          <span v-html="Icons.Stash"></span>
+          STASH
+        </button>
+        <button @click="handleGitOp('pop')" :disabled="isSyncing" class="op-btn">POP</button>
       </div>
 
       <div v-if="isSyncing || isLoading" class="sync-status">

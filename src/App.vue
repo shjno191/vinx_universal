@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, nextTick } from "vue";
+import { onMounted, watch, ref as vueRef } from "vue";
+import { useAppShell } from "./composables/useAppShell";
+import { Icons } from "./utils/icons";
+import { 
+  projectRootPath, 
+  gitTabRepoPath, 
+  triggerCloseModals, 
+  triggerFlowChart, 
+  showSettingsTrigger,
+  isGlobalSmoking,
+  chillSettings
+} from "./store";
 
-import { globalShortcuts, showSettingsTrigger, triggerFlowChart, projectRootPath, gitTabRepoPath, triggerCloseModals, chillSettings, triggerFlick, activeTab } from "./store";
-
-import { invoke } from "@tauri-apps/api/core";
-import { check } from "@tauri-apps/plugin-updater";
-import { ask } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/plugin-process";
+// Components
 import SQLHelper from "./components/SQLHelper.vue";
 import TranslateTab from "./components/TranslateTab.vue";
 import CompareTab from "./components/CompareTab.vue";
@@ -17,675 +23,248 @@ import GitTab from "./components/GitTab.vue";
 import ConvertTab from "./components/ConvertTab.vue";
 import SmokeTab from "./components/SmokeTab.vue";
 import Cigarette from "./components/Cigarette.vue";
-import { isGlobalSmoking } from "./store";
 
-const currentTab = ref("SQL-Helper");
-const allTabs = ["SQL-Helper", "Translate", "Compare", "ConvertUI", "Editor", "Git", "FlowChart", "Chill"];
+const {
+  currentTab,
+  allTabs,
+  currentTheme,
+  showSettingsModal,
+  initializedTabs,
+  navigateBack,
+  navigateForward,
+  applyTheme,
+  loadSettings,
+  saveSettings,
+  checkForUpdates,
+  matchShortcut
+} = useAppShell();
 
-const showSettingsModal = ref(false);
-const settingsRef = ref<any>(null);
+const settingsRef = vueRef<any>(null);
 
-
-
-const currentTheme = ref("dark");
-
-
-// Lazy loading tabs: using reactive object for better stability than Set patching
-const initializedTabs = reactive<Record<string, boolean>>({
-  "SQL-Helper": true
-});
-
-const chillWidgetRef = ref<any>(null);
-
-// Tab History for Mouse 4/5
-const tabHistory = ref<string[]>(["SQL-Helper"]);
-const tabHistoryIndex = ref(0);
-let isNavigatingHistory = false;
-
-watch(currentTab, (newTab) => {
-  activeTab.value = newTab; // Sync with global store for visibility-based optimizations
-  if (isNavigatingHistory) return;
-  
-  // If we were in the middle of history and clicked a new tab, truncate forward history
-  if (tabHistoryIndex.value < tabHistory.value.length - 1) {
-    tabHistory.value = tabHistory.value.slice(0, tabHistoryIndex.value + 1);
-  }
-  
-  // Don't add if it's the same as current (redundant)
-  if (tabHistory.value[tabHistoryIndex.value] === newTab) return;
-  
-  tabHistory.value.push(newTab);
-  tabHistoryIndex.value = tabHistory.value.length - 1;
-
-  if (!initializedTabs[newTab]) {
-    initializedTabs[newTab] = true;
-  }
-}, { immediate: true });
-
-const handleChillShortcuts = (e: KeyboardEvent, isDown: boolean) => {
-  const activeEl = document.activeElement;
-  const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
-  if (isInput) return;
-
-  // Flick Ash: Ctrl + Space
-  if (e.ctrlKey && e.code === 'Space') {
-    e.preventDefault();
-    if (isDown) {
-      triggerFlick.value++;
-    }
-    return;
-  }
-
-  // Smoke: Space (Hold)
-  if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-    e.preventDefault();
-    if (isDown) {
-      isGlobalSmoking.value = true;
-    } else {
-      isGlobalSmoking.value = false;
-    }
-  }
-};
-
-const handleMouseUp = (e: MouseEvent) => {
-  // Mouse buttons: 3 = Back, 4 = Forward
-  if (e.button === 3) {
-    // Back
-    if (tabHistoryIndex.value > 0) {
-      tabHistoryIndex.value--;
-      isNavigatingHistory = true;
-      currentTab.value = tabHistory.value[tabHistoryIndex.value];
-      nextTick(() => { isNavigatingHistory = false; });
-    }
-  } else if (e.button === 4) {
-    // Forward
-    if (tabHistoryIndex.value < tabHistory.value.length - 1) {
-      tabHistoryIndex.value++;
-      isNavigatingHistory = true;
-      currentTab.value = tabHistory.value[tabHistoryIndex.value];
-      nextTick(() => { isNavigatingHistory = false; });
-    }
-  }
-};
-
-const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
-  if (!shortcutStr) return false;
-  const parts = shortcutStr.toLowerCase().split('+');
-  const key = parts.pop();
-  const ctrl = parts.includes('ctrl');
-  const shift = parts.includes('shift');
-  const alt = parts.includes('alt');
-  const meta = parts.includes('meta');
-  
-  return e.key.toLowerCase() === key &&
-         e.ctrlKey === ctrl &&
-         e.shiftKey === shift &&
-         e.altKey === alt &&
-         e.metaKey === meta;
-};
-
+// Global Key Listeners
 const handleGlobalKeyDown = (e: KeyboardEvent) => {
   if (e.key === "Escape") {
     showSettingsModal.value = false;
     triggerCloseModals.value++;
-  }
-  
-  // Removed global focus_search interception to allow internal tab search (Monaco Find)
-
-
-  if (matchShortcut(e, globalShortcuts.value.open_settings)) {
-    e.preventDefault();
-    // Context aware category
-    let cat = 'general';
-    if (currentTab.value === 'Translate') cat = 'translate';
-    
-    showSettingsModal.value = true;
-    showSettingsTrigger.value = { category: cat };
-  }
-
-  // Tab switching (only if not in input)
-  const activeEl = document.activeElement;
-  const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
-  if (!isInput) {
-    if (matchShortcut(e, globalShortcuts.value.prev_tab)) {
-      e.preventDefault();
-      const idx = allTabs.indexOf(currentTab.value);
-      const nextIdx = (idx - 1 + allTabs.length) % allTabs.length;
-      currentTab.value = allTabs[nextIdx];
-    }
-    if (matchShortcut(e, globalShortcuts.value.next_tab)) {
-      e.preventDefault();
-      const idx = allTabs.indexOf(currentTab.value);
-      const nextIdx = (idx + 1) % allTabs.length;
-      currentTab.value = allTabs[nextIdx];
-    }
-  }
-
-  handleChillShortcuts(e, true);
-
-  if (e.key === 'Escape') {
+    // Blur inputs
     const activeEl = document.activeElement;
-    const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
-    
-    if (isInput) {
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
       (activeEl as HTMLElement).blur();
     }
   }
 
-};
-
-const handleKeyUpGlobal = (e: KeyboardEvent) => {
-  handleChillShortcuts(e, false);
-};
-
-watch(showSettingsTrigger, (val) => {
-  if (val && val.category) {
+  // Keyboard Shortcuts Check
+  const shortcuts = JSON.parse(localStorage.getItem('vinx_shortcuts') || '{}'); 
+  // Note: normally we'd get this from store, but for simplicity in global listener:
+  
+  // Settings shortcut
+  if (matchShortcut(e, shortcuts.open_settings || 'ctrl+,')) {
+    e.preventDefault();
     showSettingsModal.value = true;
+    showSettingsTrigger.value = { category: currentTab.value === 'Translate' ? 'translate' : 'general' };
   }
+
+  // Tab switching shortcuts
+  const activeEl = document.activeElement;
+  const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+  if (!isInput) {
+    if (matchShortcut(e, shortcuts.prev_tab || 'ctrl+shift+[')) {
+      e.preventDefault();
+      const idx = allTabs.indexOf(currentTab.value);
+      currentTab.value = allTabs[(idx - 1 + allTabs.length) % allTabs.length];
+    }
+    if (matchShortcut(e, shortcuts.next_tab || 'ctrl+shift+]')) {
+      e.preventDefault();
+      const idx = allTabs.indexOf(currentTab.value);
+      currentTab.value = allTabs[(idx + 1) % allTabs.length];
+    }
+    
+    // Chill smoke logic
+    if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      isGlobalSmoking.value = true;
+    }
+  }
+};
+
+const handleGlobalKeyUp = (e: KeyboardEvent) => {
+  if (e.code === 'Space') isGlobalSmoking.value = false;
+};
+
+const handleMouseUp = (e: MouseEvent) => {
+  if (e.button === 3) navigateBack();
+  else if (e.button === 4) navigateForward();
+};
+
+// Persistence Watchers
+watch([projectRootPath, gitTabRepoPath], async ([root, git]) => {
+  await saveSettings({ last_project_root: root, last_git_repo: git });
 });
 
-// Watch for Flow Chart trigger from EditorTab
+watch(showSettingsTrigger, (val) => {
+  if (val?.category) showSettingsModal.value = true;
+});
+
 watch(triggerFlowChart, (val) => {
   if (val) {
     currentTab.value = 'FlowChart';
-    triggerFlowChart.value = false; // reset
+    triggerFlowChart.value = false;
   }
 });
 
-const loadInitialSettings = async () => {
-  try {
-    const raw = await invoke("get_settings") as string;
-    const s = JSON.parse(raw || "{}");
-    currentTheme.value = s.theme || 'dark';
-    if (s.shortcuts) {
-      globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
-    }
-    if (s.last_project_root) projectRootPath.value = s.last_project_root;
-    if (s.last_git_repo) gitTabRepoPath.value = s.last_git_repo;
-    applyTheme(s.theme || 'dark');
-  } catch (e) {
-    console.error("Failed to load initial settings", e);
-  }
-};
-
-const applyTheme = (theme: string) => {
-  currentTheme.value = theme;
-  // Remove existing theme classes
-  document.documentElement.classList.remove("theme-95", "theme-light", "theme-dark");
-  // Add the new one
-  if (theme === "95") document.documentElement.classList.add("theme-95");
-  else if (theme === "light") document.documentElement.classList.add("theme-light");
-  else document.documentElement.classList.add("theme-dark"); // Default/Dark
-};
-
-const handleThemeChanged = (newTheme: string) => {
-  applyTheme(newTheme);
-};
-
-const checkForUpdates = async () => {
-  try {
-    // 1. Check daily cooldown
-    const lastCheck = localStorage.getItem("last_update_check_date");
-    const today = new Date().toDateString();
-    
-    if (lastCheck === today) {
-      console.log("Update check skipped: already checked today.");
-      return;
-    }
-
-    // 2. Check for update
-    const update = await check();
-    if (update) {
-      const yes = await ask(
-        `A new version (${update.version}) is available. Release notes: ${update.body}\n\nDo you want to update now?`,
-        { title: "Update Available", kind: "info" }
-      );
-
-      if (yes) {
-        await update.downloadAndInstall();
-        await relaunch();
-      } else {
-        // User declined, save the date to avoid prompting again today
-        localStorage.setItem("last_update_check_date", today);
-      }
-    }
-  } catch (e) {
-    console.error("Failed to check for updates:", e);
-  }
-};
-
-// Global persistence for paths
-watch([projectRootPath, gitTabRepoPath], async ([newRoot, newGit]) => {
-  try {
-    const raw = await invoke("get_settings") as string;
-    const s = JSON.parse(raw || "{}");
-    
-    // Only save if something actually changed to avoid redundant writes
-    if (s.last_project_root === newRoot && s.last_git_repo === newGit) return;
-    
-    const newSettings = { 
-      ...s, 
-      last_project_root: newRoot,
-      last_git_repo: newGit 
-    };
-    await invoke("save_settings", { settings: JSON.stringify(newSettings, null, 2) });
-  } catch (e) {
-    console.error("Failed to auto-save paths:", e);
-  }
-}, { flush: 'post' });
-
 onMounted(() => {
-  loadInitialSettings();
+  loadSettings();
   checkForUpdates();
   window.addEventListener("keydown", handleGlobalKeyDown);
-  window.addEventListener("keyup", handleKeyUpGlobal);
+  window.addEventListener("keyup", handleGlobalKeyUp);
   window.addEventListener("mouseup", handleMouseUp);
 });
 </script>
 
 <template>
-  <div class="app-container" :class="{ 'win95-bg': currentTheme === '95' }">
-    <nav class="tabs-nav" :class="{ 'win95-tabs': currentTheme === '95' }">
-      <div class="tabs-list">
-        <button 
-          @click="currentTab = 'SQL-Helper'" 
-          :class="{ 'active': currentTab === 'SQL-Helper', 'win95-button': currentTheme === '95' }"
+  <div class="app-shell" :class="[`theme-${currentTheme}`, { 'is-win95': currentTheme === '95' }]">
+    <nav class="nav-bar glass">
+      <div class="tabs-container">
+        <button v-for="tab in allTabs" :key="tab" 
+          @click="currentTab = tab" 
+          :class="['tab-btn', { 'active': currentTab === tab }, tab.toLowerCase() + '-tab']"
         >
-          SQL-Helper
-        </button>
-        <button 
-          @click="currentTab = 'Translate'" 
-          :class="{ 'active': currentTab === 'Translate', 'win95-button': currentTheme === '95' }"
-        >
-          Translate
-        </button>
-        <button 
-          @click="currentTab = 'Compare'" 
-          :class="{ 'active': currentTab === 'Compare', 'win95-button': currentTheme === '95' }"
-        >
-          Compare
-        </button>
-        <button 
-          @click="currentTab = 'ConvertUI'" 
-          :class="{ 'active': currentTab === 'ConvertUI', 'win95-button': currentTheme === '95' }"
-        >
-          CONVERT UI
-        </button>
-
-        <button 
-          @click="currentTab = 'Editor'" 
-          :class="{ 'active': currentTab === 'Editor', 'win95-button': currentTheme === '95' }"
-        >
-          Editor
-        </button>
-        <button 
-          @click="currentTab = 'Git'" 
-          :class="{ 'active': currentTab === 'Git', 'win95-button': currentTheme === '95', 'git-tab-btn': true }"
-        >
-          GIT
-        </button>
-        <button 
-          @click="currentTab = 'FlowChart'" 
-          :class="{ 'active': currentTab === 'FlowChart', 'win95-button': currentTheme === '95', 'flow-tab': true }"
-        >
-          Flow Chart
-        </button>
-        <button 
-          @click="currentTab = 'Chill'" 
-          :class="{ 'active': currentTab === 'Chill', 'win95-button': currentTheme === '95', 'chill-tab': true }"
-        >
-          Chill
+          {{ tab === 'ConvertUI' ? 'CONVERT' : tab }}
         </button>
       </div>
+      
       <div class="nav-actions">
-
-        <button @click="showSettingsModal = true" class="icon-btn settings-btn" title="Settings">&#9881;&#65039;</button>
+        <button @click="showSettingsModal = true" class="action-btn" title="Settings">
+          <span v-html="Icons.Settings"></span>
+        </button>
       </div>
     </nav>
 
-    <main class="content-wrapper full-bleed">
-      <div class="content-scroll-area full-bleed" :class="{ 'win95-border': currentTheme === '95' }">
-        <div v-if="initializedTabs['SQL-Helper']" v-show="currentTab === 'SQL-Helper'" key="tab-sql" class="full-height-vif">
-          <SQLHelper :theme="currentTheme" />
-        </div>
-        <div v-if="initializedTabs['Translate']" v-show="currentTab === 'Translate'" key="tab-translate" class="full-height-vif">
-          <TranslateTab :theme="currentTheme" />
-        </div>
-
-        <div v-if="initializedTabs['Compare']" v-show="currentTab === 'Compare'" key="tab-compare" class="full-height-vif">
-          <CompareTab />
-        </div>
-        <div v-if="initializedTabs['ConvertUI']" v-show="currentTab === 'ConvertUI'" key="tab-convert" class="full-height-vif">
-          <ConvertTab />
-        </div>
-
-        <div v-if="initializedTabs['Editor']" v-show="currentTab === 'Editor'" key="tab-editor" class="full-height-vif">
-          <EditorTab />
-        </div>
-        <div v-if="initializedTabs['Git']" v-show="currentTab === 'Git'" key="tab-git" class="full-height-vif">
-          <GitTab />
-        </div>
-        <div v-if="initializedTabs['FlowChart']" v-show="currentTab === 'FlowChart'" key="tab-flow" class="full-height-vif">
-          <FlowChartTab />
-        </div>
-        <div v-if="initializedTabs['Chill']" v-show="currentTab === 'Chill'" key="tab-chill" class="full-height-vif">
-          <SmokeTab />
-        </div>
+    <main class="main-viewport">
+      <div class="tab-content-area" :class="{ 'has-border': currentTheme === '95' }">
+        <component :is="SQLHelper" v-if="initializedTabs['SQL-Helper']" v-show="currentTab === 'SQL-Helper'" :theme="currentTheme" />
+        <component :is="TranslateTab" v-if="initializedTabs['Translate']" v-show="currentTab === 'Translate'" :theme="currentTheme" />
+        <component :is="CompareTab" v-if="initializedTabs['Compare']" v-show="currentTab === 'Compare'" />
+        <component :is="ConvertTab" v-if="initializedTabs['ConvertUI']" v-show="currentTab === 'ConvertUI'" />
+        <component :is="EditorTab" v-if="initializedTabs['Editor']" v-show="currentTab === 'Editor'" />
+        <component :is="GitTab" v-if="initializedTabs['Git']" v-show="currentTab === 'Git'" />
+        <component :is="FlowChartTab" v-if="initializedTabs['FlowChart']" v-show="currentTab === 'FlowChart'" />
+        <component :is="SmokeTab" v-if="initializedTabs['Chill']" v-show="currentTab === 'Chill'" />
       </div>
     </main>
 
     <Teleport to="body">
-      <div v-if="showSettingsModal" class="modal-overlay" @mousedown.self="showSettingsModal = false">
-        <div class="modal-content settings-modal-content" :class="{ 'win95-border': currentTheme === '95' }">
-          <div class="modal-header">
-            <span>Settings</span>
-            <div class="header-tools">
-              <button @click="settingsRef?.refreshSettings()" class="tool-btn" title="Refresh Settings">&#128260;</button>
-              <button @click="settingsRef?.openSettingsFile()" class="tool-btn" title="Open Config File">&#128194;</button>
-              <button @click="showSettingsModal = false" class="close-btn">&times;</button>
+      <transition name="fade">
+        <div v-if="showSettingsModal" class="modal-backdrop" @mousedown.self="showSettingsModal = false">
+          <div class="settings-modal glass" :class="{ 'win95-modal': currentTheme === '95' }">
+            <header class="modal-header">
+              <span class="modal-title">Settings</span>
+              <div class="header-tools">
+                <button @click="settingsRef?.refreshSettings()" class="tool-btn" title="Refresh"><span v-html="Icons.RefreshCw"></span></button>
+                <button @click="settingsRef?.openSettingsFile()" class="tool-btn" title="Open File"><span v-html="Icons.Folder"></span></button>
+                <button @click="showSettingsModal = false" class="close-btn"><span v-html="Icons.X"></span></button>
+              </div>
+            </header>
+            <div class="modal-body">
+              <SettingsTab ref="settingsRef" @theme-changed="applyTheme" />
             </div>
           </div>
-          <div class="modal-body settings-modal-body">
-            <SettingsTab ref="settingsRef" @theme-changed="handleThemeChanged" />
-          </div>
         </div>
-      </div>
+      </transition>
     </Teleport>
 
-        <Teleport to="body">
-      <div v-if="chillSettings && chillSettings.enableWidget" class="chill-widget-container">
-        <Cigarette ref="chillWidgetRef" :is-widget="true" :force-smoking="isGlobalSmoking" />
+    <Teleport to="body">
+      <div v-if="chillSettings?.enableWidget" class="chill-widget">
+        <Cigarette :is-widget="true" :force-smoking="isGlobalSmoking" />
       </div>
     </Teleport>
-
   </div>
 </template>
 
 <style>
+@import './themes.css';
+
 html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden; /* Prevent global scroll */
-}
-
-#app {
-  height: 100%;
-}
-/* Chill Widget Styles */
-.chill-widget-container {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 9999;
-  pointer-events: none; /* Let clicks pass through if not interacting directly */
-  filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));
-}
-</style>
-
-<style scoped>
-.app-container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background-color: var(--bg-color);
+  margin: 0; padding: 0; height: 100%; overflow: hidden;
+  font-family: var(--font-family);
+  background: var(--bg-color);
   color: var(--text-color);
 }
 
+#app { height: 100%; }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 15px;
+.app-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* Navigation */
+.nav-bar {
+  height: 42px; display: flex; justify-content: space-between; align-items: center;
+  padding: 0 16px; flex-shrink: 0; z-index: 100;
+  border-bottom: 1px solid var(--glass-border);
 }
 
+.tabs-container { display: flex; gap: 4px; height: 100%; align-items: flex-end; }
 
-.icon-btn {
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
+.tab-btn {
+  padding: 6px 16px; border: none; background: transparent; color: var(--text-color);
+  font-size: 0.75rem; font-weight: 700; cursor: pointer; opacity: 0.6;
+  border-bottom: 2px solid transparent; transition: all 0.2s;
+  text-transform: uppercase; letter-spacing: 0.05em;
 }
 
-.icon-btn:hover {
-  background-color: var(--button-hover);
+.tab-btn:hover { opacity: 1; background: rgba(255,255,255,0.05); }
+.tab-btn.active { opacity: 1; border-bottom-color: var(--accent-color); color: var(--accent-color); }
+
+.git-tab.active { border-bottom-color: #10b981; color: #10b981; }
+.flowchart-tab.active { border-bottom-color: #8b5cf6; color: #8b5cf6; }
+.chill-tab.active { border-bottom-color: #f43f5e; color: #f43f5e; }
+
+.nav-actions { display: flex; align-items: center; gap: 8px; }
+.action-btn { background: transparent; border: none; color: var(--text-color); padding: 6px; cursor: pointer; opacity: 0.6; display: flex; border-radius: 6px; }
+.action-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+
+/* Viewport */
+.main-viewport { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.tab-content-area { flex: 1; overflow: hidden; position: relative; }
+
+/* Modals */
+.modal-backdrop {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+  display: flex; justify-content: center; align-items: center; z-index: 2000;
 }
 
-.tabs-nav {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 15px;
-  background-color: var(--bg-color);
-  flex-shrink: 0;
-  height: 35px;
-  border-bottom: var(--border-style);
-}
-
-.tabs-list {
-  display: flex;
-  gap: 5px;
-}
-
-.nav-actions {
-  display: flex;
-  align-items: center;
-}
-
-.tabs-nav button {
-  padding: 6px 15px;
-  cursor: pointer;
-  background: transparent;
-  color: var(--text-color);
-  border: none;
-  border-bottom: 2px solid transparent;
-  font-weight: bold;
-}
-
-.tabs-nav button.active {
-  border-bottom: 2px solid var(--accent-color);
-  color: var(--accent-color);
-}
-
-.tabs-nav .flow-tab {
-  color: #a78bfa;
-}
-
-.tabs-nav .flow-tab.active {
-  border-bottom-color: #a78bfa;
-  color: #a78bfa;
-}
-
-.tabs-nav .git-tab-btn {
-  color: #34d399;
-}
-
-.tabs-nav .git-tab-btn.active {
-  border-bottom-color: #34d399;
-  color: #34d399;
-}
-
-.tabs-nav .chill-tab {
-  color: #f43f5e;
-}
-
-.tabs-nav .chill-tab.active {
-  border-bottom-color: #f43f5e;
-  color: #f43f5e;
-}
-
-.content-wrapper {
-  flex: 1;
-  overflow: hidden; 
-  padding: 10px 15px;
-  display: flex;
-  flex-direction: column;
-}
-
-.content-wrapper.no-padding {
-  padding: 0;
-}
-
-.content-scroll-area {
-  flex: 1;
-  overflow-y: auto; 
-  padding: 5px;
-  background-color: var(--container-bg);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-}
-
-.content-scroll-area.full-bleed {
-  padding: 0;
-  overflow: hidden;
-  border: none;
-  height: 100%;
-}
-
-.full-height-vif {
-  height: 100%;
-  position: relative; /* Essential for absolute-positioned children like SQLHelper */
-}
-
-/* Modal Styles */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 3000;
-}
-
-.modal-content {
-  background: var(--container-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-}
-
-.settings-modal-content {
-  width: 850px;
-  max-width: 95%;
-  max-height: 90vh;
+.settings-modal {
+  width: 800px; max-width: 95%; max-height: 90vh;
+  display: flex; flex-direction: column; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
 }
 
 .modal-header {
-  padding: 10px 15px;
-  background: var(--accent-color);
-  color: #fff;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: bold;
+  padding: 12px 20px; background: var(--accent-color); color: #fff;
+  display: flex; justify-content: space-between; align-items: center;
 }
 
-.header-tools {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.modal-title { font-weight: 800; font-size: 0.9rem; letter-spacing: 0.05em; }
+.header-tools { display: flex; gap: 8px; }
+.tool-btn, .close-btn {
+  background: rgba(255,255,255,0.15); border: none; color: #fff;
+  padding: 6px; border-radius: 6px; cursor: pointer; display: flex;
 }
+.tool-btn:hover, .close-btn:hover { background: rgba(255,255,255,0.25); }
 
-.tool-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s, background 0.2s;
-}
+.modal-body { flex: 1; overflow: hidden; background: var(--container-bg); }
 
-.tool-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  transform: scale(1.1);
-}
+/* Chill Widget */
+.chill-widget { position: fixed; bottom: 24px; right: 24px; z-index: 9999; pointer-events: none; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.4)); }
 
-.close-btn {
-  background: none;
-  border: none;
-  color: #fff;
-  font-size: 1.5rem;
-  cursor: pointer;
-}
+/* Win95 Theme */
+.is-win95 .nav-bar { background: #c0c0c0; border: 2px outset #fff; height: 32px; padding: 2px; }
+.is-win95 .tab-btn { border: 2px outset #fff; border-radius: 0; background: #c0c0c0; text-transform: none; padding: 2px 10px; }
+.is-win95 .tab-btn.active { border: 2px inset #fff; background: #d0d0d0; transform: translateY(1px); }
+.is-win95 .win95-modal { border: 2px outset #fff; border-radius: 0; }
+.is-win95 .modal-header { background: #000080; padding: 2px 4px; }
 
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-}
-
-.settings-modal-body {
-  padding: 0;
-  overflow: hidden;
-}
-
-
-.theme-button {
-  background-color: var(--button-bg);
-  color: var(--text-color);
-  border: var(--border-style);
-  border-radius: var(--border-radius);
-  padding: 8px 16px;
-  cursor: pointer;
-}
-
-/* Win95 Variations */
-.win95-bg {
-  /* No special padding needed without taskbar */
-}
-
-.win95-tabs button {
-  border: 2px solid;
-  border-top-color: #fff;
-  border-left-color: #fff;
-  border-right-color: #808080;
-  border-bottom-color: #808080;
-  background: #c0c0c0;
-  color: #000;
-  border-radius: 0;
-}
-
-.win95-tabs button.active {
-  border-top-color: #808080;
-  border-left-color: #808080;
-  border-right-color: #fff;
-  border-bottom-color: transparent;
-  background: #c0c0c0;
-  transform: translateY(2px);
-}
-
-
-:root.theme-95 .modal-content {
-  background: #c0c0c0;
-  color: #000;
-  border-radius: 0;
-}
-
-:root.theme-95 .modal-header {
-  background: #000080;
-}
-
-:root.theme-95 .theme-button {
-  border: 2px solid;
-  border-top-color: #fff;
-  border-left-color: #fff;
-  border-right-color: #808080;
-  border-bottom-color: #808080;
-  background: #c0c0c0;
-  color: #000;
-  border-radius: 0;
-}
+/* Transitions */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

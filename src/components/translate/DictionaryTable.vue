@@ -25,26 +25,42 @@ const emit = defineEmits<{
 
 const filteredData = computed(() => {
   if (!props.searchQuery) return props.data;
-  const q = props.searchQuery.toLowerCase().trim();
+  const rawQuery = props.searchQuery.trim();
+  if (!rawQuery) return props.data;
+  
+  // Split by | to support multiple keywords (OR logic)
+  const keywords = rawQuery.split('|').map(k => k.trim().toLowerCase()).filter(k => k !== '');
+  if (keywords.length === 0) return props.data;
   
   return props.data.filter(item => {
-    if (props.isStrict) {
-      return item.jp.toLowerCase() === q || 
-             item.en.toLowerCase() === q || 
-             item.vi.toLowerCase() === q;
-    }
-    return item.jp.toLowerCase().includes(q) || 
-           item.en.toLowerCase().includes(q) || 
-           item.vi.toLowerCase().includes(q);
+    return keywords.some(q => {
+      if (props.isStrict) {
+        return item.jp.toLowerCase() === q || 
+               item.en.toLowerCase() === q || 
+               item.vi.toLowerCase() === q;
+      }
+      return item.jp.toLowerCase().includes(q) || 
+             item.en.toLowerCase().includes(q) || 
+             item.vi.toLowerCase().includes(q);
+    });
   });
 });
 
 const highlightMatch = (text: string) => {
   if (!props.searchQuery || props.isStrict) return text;
-  const q = props.searchQuery.trim();
-  if (!q) return text;
+  const rawQuery = props.searchQuery.trim();
+  if (!rawQuery) return text;
+  
   try {
-    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const keywords = rawQuery.split('|')
+      .map(k => k.trim())
+      .filter(k => k !== '')
+      .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); // Escape regex chars
+    
+    if (keywords.length === 0) return text;
+    
+    const pattern = `(${keywords.join('|')})`;
+    const regex = new RegExp(pattern, 'gi');
     const highlighted = text.replace(regex, '<mark class="local-match">$1</mark>');
     return sanitize(highlighted);
   } catch { 
@@ -87,7 +103,7 @@ const highlightMatch = (text: string) => {
               <span v-html="highlightMatch(item.en)"></span>
             </td>
             <td @click="emit('copy', item.vi, $event)" class="clickable-cell">
-              <span class="lang-tag" v-html="highlightMatch(item.vi)"></span>
+              <span v-html="highlightMatch(item.vi || '-')"></span>
             </td>
             <td class="col-actions">
               <div class="action-icons">

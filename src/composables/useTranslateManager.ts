@@ -113,11 +113,13 @@ export function useTranslateManager() {
           const key = `${row.jp}|${row.en}`;
           uniqueMap.set(key, row); // Keep the last occurrence
         });
-        
         const finalRows = Array.from(uniqueMap.values());
         const removedCount = rawRows.length - finalRows.length;
         
         console.log(`[TranslateManager] Loaded ${rawRows.length} total, filtered ${removedCount} duplicates. Final: ${finalRows.length} entries.`);
+        if (finalRows.length > 0) {
+          console.log('[TranslateManager] Sample data (first 3 rows):', finalRows.slice(0, 3));
+        }
         
         dictionaryData.value = finalRows;
         rebuildBaseDictionaryCache();

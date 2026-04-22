@@ -5,20 +5,20 @@
  * Generates Mermaid.js flowchart syntax from the logical control flow of Java methods.
  *
  * Supported constructs:
- *   - Class / method declarations → subgraphs / entry nodes
- *   - if / else-if / else         → decision nodes + merging
- *   - for / while / do-while      → loop nodes with back-edge
- *   - try / catch / finally       → exception flow
- *   - return / throw              → terminal nodes
- *   - method calls                → process / IO nodes
+ *   - Class / method declarations -> subgraphs / entry nodes
+ *   - if / else-if / else         -> decision nodes + merging
+ *   - for / while / do-while      -> loop nodes with back-edge
+ *   - try / catch / finally       -> exception flow
+ *   - return / throw              -> terminal nodes
+ *   - method calls                -> process / IO nodes
  *
  * Strategy:
  *   1. Tokenize – strip comments, produce a flat token stream
- *   2. Parse    – recursive descent, track brace depth
- *   3. Emit     – build Flowchart (nodes + edges) → toMermaid()
+ *   2. Parse    - recursive descent, track brace depth
+ *   3. Emit     - build Flowchart (nodes + edges) -> toMermaid()
  */
 
-// ── Token Types ────────────────────────────────────────────────────────────────
+// == Token Types ================================================================
 
 type TK =
     | 'KEYWORD' | 'IDENT' | 'NUMBER' | 'STRING' | 'CHAR'
@@ -36,7 +36,7 @@ const JAVA_KEYWORDS = new Set([
     'this', 'throw', 'throws', 'transient', 'try', 'var', 'void', 'volatile', 'while',
 ]);
 
-// ── Tokenizer ──────────────────────────────────────────────────────────────────
+// == Tokenizer ==================================================================
 
 function tokenize(src: string): Token[] {
     const tokens: Token[] = [];
@@ -131,7 +131,7 @@ function tokenize(src: string): Token[] {
     return tokens;
 }
 
-// ── Flowchart Data Model ───────────────────────────────────────────────────────
+// == Flowchart Data Model =======================================================
 
 type NodeShape = 'start' | 'terminal' | 'decision' | 'process' | 'io';
 
@@ -148,10 +148,10 @@ class Flowchart {
     addNode(id: string, label: string, shape: NodeShape) {
         // Sanitize: remove chars that break Mermaid node syntax
         const safe = label
-            .replace(/"/g, "'")          // double-quotes → single
-            .replace(/[&<>]/g, ' ')      // HTML special chars → space
-            .replace(/\(/g, '[')         // ( → [ (safe inside any Mermaid shape)
-            .replace(/\)/g, ']')         // ) → ]
+            .replace(/"/g, "'")          // double-quotes -> single
+            .replace(/[&<>]/g, ' ')      // HTML special chars -> space
+            .replace(/\(/g, '[')         // ( -> [ (safe inside any Mermaid shape)
+            .replace(/\)/g, ']')         // ) -> ]
             .substring(0, 60);
         this.nodes.push({ id, label: safe, shape });
     }
@@ -182,7 +182,7 @@ class Flowchart {
     }
 }
 
-// ── Token Stream Cursor ────────────────────────────────────────────────────────
+// == Token Stream Cursor ========================================================
 
 class Cursor {
     private tokens: Token[];
@@ -240,7 +240,7 @@ class Cursor {
     /** Consume a balanced brace block and return the inner tokens (always ends with EOF) */
     captureBlock(): Token[] {
         if (this.peek().kind !== 'LBRACE') {
-            // single statement (no braces) — gather until ; or EOF
+            // single statement (no braces) - gather until ; or EOF
             const stmt: Token[] = [];
             while (!this.isEOF() && this.peek().kind !== 'SEMI') stmt.push(this.next());
             if (this.peek().kind === 'SEMI') this.next();
@@ -271,7 +271,7 @@ class Cursor {
     }
 }
 
-// ── Noise Detection ────────────────────────────────────────────────────────────
+// == Noise Detection ============================================================
 
 const NOISE_CALL_METHODS = new Set([
     'log', 'warn', 'error', 'info', 'debug', 'trace', 'finest', 'finer', 'fine',
@@ -303,7 +303,7 @@ function isNoise(callText: string): boolean {
     const method = m[2] ?? m[1];
     if (NOISE_CALL_OBJECTS.has(obj)) return true;
     if (NOISE_CALL_METHODS.has(method)) return true;
-    // Skip new SomeObject(...) — constructors are noise in this mode
+    // Skip new SomeObject(...) - constructors are noise in this mode
     if (/^new\s+/.test(callText)) return true;
     return false;
 }
@@ -331,13 +331,13 @@ function hasMeaningfulCall(tokens: Token[]): boolean {
     return false;
 }
 
-// ── Function-First Walker ──────────────────────────────────────────────────────
+// == Function-First Walker ======================================================
 //
 // Algorithm: FUNCTION-FIRST ROUTING
 //   1. Walk statements but ONLY emit nodes for meaningful function calls
 //   2. When a call is inside an `if`, emit a decision node with the condition
 //   3. Collapse empty branches (if the then/else only has noise, skip that arrow)
-//   4. try blocks are transparent — just walk the try body, ignore catch/finally
+//   4. try blocks are transparent - just walk the try body, ignore catch/finally
 //   5. for/while loops only create a loop node if their body has meaningful calls
 
 class FunctionFirstWalker {
@@ -361,7 +361,7 @@ class FunctionFirstWalker {
             if (t.kind === 'EOF') break;
             if (t.kind === 'RBRACE') { cur.next(); break; }
 
-            // ── if / else-if ────────────────────────────────────────────────────
+            // -- if / else-if ----------------------------------------------------
             if (t.kind === 'KEYWORD' && t.value === 'if') {
                 cur.next();
                 const cond = cur.captureParens();
@@ -377,12 +377,12 @@ class FunctionFirstWalker {
                 }
 
                 if (!hasThen && !hasElse) {
-                    // Both branches are pure noise → skip the whole if block
+                    // Both branches are pure noise -> skip the whole if block
                     continue;
                 }
 
                 if (!hasThen) {
-                    // Only else has meaningful calls → negate condition, draw single branch
+                    // Only else has meaningful calls -> negate condition, draw single branch
                     const ifId = this.graph.newId();
                     this.graph.addNode(ifId, `NOT [${cond}]`.substring(0, 55), 'decision');
                     for (const p of danglers) this.graph.addEdge(p, ifId);
@@ -410,7 +410,7 @@ class FunctionFirstWalker {
                 continue;
             }
 
-            // ── for / while / do-while ──────────────────────────────────────────
+            // -- for / while / do-while ------------------------------------------
             if (t.kind === 'KEYWORD' && (t.value === 'for' || t.value === 'while' || t.value === 'do')) {
                 cur.next();
                 let cond = '';
@@ -429,14 +429,14 @@ class FunctionFirstWalker {
                 this.graph.addNode(loopId, `loop: ${cond}`.substring(0, 50) || 'loop', 'decision');
                 for (const p of danglers) this.graph.addEdge(p, loopId);
 
-                // Walk body with loopId as start — back-edge added on results
+                // Walk body with loopId as start - back-edge added on results
                 const bodyEnd = this.walk(new Cursor(bodyTokens), [loopId]);
                 for (const b of bodyEnd) this.graph.addEdge(b, loopId, 'repeat');
                 danglers = [loopId]; // exit arrow from loop
                 continue;
             }
 
-            // ── switch ──────────────────────────────────────────────────────────
+            // -- switch ----------------------------------------------------------
             if (t.kind === 'KEYWORD' && t.value === 'switch') {
                 cur.next();
                 const expr = cur.captureParens();
@@ -477,7 +477,7 @@ class FunctionFirstWalker {
                 continue;
             }
 
-            // ── try → transparent (walk try body only, skip catch/finally) ──────
+            // -- try -> transparent (walk try body only, skip catch/finally) ------
             if (t.kind === 'KEYWORD' && t.value === 'try') {
                 cur.next();
                 if (cur.peek().kind === 'LPAREN') cur.captureParens(); // try-with-resources
@@ -486,7 +486,7 @@ class FunctionFirstWalker {
                 // Walk inside try transparently
                 danglers = this.walk(new Cursor(tryTokens), danglers);
 
-                // Consume catch/finally — only draw if they have meaningful calls
+                // Consume catch/finally - only draw if they have meaningful calls
                 while (cur.peek().kind === 'KEYWORD' && cur.peek().value === 'catch') {
                     cur.next();
                     const errType = cur.captureParens();
@@ -494,7 +494,7 @@ class FunctionFirstWalker {
                     if (hasMeaningfulCall(catchTokens)) {
                         const catchId = this.graph.newId();
                         this.graph.addNode(catchId, `catch [${errType}]`.substring(0, 50), 'decision');
-                        // Catch is an error branch — connect from try's last danglers
+                        // Catch is an error branch - connect from try's last danglers
                         for (const p of danglers) this.graph.addEdge(p, catchId, 'error');
                         const catchEnd = this.walk(new Cursor(catchTokens), [catchId]);
                         danglers.push(...catchEnd);
@@ -513,7 +513,7 @@ class FunctionFirstWalker {
                 continue;
             }
 
-            // ── return ──────────────────────────────────────────────────────────
+            // -- return ----------------------------------------------------------
             if (t.kind === 'KEYWORD' && t.value === 'return') {
                 cur.next();
                 let expr = '';
@@ -530,7 +530,7 @@ class FunctionFirstWalker {
                 continue;
             }
 
-            // ── throw ───────────────────────────────────────────────────────────
+            // -- throw -----------------------------------------------------------
             if (t.kind === 'KEYWORD' && t.value === 'throw') {
                 cur.next();
                 let expr = '';
@@ -543,13 +543,13 @@ class FunctionFirstWalker {
                 continue;
             }
 
-            // ── skip: break / continue ──────────────────────────────────────────
+            // -- skip: break / continue ------------------------------------------
             if (t.kind === 'KEYWORD' && (t.value === 'break' || t.value === 'continue')) {
                 cur.next(); cur.skipUntil('SEMI'); cur.next();
                 continue;
             }
 
-            // ── expression / method call ────────────────────────────────────────
+            // -- expression / method call ----------------------------------------
             danglers = this.walkOneCallStatement(cur, danglers);
         }
 
@@ -597,7 +597,7 @@ class FunctionFirstWalker {
 }
 
 
-// ── Method / Class Extraction ──────────────────────────────────────────────────
+// == Method / Class Extraction ==================================================
 
 interface JavaMethod { name: string; tokens: Token[] }
 
@@ -621,7 +621,7 @@ function extractMethods(tokens: Token[], depth = 0): JavaMethod[] {
 
         if (t.kind === 'EOF') break;
 
-        // ── class / interface / enum declaration → recurse into body ──────────
+        // -- class / interface / enum declaration -> recurse into body ----------
         if (t.kind === 'KEYWORD' && (t.value === 'class' || t.value === 'interface' || t.value === 'enum')) {
             cur.next(); // consume class/interface/enum
             // skip class name + extends/implements clause until {
@@ -634,10 +634,10 @@ function extractMethods(tokens: Token[], depth = 0): JavaMethod[] {
             continue;
         }
 
-        // ── Skip modifier keywords ────────────────────────────────────────────
+        // -- Skip modifier keywords --------------------------------------------
         if (t.kind === 'KEYWORD' && MODIFIERS.has(t.value)) { cur.next(); continue; }
 
-        // ── Skip package / import statements ──────────────────────────────────
+        // -- Skip package / import statements ----------------------------------
         if (t.kind === 'KEYWORD' && (t.value === 'package' || t.value === 'import')) {
             cur.skipUntil('SEMI'); cur.next(); continue;
         }
@@ -682,7 +682,7 @@ function extractMethods(tokens: Token[], depth = 0): JavaMethod[] {
                         while (!cur.isEOF() && cur.peek().kind !== 'LBRACE' && cur.peek().kind !== 'SEMI') cur.next();
                     }
 
-                    // Abstract method / interface method — no body
+                    // Abstract method / interface method - no body
                     if (cur.peek().kind === 'SEMI') { cur.next(); continue; }
 
                     // Concrete method with body
@@ -697,7 +697,7 @@ function extractMethods(tokens: Token[], depth = 0): JavaMethod[] {
                     methods.push({ name: `${methodName}()`, tokens: bodyTokens });
                     continue;
                 } else {
-                    // Field declaration — skip to ;
+                    // Field declaration - skip to ;
                     cur.skipUntil('SEMI');
                     if (!cur.isEOF()) cur.next();
                     continue;
@@ -707,7 +707,7 @@ function extractMethods(tokens: Token[], depth = 0): JavaMethod[] {
                 cur.captureBlock();
                 continue;
             } else {
-                // Something unexpected — skip to next ;
+                // Something unexpected - skip to next ;
                 cur.skipUntil('SEMI');
                 if (!cur.isEOF()) cur.next();
             }
@@ -722,7 +722,7 @@ function extractMethods(tokens: Token[], depth = 0): JavaMethod[] {
 }
 
 
-// ── Public API ─────────────────────────────────────────────────────────────────
+// == Public API =================================================================
 
 export interface JavaAnalysisResult {
     mermaid: string;
@@ -783,7 +783,7 @@ export function analyzeJava(source: string): JavaAnalysisResult {
         lines.push('  end');
     }
 
-    // Chain subgraphs top→bottom with invisible links so Mermaid stacks them vertically
+    // Chain subgraphs top->bottom with invisible links so Mermaid stacks them vertically
     for (let i = 0; i < subIds.length - 1; i++) {
         lines.push(`  ${subIds[i]} ~~~ ${subIds[i + 1]}`);
     }

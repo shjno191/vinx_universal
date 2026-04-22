@@ -3,7 +3,7 @@ import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, chillSettings, triggerSettingsRefresh, advancedTranslatePaths } from '../store';
+import { globalShortcuts, showSettingsTrigger, editorSettings, theme, aiSettings, chillSettings, triggerSettingsRefresh } from '../store';
 
 
 const emit = defineEmits(['theme-changed']);
@@ -134,7 +134,6 @@ const refreshSettings = async () => {
       theme.value = settings.value.theme as 'light' | 'dark' | '95';
       aiSettings.value = settings.value.ai as any;
       chillSettings.value = settings.value.chill;
-      advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
     }
 
   } catch (e) {
@@ -155,7 +154,6 @@ const saveSettings = async () => {
     theme.value = settings.value.theme as 'light' | 'dark' | '95';
     aiSettings.value = settings.value.ai as any;
     chillSettings.value = settings.value.chill;
-    advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
     triggerSettingsRefresh.value++;
 
     emit('theme-changed', settings.value.theme);
@@ -192,54 +190,7 @@ const pickDictionary = async () => {
 };
 
 
-const validateAndAddAdvancedPath = async () => {
-  const p = newAdvancedPath.value.trim();
-  if (!p) return;
-  
-  try {
-    const exists = await invoke('check_path_exists', { path: p });
-    if (!exists) {
-      addPathError.value = 'File path does not exist on disk.';
-      return;
-    }
-    
-    if (settings.value.advanced_translate_paths.includes(p)) {
-      addPathError.value = 'Path already added.';
-      return;
-    }
-
-    settings.value.advanced_translate_paths.push(p);
-    newAdvancedPath.value = '';
-    addPathError.value = '';
-    saveSettings();
-  } catch (e) {
-    addPathError.value = 'Error validating path.';
-  }
-};
-
-const pickAdvancedPath = async () => {
-  try {
-    const selected = await open({
-      multiple: true,
-      filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }]
-    });
-    if (selected && Array.isArray(selected)) {
-      selected.forEach(p => {
-        if (!settings.value.advanced_translate_paths.includes(p)) {
-          settings.value.advanced_translate_paths.push(p);
-        }
-      });
-      saveSettings();
-    }
-  } catch (e) {
-    console.error('Failed to load advanced dict:', e);
-  }
-};
-
-const removeAdvancedPath = (idx: number) => {
-  settings.value.advanced_translate_paths.splice(idx, 1);
-  saveSettings();
-};
+// ... Removed old advanced path methods ...
 
 
 const downloadTemplate = async () => {
@@ -346,24 +297,7 @@ watch(showSettingsTrigger, (val) => {
           </div>
         </div>
 
-        <div class="setting-item-vertical">
-          <label>Advanced Translation Files (Priority List)</label>
-          <p class="section-desc">Pasted paths will be validated before adding. These override the primary dictionary.</p>
-          
-          <div class="advanced-paths-list" v-if="settings.advanced_translate_paths.length > 0">
-            <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="advanced-path-entry">
-              <span class="path-text" :title="path">{{ path.split(/[/\\]/).pop() }}</span>
-              <button class="remove-path-btn" @click="removeAdvancedPath(idx)">&times;</button>
-            </div>
-          </div>
-
-          <div class="add-path-control">
-            <input v-model="newAdvancedPath" type="text" class="text-input path-input-manual" placeholder="Paste file path here (C:\...)" @keyup.enter="validateAndAddAdvancedPath" />
-            <button class="save-all-btn" @click="validateAndAddAdvancedPath">Add Path</button>
-            <button class="browse-btn-icon" @click="pickAdvancedPath" title="Browse Files">&#128194;</button>
-          </div>
-          <p v-if="addPathError" class="error-text">{{ addPathError }}</p>
-        </div>
+        <!-- Removed Advanced Translation Files Section -->
       </div>
 
       <div v-show="currentCategory === 'editor'" class="settings-section">

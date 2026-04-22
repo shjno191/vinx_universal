@@ -116,7 +116,7 @@ fn read_dir_tree(path: String, depth: u32) -> Result<FileNode, String> {
 }
 
 #[tauri::command]
-fn list_directory_files(path: String) -> Result<Vec<String>, String> {
+fn list_files_in_dir(path: String, extension: String) -> Result<Vec<String>, String> {
     let root_path = Path::new(&path);
     if !root_path.exists() || !root_path.is_dir() {
         return Err("Path does not exist or is not a directory".to_string());
@@ -127,8 +127,12 @@ fn list_directory_files(path: String) -> Result<Vec<String>, String> {
         for entry in entries.flatten() {
             let entry_path = entry.path();
             if entry_path.is_file() {
-                if let Some(name) = entry_path.file_name() {
-                    files.push(name.to_string_lossy().to_string());
+                if let Some(ext) = entry_path.extension() {
+                    if ext.to_string_lossy().to_lowercase() == extension.to_lowercase() {
+                        if let Some(full_path) = entry_path.to_str() {
+                            files.push(full_path.to_string());
+                        }
+                    }
                 }
             }
         }
@@ -157,7 +161,7 @@ fn build_node(path: &Path, depth: u32, max_depth: u32) -> Result<FileNode, Strin
                 let entry_name = entry_path.file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
-                
+                // Filter out hidden folders and build artifacts
                 if entry_name.starts_with('.') || entry_name == "node_modules" || entry_name == "target" || entry_name == "dist" {
                     continue;
                 }
@@ -259,7 +263,7 @@ pub fn run() {
             read_dir_tree,
             git_execute,
             test_tcp_connection,
-            list_directory_files,
+            list_files_in_dir,
             check_path_exists
 
 

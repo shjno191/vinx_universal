@@ -144,13 +144,13 @@ const handleConvert = async () => {
   }
 };
 
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
-// STEP 1 ? Th?m version v?o header comment <%-- --%>
-// C?ng th?c: t?m d?ng "- Version X.0Y" cu?i c?ng trong block <%-- --%>,
-// t?ng minor +1, th?m d?ng m?i ngay sau, tr??c d?ng " --%>"
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 1: Add version info to the header comment block <%-- --%>
+// Logic: Find the last "- Version X.0Y" line within the header block,
+// increment the minor version, and append a new entry before the block closing " --%>"
+// ==========================================================================================================================================================
 const addVersionComment = (code: string): string => {
-  // L?y t?t c? d?ng version b?n trong <%-- ... --%>
+  // Extract all version lines inside the header comment block
   const headerBlock = code.match(/<%--[\s\S]*?--%>/);
   if (!headerBlock) return code;
 
@@ -161,10 +161,10 @@ const addVersionComment = (code: string): string => {
   const major = last[1];
   const minor = parseInt(last[2], 10);
   const newMinor = String(minor + 1).padStart(2, '0');
-  const newLine = ` - Version ${major}.${newMinor} 2026/04/10 VINX redmine#43477_UI���P�Ή�`;
+  const newLine = ` - Version ${major}.${newMinor} 2026/04/10 VINX redmine#43477_UI_Standardization`;
 
-  // Ch?n sau d?ng version cu?i, tr??c " --%>"
-  // Regex: kh?p ??ng d?ng version cu?i c?ng (to?n d?ng) r?i ch?n sau n?
+  // Insert after the last version line, before the closing tag " --%>"
+  // Regex: matches the entire last version line and captures the trailing closing tag block
   const lastVersionLineRegex = /([ \t]*-\s*Version\s+\d+\.\d+[^\n]*)(\n[ \t]*--%>)/;
   if (lastVersionLineRegex.test(code)) {
     return code.replace(lastVersionLineRegex, `$1\n${newLine}$2`);
@@ -172,24 +172,24 @@ const addVersionComment = (code: string): string => {
   return code;
 };
 
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
-// STEP 2 ? Fix CSS links
-// 2a: href="css/common.css"  ��  href="css/common_pda.css"  (ch? khi mode PDA)
-// 2b: x?a to?n b? d?ng c? link default_*.css
-// 2c: x?a <!-- ... //--> wrapper b?n trong <script>
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 2: Fix CSS links and script wrappers
+// 2a: Replace common.css with common_pda.css (PDA mode only)
+// 2b: Remove all default_*.css and dailyorder.css link lines
+// 2c: Remove legacy HTML comment wrappers <!-- ... //--> inside <script> tags
+// ==========================================================================================================================================================
 const fixCssLinks = (code: string): string => {
-  // 2a - Chuyển sang dùng common_pda.css duy nhất
+  // 2a - Switch to common_pda.css exclusively
   code = code.replace(
     /(<link[^>]*href=["'])css\/common\.css(["'][^>]*>)/g,
     '$1css/common_pda.css$2'
   );
 
-  // 2b - Xóa các link CSS cũ khác (dailyorder, default_*)
+  // 2b - Remove outdated CSS links
   code = code.replace(/^[ \t]*<link[^>]+href=["'][^"' ]*default_[^"' ]*["'][^>]*>[ \t]*\n?/gm, '');
   code = code.replace(/^[ \t]*<link[^>]+href=["'][^"' ]*dailyorder[^"' ]*["'][^>]*>[ \t]*\n?/gm, '');
 
-  // 2c - Xóa <!-- ... //--> wrapper trong <script>
+  // 2c - Clear legacy HTML comment wrappers inside script tags
   code = code.replace(
     /(<script[^>]*>)\s*\n[ \t]*<!--[ \t]*\n([\s\S]*?)\n[ \t]*\/\/-->[ \t]*\n/g,
     (_, openTag, inner) => {
@@ -201,33 +201,34 @@ const fixCssLinks = (code: string): string => {
   return code;
 };
 
-// STEP 3 ? Chu?n h?a HTML
-// - X?a <br> / <br /> d?ng l?m spacing (d?ng ch? c? <br>)
-// - window.close() �� window.open('about:blank','_self').close()
-// - X?a border=0, cellspacing=0, cellpadding=0 (clean attribute th?a)
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 3: Normalize HTML structure
+// - Remove empty <br> tags used for spacing
+// - Replace window.close() with a reliable self-closing script
+// - Remove obsolete layout attributes (border=0, etc.) from tables
+// ==========================================================================================================================================================
 const normalizeHtml = (code: string): string => {
-  // Xóa các dòng br dư thừa
+  // Remove redundant <br> spacing lines
   code = code.replace(/^[ \t]*<br\s*\/?>[ \t]*\n/gm, '');
   
-  // Fix window.close
+  // Fix window.close consistency
   code = code.replace(/window\.close\(\);/g, "window.open('about:blank', '_self').close();");
 
-  // Xóa thuộc tính layout lỗi thời trên Table và bổ sung thuộc tính PDA chuẩn
+  // Remove legacy layout attributes from Tables and ensure PDA-standard attributes
   code = code.replace(/<table([^>]*)>/gi, (_match, attrs) => {
-    // Loại bỏ các thuộc tính layout cũ nát nếu có
+    // Strip old positioning attributes if present
     let cleanAttrs = attrs.replace(/\s+(border|cellspacing|cellpadding|width)=["'][^"']*["']/gi, '');
-    // Thêm bộ thuộc tính chuẩn PDA
+    // Append mandatory PDA attributes
     return `<table${cleanAttrs} cellpadding="0" cellspacing="0" border="0" width="100%">`;
   });
 
-  // Cấu trúc lại Body nếu chưa có pda_list wrapper
+  // Restructure Body if pda_list wrapper is missing
   if (code.includes('<body>') && !code.includes('class="pda_list')) {
     code = code.replace(/(<body[^>]*>)\s*([\s\S]*?)\s*(<\/body>)/i, (match, bodyOpen, content, bodyClose) => {
       const formMatch = content.match(/(<html:form[^>]*>)([\s\S]*?)(<\/html:form>)/i);
       if (formMatch) {
         const [_, formOpen, formInner, formClose] = formMatch;
-        // Bọc toàn bộ formInner vào Table 100% trung tâm
+        // Wrap form content in a centered 100% table for alignment
         const wrappedInner = `
 	<table cellpadding="0" cellspacing="0" border="0" width="100%">
 		<tr>
@@ -239,7 +240,7 @@ const normalizeHtml = (code: string): string => {
 `;
         
         let finalInner = wrappedInner;
-        // Tự động bọc các Table con có class pda_listX vào Div tương ứng (nếu chưa có)
+        // Auto-wrap child tables with pda_listX classes into corresponding Divs
         finalInner = finalInner.replace(/(<table[^>]*class=["'](pda_list\d+)[^"']*["'][^>]*>[\s\S]*?<\/table>)/g, (_m, table, className) => {
            return `<div class="${className}">\n${table}\n</div>`;
         });
@@ -252,11 +253,12 @@ const normalizeHtml = (code: string): string => {
   return code;
 };
 
-// STEP 4 ? Build <style> block t? inline style
-// C?ng th?c: m?i inline style="..." �� 1 CSS rule v?i selector tagname.class ho?c tag#id
-// Style button (width/height/border/border-radius) �� KH?NG t?o class �� b?
-// Ch? display:none �� gi? nguy?n inline
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 4: Build <style> block from extracted inline styles
+// Logic: Extract inline style="..." and convert each to a CSS rule using tag+class or tag#id selector
+// Skip button styles (width/height/border) to use standard pda_btn instead.
+// Keep display:none inline for dynamic control.
+// ==========================================================================================================================================================
 const buildStyleBlock = (code: string): string => {
   const cssRules = [];
   const seen = new Set();
@@ -311,6 +313,15 @@ const buildStyleBlock = (code: string): string => {
   return code.replace(/([ \t]*<\/head>)/i, `${styleBlock}\n$1`);
 };
 
+// ==========================================================================================================================================================
+// STEP 5: Normalize indentation using Tabs
+// Logic:
+//   - Uses \t (1 tab = 1 indentation level)
+//   - JSP directives and headers stay at level 0
+//   - Decrement depth BEFORE printing the closing tag
+//   - Increment depth AFTER printing an opening tag (skip self-closing tags)
+//   - Handle nested Ruby/JS/CSS blocks by tracking brace depth (simplified approach)
+// ==========================================================================================================================================================
 const normalizeIndent = (code: string): string => {
   const TAB = '\t';
   const lines = code.split('\n');

@@ -4,11 +4,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { ask, open } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
 import { translateInput, translateOutput, sharedTargetLang, triggerDictionaryFocus, triggerCloseModals, triggerSettingsRefresh, activeTab, advancedTranslatePaths } from '../store';
+import { sanitize } from '../utils/security';
+import { buildTranslationRegex, translateText, normalize } from '../utils/translation-engine';
+
+// Sub-components
+import DictionaryTable from './translate/DictionaryTable.vue';
+import TranslationPane from './translate/TranslationPane.vue';
 
 defineProps<{ theme?: string }>();
-
-
-
 
 const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
 const dictionaryData = shallowRef<any[]>([]);
@@ -22,18 +25,39 @@ const isStrict = ref(false);
 
 const advancedDictData = ref<Map<string, Map<string, string>>>(new Map());
 const advancedDictKeys = ref<string[]>([]);
-// Cache for pre-processed words per sheet to speed up highlight indexing
 const sheetCacheMap = new Map<string, { sources: Set<string>, targets: Set<string> }>();
-const showAdvancedModal = ref(false);
 
+// -- Folder-based Quick Translate ------------------------------
+const selectedFolder = ref<string>('');
+const excelFilesInFolder = ref<string[]>([]);   // list of .xlsx file paths
+const selectedFile = ref<string>('');            // currently selected file in Column 1
+const sheetsOfSelectedFile = ref<string[]>([]);  // list of sheets in that file
+const selectedSheets = ref<Set<string>>(new Set()); // checked sheets
 
-const selectedAdvancedFile = ref<string>('');
-const isStrictAdvancedSheet = ref<boolean>(false);
+const fileSheetCounts = ref<Record<string, number>>({}); // Sheet count per file (Column 1)
+const sheetRowCounts = ref<Record<string, number>>({});  // Row count per sheet (Column 4)
+const sheetMetadata = ref<Record<string, { logical: string, physical: string, colCount: number }>>({}); // Table info
 
-const openDropdown = ref<string | null>(null);
-const dropdownPosition = ref({ top: 0, left: 0, width: 0 });
-const fileSearch = ref('');
-const sheetSearch = ref('');
+const fileSearchQuery = ref('');
+const sheetSearchQuery = ref('');
+
+const filteredFiles = computed(() => {
+  if (!fileSearchQuery.value) return excelFilesInFolder.value;
+  const q = fileSearchQuery.value.toLowerCase();
+  return excelFilesInFolder.value.filter(f => f.toLowerCase().includes(q));
+});
+
+const filteredSheets = computed(() => {
+  if (!sheetSearchQuery.value) return sheetsOfSelectedFile.value;
+  const q = sheetSearchQuery.value.toLowerCase();
+  return sheetsOfSelectedFile.value.filter(s => {
+    const meta = sheetMetadata.value[s];
+    const matchSheet = s.toLowerCase().includes(q);
+    const matchLogical = (meta?.logical || '').toLowerCase().includes(q);
+    const matchPhysical = (meta?.physical || '').toLowerCase().includes(q);
+    return matchSheet || matchLogical || matchPhysical;
+  });
+});
 
 interface AdvancedConfig {
   sheet: string;
@@ -42,21 +66,9 @@ interface AdvancedConfig {
 }
 const advancedConfigs = ref<Record<string, AdvancedConfig>>({});
 
-
-const newManualPath = ref('');
-
-
-const pathError = ref('');
-
-
-
-
-
 // Performance optimizations
 const debouncedInput = ref(translateInput.value);
 let debounceTimer: any = null;
-const sourceRegex = ref<RegExp | null>(null);
-const targetRegex = ref<RegExp | null>(null);
 const sourceWordsList = ref<string[]>([]);
 const targetWordsList = ref<string[]>([]);
 
@@ -64,28 +76,24 @@ const targetWordsList = ref<string[]>([]);
 const cachedLookup = ref<Map<string, string>>(new Map());
 const translationRegex = ref<RegExp | null>(null);
 
-// Memoization cache for the Base Dictionary (to prevent redundant loops)
+// Memoization cache for the Base Dictionary
 const baseSourceWords = ref<Set<string>>(new Set());
 const baseTargetWords = ref<Set<string>>(new Set());
 const baseLookupPart = ref<Map<string, string>>(new Map());
-
 
 // Copy feedback
 const showCopyToast = ref(false);
 const copyPos = ref({ x: 0, y: 0 });
 const hoveredWord = ref<string | null>(null);
 
-
 // Modal state
 const showDictModal = ref(false);
 const modalMode = ref<'add' | 'edit'>('add');
+const editingIdx = ref<number | null>(null);
 const editBuffer = ref({ jp: '', en: '', vi: '' });
 
-// References for syncing scroll
-const inputTextarea = ref<HTMLTextAreaElement | null>(null);
-const resultTextarea = ref<HTMLTextAreaElement | null>(null);
-const inputLineNumbers = ref<HTMLDivElement | null>(null);
-const resultLineNumbers = ref<HTMLDivElement | null>(null);
+// Refs for components
+const paneRef = ref<any>(null);
 
 const maxLines = computed(() => {
   const iLines = translateInput.value.split('\n').length;
@@ -93,18 +101,17 @@ const maxLines = computed(() => {
   return Math.max(iLines, oLines, 1);
 });
 
-
 const syncScroll = (side: 'input' | 'result') => {
-  const source = side === 'input' ? inputTextarea.value : resultTextarea.value;
-  const target = side === 'input' ? resultTextarea.value : inputTextarea.value;
-  const sourceHL = side === 'input' ? inputHighlighter.value : resultHighlighter.value;
-  const targetHL = side === 'input' ? resultHighlighter.value : inputHighlighter.value;
-  const sourceLN = side === 'input' ? inputLineNumbers.value : resultLineNumbers.value;
-  const targetLN = side === 'input' ? resultLineNumbers.value : inputLineNumbers.value;
+  if (!paneRef.value) return;
+  const source = side === 'input' ? paneRef.value.inputTextarea : paneRef.value.resultTextarea;
+  const target = side === 'input' ? paneRef.value.resultTextarea : paneRef.value.inputTextarea;
+  const sourceHL = side === 'input' ? paneRef.value.inputHighlighter : paneRef.value.resultHighlighter;
+  const targetHL = side === 'input' ? paneRef.value.resultHighlighter : paneRef.value.inputHighlighter;
+  const sourceLN = side === 'input' ? paneRef.value.inputLineNumbers : paneRef.value.resultLineNumbers;
+  const targetLN = side === 'input' ? paneRef.value.resultLineNumbers : paneRef.value.inputLineNumbers;
 
   if (!source) return;
 
-  // Sync the current side's own highlighter and line numbers
   if (sourceHL) {
     sourceHL.scrollTop = source.scrollTop;
     sourceHL.scrollLeft = source.scrollLeft;
@@ -113,7 +120,6 @@ const syncScroll = (side: 'input' | 'result') => {
     sourceLN.scrollTop = source.scrollTop;
   }
 
-  // Sync the OTHER side
   if (target) {
     target.scrollTop = source.scrollTop;
     target.scrollLeft = source.scrollLeft;
@@ -127,17 +133,15 @@ const syncScroll = (side: 'input' | 'result') => {
   }
 };
 
-
 const loadDictionary = async () => {
   try {
     isLoading.value = true;
     const raw = await invoke('get_settings') as string;
     const s = JSON.parse(raw || "{}");
     dictionaryPath.value = s?.dictionary_path || '';
-    advancedTranslatePaths.value = s?.advanced_translate_paths || [];
+    dictionaryPath.value = s?.dictionary_path || '';
 
-    if (!dictionaryPath.value && advancedTranslatePaths.value.length === 0) {
-
+    if (!dictionaryPath.value) {
       dictionaryData.value = [];
       isLoading.value = false;
       return;
@@ -164,24 +168,17 @@ const loadDictionary = async () => {
       }
     }
 
-    await loadAdvancedDictionaries();
-    
-    // Restore selections
     if (s?.advanced_configs) {
       advancedConfigs.value = s.advanced_configs;
-    } else {
-      // Fallback/Legacy migration
-      if (s?.last_advanced_file && s?.last_advanced_sheet) {
-        advancedConfigs.value[s.last_advanced_file] = {
-          sheet: s.last_advanced_sheet,
-          priority: 1,
-          enabled: true
-        };
-      }
+    }
+
+    if (s?.quick_translate_folder) {
+      selectedFolder.value = s.quick_translate_folder.replace(/\\/g, '/');
+      loadFilesFromFolder(selectedFolder.value);
     }
 
     updateCachedWords();
-    handleQuickTranslate(); // Ensure initial translation triggers
+    handleQuickTranslate();
   } catch (e) {
     console.error('Failed to load dictionaries:', e);
   } finally {
@@ -190,144 +187,15 @@ const loadDictionary = async () => {
 };
 
 onMounted(() => {
-  document.addEventListener('click', () => {
-    openDropdown.value = null;
-  });
+  loadDictionary();
+  window.addEventListener('keydown', handleLocalKeyDown);
 });
 
-const loadAdvancedDictionaries = async (forceRefresh = false) => {
-  if (forceRefresh) {
-    advancedDictData.value.clear();
-    sheetCacheMap.clear();
-  }
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleLocalKeyDown);
+});
 
-  for (const path of advancedTranslatePaths.value) {
-    if (!advancedConfigs.value[path]) {
-      advancedConfigs.value[path] = { sheet: '', priority: 1, enabled: true };
-    }
-    
-    // SKIP if already loaded and not forcing refresh
-    const hasData = Array.from(advancedDictData.value.keys()).some(k => k.startsWith(path + '::'));
-    if (hasData && !forceRefresh) continue;
-
-    try {
-      const bytes = await invoke('read_file_binary', { path }) as number[];
-      const data = new Uint8Array(bytes);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const filename = path.split(/[/\\]/).pop() || path;
-      
-      for (const sheetName of workbook.SheetNames) {
-        const worksheet = workbook.Sheets[sheetName];
-        if (!worksheet) continue;
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-        
-        let headerRowIndex = -1;
-        let logicalColIdx = -1;
-        let physicalColIdx = -1;
-        
-        for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
-          const row = jsonData[i] || [];
-          const logicalIdx = row.findIndex((c: any) => {
-              const s = String(c || '').toLowerCase();
-              return s.includes('論理カラム名') || s.includes('論理カラ') || s.includes('論理') || 
-                     s.includes('logical') || s.includes('tên logic');
-            });
-            const physicalIdx = row.findIndex((c: any) => {
-              const s = String(c || '').toLowerCase();
-              return s.includes('物理カラム名') || s.includes('物理カラ') || s.includes('物理') || 
-                     s.includes('physical') || s.includes('tên vật lý');
-            });
-          
-          if (logicalIdx !== -1 && physicalIdx !== -1) {
-            headerRowIndex = i;
-            logicalColIdx = logicalIdx;
-            physicalColIdx = physicalIdx;
-            break;
-          }
-        }
-        
-        if (headerRowIndex !== -1) {
-          const mapping = new Map<string, string>();
-          for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
-            const row = jsonData[i] || [];
-            const src = String(row[logicalColIdx] || '').trim();
-            const target = String(row[physicalColIdx] || '').trim();
-            if (src && target) {
-              mapping.set(src, target);
-            }
-          }
-          const sheetKey = `${path}::${sheetName}`;
-          advancedDictData.value.set(sheetKey, mapping);
-          advancedDictKeys.value.push(sheetKey);
-
-          // Populate incremental cache
-          const sheetSources = new Set<string>();
-          const sheetTargets = new Set<string>();
-          mapping.forEach((target, src) => {
-            if (src) sheetSources.add(src);
-            if (target) sheetTargets.add(target);
-          });
-          sheetCacheMap.set(sheetKey, { sources: sheetSources, targets: sheetTargets });
-        } else {
-
-          // FALLBACK: If no headers found, try to use first two columns if they contain data
-          const mapping = new Map<string, string>();
-          for (let i = 0; i < jsonData.length; i++) {
-            const row = jsonData[i] || [];
-            if (row.length >= 2) {
-              const src = String(row[0] || '').trim();
-              const target = String(row[1] || '').trim();
-              if (src && target && src.length < 200) { // basic heuristic to avoid large text blocks
-                mapping.set(src, target);
-              }
-            }
-          }
-          if (mapping.size > 0) {
-            const sheetKey = `${path}::${sheetName}`;
-            advancedDictData.value.set(sheetKey, mapping);
-            advancedDictKeys.value.push(sheetKey);
-
-            // Populate incremental cache
-            const sheetSources = new Set<string>();
-            const sheetTargets = new Set<string>();
-            mapping.forEach((target, src) => {
-              if (src) sheetSources.add(src);
-              if (target) sheetTargets.add(target);
-            });
-            sheetCacheMap.set(sheetKey, { sources: sheetSources, targets: sheetTargets });
-          }
-        }
-      }
-    } catch (e) {
-      console.error(`Failed to load advanced dict ${path}:`, e);
-    }
-  }
-
-  // REBUILD keys list from all data currently in cache (incremental)
-  advancedDictKeys.value = Array.from(advancedDictData.value.keys());
-};
-
-
-
-
-const saveGlobalSettings = async () => {
-  try {
-    const raw = await invoke('get_settings') as string;
-    const s = JSON.parse(raw || "{}");
-    const newSettings = { 
-      ...s, 
-      advanced_translate_paths: advancedTranslatePaths.value,
-      advanced_configs: advancedConfigs.value,
-      is_strict_advanced: isStrictAdvancedSheet.value
-    };
-    await invoke('save_settings', { settings: JSON.stringify(newSettings, null, 2) });
-    triggerSettingsRefresh.value++;
-  } catch (e) {
-    console.error('Failed to save settings:', e);
-  }
-};
-
-
+// ... Removed old advanced import methods ...
 
 const cleanDictionaryDuplicates = async () => {
   if (!dictionaryData.value.length || !dictionaryPath.value) return;
@@ -341,7 +209,6 @@ const cleanDictionaryDuplicates = async () => {
   const initialCount = dictionaryData.value.length;
   const seen = new Set();
   const cleaned = dictionaryData.value.filter(item => {
-    // Key is combination of Japanese and English
     const key = `${normalize(item.jp).toLowerCase()}|||${normalize(item.en).toLowerCase()}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -355,46 +222,34 @@ const cleanDictionaryDuplicates = async () => {
   }
 
   try {
-    // 1. Prepare data for Excel (Array of Arrays with headers)
     const aoa = [
       ['JAPANESE', 'ENGLISH', 'VIETNAMESE'],
       ...cleaned.map(item => [item.jp, item.en, item.vi])
     ];
-
-    // 2. Create workbook
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Dictionary");
-
-    // 3. Generate binary data
     const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     
-    // 4. Save to file
     await invoke('write_file_binary', { 
       path: dictionaryPath.value, 
       data: Array.from(new Uint8Array(wbout)) 
     });
 
-    // 5. Update local state
     dictionaryData.value = cleaned;
     updateCachedWords();
-    
     alert(`Cleaned successfully! Removed ${removedCount} duplicate rows.`);
   } catch (e) {
     console.error('Failed to clean dictionary:', e);
-    alert('Failed to save cleaned dictionary: ' + e);
   }
 };
 
-const normalize = (val: string) => val ? val.trim() : '';
-
+let updateCacheDebounceTimer: any = null;
 const updateCachedWords = () => {
   if (updateCacheDebounceTimer) clearTimeout(updateCacheDebounceTimer);
-  
-  // Use a slight debounce to prevent UI stutter during rapid toggles
   updateCacheDebounceTimer = setTimeout(() => {
     performUpdateCachedWords();
-  }, 100); // Reduced delay for better feel
+  }, 100);
 };
 
 const rebuildBaseDictionaryCache = () => {
@@ -433,26 +288,10 @@ const performUpdateCachedWords = () => {
     .map(([path, cfg]) => ({ path, ...cfg }))
     .sort((a, b) => a.priority - b.priority);
 
-  const hasActiveAdvanced = activeConfigs.length > 0;
-
-  if (hasActiveAdvanced) {
-    if (isStrictAdvancedSheet.value) {
-      // STRICT MODE: Start fresh (do not use base)
-      sourceSet.clear();
-      targetSet.clear();
-      lookup.clear();
-    }
-
+  if (activeConfigs.length > 0) {
     activeConfigs.forEach(cfg => {
-      // Add lookup mappings
       const mapping = advancedDictData.value.get(cfg.sheet);
-      if (mapping) {
-        mapping.forEach((val, key) => {
-          if (key && val) lookup.set(key, val);
-        });
-      }
-
-      // Add highlight words
+      if (mapping) mapping.forEach((val, key) => { if (key && val) lookup.set(key, val); });
       const cache = sheetCacheMap.get(cfg.sheet);
       if (cache) {
         cache.sources.forEach(s => sourceSet.add(s));
@@ -461,60 +300,17 @@ const performUpdateCachedWords = () => {
     });
   }
 
-  const sList = Array.from(sourceSet).sort((a, b) => b.length - a.length);
-  const tList = Array.from(targetSet).sort((a, b) => b.length - a.length);
-  sourceWordsList.value = sList;
-  targetWordsList.value = tList;
+  sourceWordsList.value = Array.from(sourceSet).sort((a, b) => b.length - a.length);
+  targetWordsList.value = Array.from(targetSet).sort((a, b) => b.length - a.length);
   cachedLookup.value = lookup;
-  if (lookup.size > 0) {
-    try {
-      const sortedKeys = Array.from(lookup.keys()).sort((a, b) => b.length - a.length);
-      const pattern = sortedKeys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-      translationRegex.value = new RegExp(`(${pattern})`, 'g');
-    } catch (e) {
-      console.error('Failed to create translation regex:', e);
-      translationRegex.value = null;
-    }
-  } else {
-    translationRegex.value = null;
-  }
+  translationRegex.value = buildTranslationRegex(lookup);
   
   updateAllHighlights();
 };
 
-const filteredDictionary = computed(() => {
-  if (!localSearchQuery.value) return dictionaryData.value;
-  const q = localSearchQuery.value.toLowerCase().trim();
-  
-  return dictionaryData.value.filter(item => {
-    if (isStrict.value) {
-      return item.jp.toLowerCase() === q || 
-             item.en.toLowerCase() === q || 
-             item.vi.toLowerCase() === q;
-    }
-    return item.jp.toLowerCase().includes(q) || 
-           item.en.toLowerCase().includes(q) || 
-           item.vi.toLowerCase().includes(q);
-  });
-});
-
-
 const handleQuickTranslate = () => {
-  if (!translateInput.value) {
-    translateOutput.value = '';
-    return;
-  }
-
-  if (!translationRegex.value) {
-    translateOutput.value = translateInput.value;
-    return;
-  }
-
-  translateOutput.value = translateInput.value.replace(translationRegex.value, (match) => {
-    return cachedLookup.value.get(match) || match;
-  });
+  translateOutput.value = translateText(translateInput.value, translationRegex.value, cachedLookup.value);
 };
-
 
 const clearAll = () => {
   translateInput.value = '';
@@ -524,11 +320,8 @@ const clearAll = () => {
 const formatInputText = () => {
   let text = translateInput.value;
   if (!text) return;
-
-  // New Logic: Extract SQL data from Java append strings
   if (text.includes('.append(')) {
-    const lines = text.split('\n');
-    const results = lines.map(line => {
+    const results = text.split('\n').map(line => {
       const match = line.match(/\.append\s*\(\s*["'](.*?)["']\s*\)/i);
       if (match) {
         let content = match[1].trim();
@@ -544,18 +337,8 @@ const formatInputText = () => {
       return;
     }
   }
-
-  // Basic formatting fallback
-  const formatted = text
-    .split('\n')
-    .map(line => line.trim().replace(/\s+/g, ' '))
-    .filter(line => line.length > 0)
-    .join('\n')
-    .trim();
-  translateInput.value = formatted;
+  translateInput.value = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(line => line.length > 0).join('\n').trim();
 };
-
-
 
 const copyResult = async () => {
   if (!translateOutput.value) return;
@@ -569,23 +352,238 @@ const copyResult = async () => {
 
 const openExcel = async () => {
   if (dictionaryPath.value) {
-    try {
-      await invoke('open_file_path', { path: dictionaryPath.value });
-    } catch (e) {
-      alert('Failed to open Excel file: ' + e);
-    }
+    try { await invoke('open_file_path', { path: dictionaryPath.value }); } catch (e) { alert('Failed to open Excel file: ' + e); }
   } else {
     alert('Please configure dictionary path in Settings first.');
   }
 };
 
+const saveQuickTranslateSettings = async (folder: string) => {
+  try {
+    const raw = await invoke('get_settings') as string;
+    const s = JSON.parse(raw || "{}");
+    s.quick_translate_folder = folder;
+    await invoke('save_settings', { settings: JSON.stringify(s) });
+  } catch (e) {
+    console.error('Failed to save Quick Translate settings:', e);
+  }
+};
+
+const loadFilesFromFolder = async (folderPath: string) => {
+  try {
+    const files = await invoke('list_files_in_dir', { 
+      path: folderPath, 
+      extension: 'xlsx' 
+    }) as string[];
+    excelFilesInFolder.value = files.map(f => f.replace(/\\/g, '/'));
+    
+    // Scan sheet count for each file (Async to avoid blocking UI)
+    fileSheetCounts.value = {};
+    for (const f of excelFilesInFolder.value) {
+      try {
+        const bytes = await invoke('read_file_binary', { path: f }) as number[];
+        const workbook = XLSX.read(new Uint8Array(bytes), { type: 'array', bookSheets: true });
+        fileSheetCounts.value[f] = workbook.SheetNames.length;
+      } catch (err) {
+        console.error(`Failed to scan sheets for ${f}:`, err);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load files from folder:', e);
+  }
+};
+
+// Open folder dialog
+const selectFolder = async () => {
+  try {
+    const folder = await open({ directory: true, multiple: false });
+    if (!folder || typeof folder !== 'string') return;
+    const cleanPath = folder.replace(/\\/g, '/');
+    selectedFolder.value = cleanPath;
+    
+    await saveQuickTranslateSettings(cleanPath);
+    await loadFilesFromFolder(cleanPath);
+
+    selectedFile.value = '';
+    sheetsOfSelectedFile.value = [];
+    selectedSheets.value = new Set();
+  } catch (e) {
+    console.error('Failed to select folder:', e);
+  }
+};
+
+// When clicking a file in Column 1 -> load sheet list into Column 4
+const selectExcelFile = async (filePath: string) => {
+  selectedFile.value = filePath;
+  selectedSheets.value = new Set();
+  sheetRowCounts.value = {};
+  sheetMetadata.value = {};
+  sheetSearchQuery.value = ''; // Reset filter when switching files
+  try {
+    const bytes = await invoke('read_file_binary', { path: filePath }) as number[];
+    const workbook = XLSX.read(new Uint8Array(bytes), { type: 'array' });
+    sheetsOfSelectedFile.value = workbook.SheetNames;
+
+    // Calculate metadata for each sheet
+    workbook.SheetNames.forEach(name => {
+      const ws = workbook.Sheets[name];
+      if (!ws) return;
+
+      // Extract metadata according to defined format:
+      // Row 2: Table Names
+      // Row 5+: Columns
+      const jsonData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      
+      let logical = '';
+      let physical = '';
+      let colCount = 0;
+
+      if (jsonData.length >= 2) {
+        const row1 = jsonData[0] || []; // Header row
+        const row2 = jsonData[1] || []; // Data row (logical/physical names)
+
+        // Try to find columns for Logical/Physical names
+        const lIdx = row1.findIndex((c: any) => String(c||'').includes('論理'));
+        const pIdx = row1.findIndex((c: any) => String(c||'').includes('物理'));
+
+        if (lIdx !== -1) logical = String(row2[lIdx] || '').trim();
+        else logical = String(row2[0] || '').trim(); // Fallback to first col
+
+        if (pIdx !== -1) physical = String(row2[pIdx] || '').trim();
+        else physical = String(row2[3] || row2[1] || '').trim(); // Fallback to col 4 or 2
+      }
+
+      // Count columns from row 5 (index 4)
+      if (jsonData.length >= 5) {
+        for (let i = 4; i < jsonData.length; i++) {
+          const row = jsonData[i];
+          // A row is counted if it has a number in the first column or content in the logical name column
+          if (row && (row[0] !== undefined && row[0] !== '' || row[1])) {
+            colCount++;
+          }
+        }
+      }
+
+      sheetMetadata.value[name] = { logical, physical, colCount };
+      sheetRowCounts.value[name] = colCount; // Display refined count in Column 4
+    });
+  } catch (e) {
+    console.error('Failed to read sheets:', e);
+    sheetsOfSelectedFile.value = [];
+  }
+};
+
+// When ticking/unticking a sheet in Column 4 -> rebuild lookup
+const toggleSheet = async (sheetName: string) => {
+  const newSet = new Set(selectedSheets.value);
+  if (newSet.has(sheetName)) {
+    newSet.delete(sheetName);
+  } else {
+    newSet.add(sheetName);
+    // Load data for this sheet if not already loaded
+    const sheetKey = `${selectedFile.value}::${sheetName}`;
+    if (!advancedDictData.value.has(sheetKey)) {
+      await loadSingleSheet(selectedFile.value, sheetName);
+    }
+  }
+  selectedSheets.value = newSet;
+  
+  // Sync into advancedConfigs for updateCachedWords() to trigger
+  syncFolderSheetsToAdvancedConfigs();
+  updateCachedWords();
+};
+
+const toggleAllSheets = async () => {
+    if (sheetsOfSelectedFile.value.length === 0) return;
+    const allChecked = sheetsOfSelectedFile.value.every(s => selectedSheets.value.has(s));
+    if (allChecked) {
+        selectedSheets.value.clear();
+    } else {
+        for (const sheetName of sheetsOfSelectedFile.value) {
+            if (!selectedSheets.value.has(sheetName)) {
+                selectedSheets.value.add(sheetName);
+                const sheetKey = `${selectedFile.value}::${sheetName}`;
+                if (!advancedDictData.value.has(sheetKey)) {
+                    await loadSingleSheet(selectedFile.value, sheetName);
+                }
+            }
+        }
+    }
+    syncFolderSheetsToAdvancedConfigs();
+    updateCachedWords();
+};
+
+// Load data for a specific sheet (reusing existing parse logic)
+const loadSingleSheet = async (filePath: string, sheetName: string) => {
+  try {
+    const bytes = await invoke('read_file_binary', { path: filePath }) as number[];
+    const workbook = XLSX.read(new Uint8Array(bytes), { type: 'array' });
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) return;
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+    let headerRowIndex = -1, logicalColIdx = -1, physicalColIdx = -1;
+    for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
+      const row = jsonData[i] || [];
+      const li = row.findIndex((c: any) => String(c||'').toLowerCase().includes('論理') || String(c||'').toLowerCase().includes('logical'));
+      const pi = row.findIndex((c: any) => String(c||'').toLowerCase().includes('物理') || String(c||'').toLowerCase().includes('physical'));
+      if (li !== -1 && pi !== -1) { headerRowIndex = i; logicalColIdx = li; physicalColIdx = pi; break; }
+    }
+
+    const mapping = new Map<string, string>();
+    if (headerRowIndex !== -1) {
+      for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
+        const row = jsonData[i] || [];
+        const src = String(row[logicalColIdx]||'').trim();
+        const tgt = String(row[physicalColIdx]||'').trim();
+        if (src && tgt) mapping.set(src, tgt);
+      }
+    } else {
+      jsonData.forEach(row => {
+        if (row.length >= 2) {
+          const src = String(row[0]||'').trim(), tgt = String(row[1]||'').trim();
+          if (src && tgt && src.length < 200) mapping.set(src, tgt);
+        }
+      });
+    }
+
+    const sheetKey = `${filePath}::${sheetName}`;
+    if (mapping.size > 0) {
+      advancedDictData.value.set(sheetKey, mapping);
+      const ss = new Set<string>(), ts = new Set<string>();
+      mapping.forEach((v, k) => { ss.add(k); ts.add(v); });
+      sheetCacheMap.set(sheetKey, { sources: ss, targets: ts });
+    }
+  } catch (e) {
+    console.error(`Failed to load sheet ${sheetName}:`, e);
+  }
+};
+
+// Sync selected sheets into advancedConfigs so updateCachedWords can read them
+const syncFolderSheetsToAdvancedConfigs = () => {
+  // Remove old config for this file and related sheets in the folder
+  const keysToRemove = Object.keys(advancedConfigs.value)
+    .filter(k => k.startsWith(selectedFile.value));
+  keysToRemove.forEach(k => delete advancedConfigs.value[k]);
+  
+  if (selectedFile.value && selectedSheets.value.size > 0) {
+    let prio = 0;
+    selectedSheets.value.forEach(sheetName => {
+      const fakeKey = `${selectedFile.value}||${sheetName}`;
+      advancedConfigs.value[fakeKey] = {
+        sheet: `${selectedFile.value}::${sheetName}`,
+        priority: prio++,
+        enabled: true
+      };
+    });
+  }
+};
 
 const copyToClipboard = async (text: string, event: MouseEvent) => {
   const cleanText = text ? text.replace(/<[^>]*>/g, '').trim() : '';
   if (!cleanText) return;
   try {
     await navigator.clipboard.writeText(cleanText);
-    
     copyPos.value = { x: event.clientX, y: event.clientY };
     showCopyToast.value = true;
     setTimeout(() => { showCopyToast.value = false; }, 1200);
@@ -596,92 +594,36 @@ const copyToClipboard = async (text: string, event: MouseEvent) => {
 
 const handleHighlighterClick = (event: MouseEvent) => {
   const target = event.target as HTMLElement;
-  if (target.tagName === 'MARK') {
-    copyToClipboard(target.innerText, event);
-  }
+  if (target.tagName === 'MARK') copyToClipboard(target.innerText, event);
 };
 
 const handleHighlighterMouseOver = (event: MouseEvent) => {
   const target = event.target as HTMLElement;
-  if (target.tagName === 'MARK') {
-    hoveredWord.value = target.innerText;
-  }
+  if (target.tagName === 'MARK') hoveredWord.value = target.innerText;
 };
 
-const handleHighlighterMouseOut = () => {
-  hoveredWord.value = null;
-};
+const handleHighlighterMouseOut = () => { hoveredWord.value = null; };
 
-
-const highlightMatch = (text: string) => {
-  if (!localSearchQuery.value || isStrict.value) return text;
-  const q = localSearchQuery.value.trim();
-  if (!q) return text;
-  try {
-    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    return text.replace(regex, '<mark class="local-match">$1</mark>');
-  } catch { return text; }
-};
-
-
-// --- CRUD ---
-const openAddModal = () => {
-  modalMode.value = 'add';
-  editBuffer.value = { jp: '', en: '', vi: '' };
-  showDictModal.value = true;
-};
-
-const openEditModal = (item: any) => {
-  modalMode.value = 'edit';
-  editingIdx.value = dictionaryData.value.indexOf(item);
-  editBuffer.value = { ...item };
-  showDictModal.value = true;
-};
-
-const saveModalData = () => {
-  const newArr = [...dictionaryData.value];
-  if (modalMode.value === 'add') {
-    newArr.unshift({ ...editBuffer.value });
-  } else if (editingIdx.value !== null) {
-    newArr[editingIdx.value] = { ...editBuffer.value };
-  }
-  dictionaryData.value = newArr; // Trigger reference update for shallowRef
-  showDictModal.value = false;
-  editingIdx.value = null;
-};
-
-const deleteRow = async (item: any) => {
-  const c = await ask('Are you sure you want to delete this row?', { title: 'Confirm', kind: 'warning' });
-  if (c) {
-    dictionaryData.value = dictionaryData.value.filter(i => i !== item); // Trigger reference update
-  }
-};
-
-// Highlighting Logic
 const renderHighlighted = (text: string, mode: 'source' | 'target') => {
   if (!text) return '';
-  // CORE FIX: Kill-switch for large text (> 5000 chars) to prevent DOM reflow lag
   if (text.length > 5000) return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const regex = mode === 'source' ? sourceRegex.value : targetRegex.value;
   
-  let result = escaped;
-  if (regex) {
-    result = escaped.replace(regex, (match) => {
-      // Attribute safe escape
-      const attrMatch = match.replace(/"/g, '&quot;');
-      return `<mark class="hl-${mode}" data-word="${attrMatch}">${match}</mark>`;
-    });
-  }
-
-  return result;
+  const patternArr = mode === 'source' ? sourceWordsList.value : targetWordsList.value;
+  if (patternArr.length === 0) return escaped;
+  
+  const pattern = patternArr.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const regex = new RegExp(`(${pattern})`, 'g');
+  
+  return escaped.replace(regex, (match) => {
+    const attrMatch = match.replace(/"/g, '&quot;');
+    return `<mark class="hl-${mode}" data-word="${attrMatch}">${match}</mark>`;
+  });
 };
-
 
 const highlightedInput = ref('');
 const highlightedOutput = ref('');
-
 let translateHighlightTimeout: any = null;
 
 const updateAllHighlights = () => {
@@ -689,319 +631,81 @@ const updateAllHighlights = () => {
     highlightedOutput.value = renderHighlighted(translateOutput.value, 'target');
 };
 
-// Update highlights on content or search query change, but debounced and gated by visibility
 watch([debouncedInput, translateOutput, activeTab], () => {
     if (translateHighlightTimeout) clearTimeout(translateHighlightTimeout);
-    
     if (activeTab.value !== 'Translate') return;
-    
-    translateHighlightTimeout = setTimeout(() => {
-        updateAllHighlights();
-    }, 400);
+    translateHighlightTimeout = setTimeout(() => { updateAllHighlights(); }, 400);
 }, { immediate: true });
 
 const hoverStyleTag = ref<HTMLStyleElement | null>(null);
 watch(hoveredWord, (newWord) => {
   if (!hoverStyleTag.value) {
     hoverStyleTag.value = document.createElement('style');
-    hoverStyleTag.value.id = 'sync-hover-styles';
     document.head.appendChild(hoverStyleTag.value);
   }
-  
   if (newWord && activeTab.value === 'Translate') {
     const escaped = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(newWord) : newWord.replace(/["\\]/g, '\\$&');
-    hoverStyleTag.value.innerHTML = `
-      mark[data-word="${escaped}"] {
-        background: var(--accent-color) !important;
-        color: white !important;
-        border-radius: 4px;
-        box-shadow: 0 0 10px var(--accent-color);
-        text-decoration: none !important;
-      }
-    `;
+    hoverStyleTag.value.innerHTML = `mark[data-word="${escaped}"] { background: var(--accent-color) !important; color: white !important; border-radius: 4px; box-shadow: 0 0 10px var(--accent-color); }`;
   } else {
     hoverStyleTag.value.innerHTML = '';
   }
 });
 
-
-// Ensure highlights are ready when user switches to this tab
-watch(activeTab, (newTab) => {
-    if (newTab === 'Translate') {
-        updateAllHighlights();
-    }
-});
-
-const handleScroll = (side: 'input' | 'result') => {
-  syncScroll(side);
-};
-
-
-const inputHighlighter = ref<HTMLDivElement | null>(null);
-const resultHighlighter = ref<HTMLDivElement | null>(null);
-
-const validateAndAddPath = async () => {
-  const p = newManualPath.value.trim().replace(/\\/g, '/');
-  if (!p) return;
-  try {
-    const exists = await invoke('check_path_exists', { path: p });
-    if (!exists) {
-      pathError.value = 'Path does not exist on disk';
-      return;
-    }
-    if (advancedTranslatePaths.value.includes(p)) {
-      pathError.value = 'Path already added';
-      return;
-    }
-    // IMMEDIATE UI Feedback: Update references first
-    advancedTranslatePaths.value = [...advancedTranslatePaths.value, p];
-    advancedConfigs.value = {
-      ...advancedConfigs.value,
-      [p]: { sheet: '', priority: 1, enabled: true }
-    };
-    
-    selectedAdvancedFile.value = p; 
-    newManualPath.value = '';
-    pathError.value = '';
-
-    // LATER: Load the data in the background (awaited but row is already visible)
-    await loadAdvancedDictionaries();
-    updateCachedWords();
-    await saveGlobalSettings();
-  } catch (e) {
-
-    pathError.value = 'Error validating path';
-  }
-};
-
-const addAdvancedPath = async () => {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const selected = await open({
-      multiple: true,
-      filters: [{ name: 'Excel Files', extensions: ['xlsx', 'xls'] }]
-    });
-    if (selected) {
-      const selectionArr = Array.isArray(selected) ? selected : [selected];
-      const paths = selectionArr.map(p => p.replace(/\\/g, '/'));
-      const newPaths = paths.filter(p => !advancedTranslatePaths.value.includes(p));
-      
-      // IMMEDIATE UI Feedback
-      advancedTranslatePaths.value = [...advancedTranslatePaths.value, ...newPaths];
-      const nextConfigs = { ...advancedConfigs.value };
-      newPaths.forEach(p => {
-        nextConfigs[p] = { sheet: '', priority: 1, enabled: true };
-      });
-      advancedConfigs.value = nextConfigs;
-
-      if (newPaths.length > 0) {
-        selectedAdvancedFile.value = newPaths[0];
-      }
-
-      // BACKGROUND Loading
-      await loadAdvancedDictionaries();
-      updateCachedWords();
-      await saveGlobalSettings();
-    }
-  } catch (e) {
-
-    console.error('Failed to add advanced path:', e);
-  }
-};
-
-const removeAdvancedPath = async (path: string) => {
-  advancedTranslatePaths.value = advancedTranslatePaths.value.filter(p => p !== path);
-  delete advancedConfigs.value[path];
-  if (selectedAdvancedFile.value === path) selectedAdvancedFile.value = '';
-  await loadAdvancedDictionaries();
-  updateCachedWords();
-  await saveGlobalSettings();
-};
-
-
-onMounted(() => {
-  loadDictionary();
-  window.addEventListener('keydown', handleLocalKeyDown);
-});
-
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleLocalKeyDown);
-});
-
 const handleLocalKeyDown = (e: KeyboardEvent) => {
   if (activeTab.value !== 'Translate') return;
-  
   if (e.ctrlKey && e.key.toLowerCase() === 'f' && !e.shiftKey) {
     if (subTab.value === 'dictionary') {
-      e.preventDefault();
-      dictionarySearchInput.value?.focus();
-      dictionarySearchInput.value?.select();
+      e.preventDefault(); dictionarySearchInput.value?.focus(); dictionarySearchInput.value?.select();
     }
   }
 };
 
 watch(translateInput, (val) => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
-    debouncedInput.value = val;
-    handleQuickTranslate();
-  }, 300);
+  debounceTimer = setTimeout(() => { debouncedInput.value = val; handleQuickTranslate(); }, 300);
 });
+
 watch(translateOutput, async () => {
   await nextTick();
   if (subTab.value === 'quick-translate') syncScroll('result');
 });
-watch(subTab, async () => {
-  await nextTick();
-  if (subTab.value === 'quick-translate') {
-    syncScroll('input'); syncScroll('result');
-  }
-});
 
-let mouseMoveFrame: any = null;
 const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null) => {
   if (!target) return;
-  // CORE FIX: Throttle to 60fps using requestAnimationFrame
-  if (mouseMoveFrame) return;
-  
-  mouseMoveFrame = requestAnimationFrame(() => {
-    const rect = target.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    const scrollY = target.scrollTop;
-    
-    const contentY = y + scrollY - 15; // 15px is textarea padding
-    if (contentY < 0) {
-      hoveredLineIndex.value = null;
-      mouseMoveFrame = null;
-      return;
-    }
-    
-    const remValue = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const lineHeightPx = 0.85 * remValue * 1.6;
-    
-    const idx = Math.floor(contentY / lineHeightPx) + 1;
-    hoveredLineIndex.value = idx <= maxLines.value ? idx : null;
-    mouseMoveFrame = null;
-  });
+  const rect = target.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  const scrollY = target.scrollTop;
+  const contentY = y + scrollY - 15;
+  if (contentY < 0) { hoveredLineIndex.value = null; return; }
+  const remValue = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const lineHeightPx = 0.85 * remValue * 1.6;
+  const idx = Math.floor(contentY / lineHeightPx) + 1;
+  hoveredLineIndex.value = idx <= maxLines.value ? idx : null;
 };
 
-const advancedFileOptions = computed(() => {
-  return advancedTranslatePaths.value.map(p => {
-    const fname = p.split(/[/\\]/).pop() || p;
-    return { value: p, label: fname };
-  });
-});
+// ...
 
-const availableFileSheets = computed(() => {
-  const path = selectedAdvancedFile.value;
-  if (!path) return [];
-  return advancedDictKeys.value
-    .filter(k => k.startsWith(path + '::'))
-    .map(k => ({ label: k.split('::').pop() || '', value: k }));
-});
+// CRUD
+const openAddModal = () => { modalMode.value = 'add'; editBuffer.value = { jp: '', en: '', vi: '' }; showDictModal.value = true; };
+const openEditModal = (item: any) => { modalMode.value = 'edit'; editingIdx.value = dictionaryData.value.indexOf(item); editBuffer.value = { ...item }; showDictModal.value = true; };
+const saveModalData = () => {
+  const newArr = [...dictionaryData.value];
+  if (modalMode.value === 'add') newArr.unshift({ ...editBuffer.value });
+  else if (editingIdx.value !== null) newArr[editingIdx.value] = { ...editBuffer.value };
+  dictionaryData.value = newArr; showDictModal.value = false;
+};
 
-const filteredAdvancedFileOptions = computed(() => {
-  if (!fileSearch.value) return advancedFileOptions.value;
-  return advancedFileOptions.value.filter(opt => opt.label.toLowerCase().includes(fileSearch.value.toLowerCase()));
-});
-
-const filteredAvailableFileSheets = computed(() => {
-  if (!openDropdown.value) return [];
-  const path = openDropdown.value;
-  const sheets = advancedDictKeys.value
-    .filter(k => k.startsWith(path + '::'))
-    .map(k => ({ label: k.split('::').pop() || '', value: k }));
-    
-  if (!debouncedSheetSearch.value) return sheets;
-  return sheets.filter(opt => opt.label.toLowerCase().includes(debouncedSheetSearch.value.toLowerCase()));
-});
-
-watch(advancedTranslatePaths, (newPaths) => {
-  if (newPaths.length === 0) {
-    selectedAdvancedFile.value = '';
-  } else if (selectedAdvancedFile.value && !newPaths.includes(selectedAdvancedFile.value)) {
-    selectedAdvancedFile.value = '';
-  }
-}, { immediate: true });
-
-watch(selectedAdvancedFile, (newVal) => {
-  // Navigation: Expanding a new file card
-});
-
-watch(advancedDictKeys, () => {
-  updateCachedWords();
-  handleQuickTranslate();
-});
-
-watch([sharedTargetLang, isStrictAdvancedSheet], () => {
-  if (activeTab.value !== 'Translate') return;
-  rebuildBaseDictionaryCache();
-  updateCachedWords();
-  handleQuickTranslate();
-  saveGlobalSettings();
-});
-
-// Watch for changes in advanced configs
-watch(advancedConfigs, () => {
-  updateCachedWords();
-  saveGlobalSettings();
-}, { deep: true });
+// ...
 
 watch(triggerDictionaryFocus, async () => {
-
   await nextTick();
-  if (dictionarySearchInput.value) {
-    dictionarySearchInput.value.focus();
-    dictionarySearchInput.value.select();
-  }
-});
-
-watch(triggerCloseModals, () => {
-  showDictModal.value = false;
-});
-
-watch(triggerSettingsRefresh, () => {
-  loadDictionary();
+  if (dictionarySearchInput.value) { dictionarySearchInput.value.focus(); dictionarySearchInput.value.select(); }
 });
 
 watch(dictionaryData, () => {
-  rebuildBaseDictionaryCache();
-  updateCachedWords();
-  if (subTab.value === 'quick-translate' && translateInput.value) {
-    handleQuickTranslate();
-  }
+  rebuildBaseDictionaryCache(); updateCachedWords();
+  if (subTab.value === 'quick-translate' && translateInput.value) handleQuickTranslate();
 });
-
-const debouncedSheetSearch = ref('');
-let sheetSearchTimer: any = null;
-
-watch(sheetSearch, (val) => {
-  if (sheetSearchTimer) clearTimeout(sheetSearchTimer);
-  sheetSearchTimer = setTimeout(() => {
-    debouncedSheetSearch.value = val;
-  }, 200);
-});
-
-const toggleSheetDropdown = (path: string, event: MouseEvent) => {
-  if (openDropdown.value === path) {
-    openDropdown.value = null;
-    return;
-  }
-  
-  const target = event.currentTarget as HTMLElement;
-  const rect = target.getBoundingClientRect();
-  
-  // Calculate position in screen space
-  dropdownPosition.value = {
-    top: rect.bottom + window.scrollY,
-    left: rect.left + window.scrollX,
-    width: rect.width
-  };
-  
-  openDropdown.value = path;
-  sheetSearch.value = '';
-};
 </script>
 
 <template>
@@ -1023,228 +727,68 @@ const toggleSheetDropdown = (path: string, event: MouseEvent) => {
         </label>
       </div>
 
-
       <div class="global-actions">
-        <button v-if="subTab === 'dictionary' && dictionaryData.length > 0" @click="cleanDictionaryDuplicates" class="action-btn-danger">CLEAN DUPLICATES</button>
-        <button @click="showAdvancedModal = true" class="action-btn-mint">ADVANCED IMPORT</button>
-        <button @click="openExcel" class="action-btn-mint">OPEN EXCEL</button>
+        <button v-if="subTab === 'dictionary'" @click="cleanDictionaryDuplicates" class="action-btn-danger">CLEAN DUPLICATES</button>
       </div>
-
     </header>
 
     <div class="tab-body">
-      <!-- Dictionary View -->
-      <div v-if="subTab === 'dictionary'" class="dictionary-container">
-        <div class="dict-table-wrapper glass">
-          <table class="dict-table">
-            <thead>
-              <tr>
-                <th class="col-index">#</th>
-                <th>JAPANESE</th>
-                <th>ENGLISH</th>
-                <th>VIETNAMESE</th>
-                <th class="col-actions">ACTIONS</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="isLoading">
-                <td colspan="5" class="empty-state">Loading dictionary...</td>
-              </tr>
-              <tr v-else-if="filteredDictionary.length === 0">
-                <td colspan="5" class="empty-state">
-                  {{ dictionaryPath ? 'No matches found.' : 'Please configure dictionary path in Settings.' }}
-                </td>
-              </tr>
-              <tr v-for="(item, idx) in filteredDictionary.slice(0, 100)" :key="idx" v-else>
-                <td class="col-index">{{ idx + 1 }}</td>
-                <td @click="copyToClipboard(item.jp, $event)" class="clickable-cell"><span v-html="highlightMatch(item.jp)"></span></td>
-                <td @click="copyToClipboard(item.en, $event)" class="clickable-cell code-text"><span v-html="highlightMatch(item.en)"></span></td>
-                <td @click="copyToClipboard(item.vi, $event)" class="clickable-cell"><span class="lang-tag" v-html="highlightMatch(item.vi)"></span></td>
-                <td class="col-actions">
-                  <div class="action-icons">
-                    <button @click="openEditModal(item)" class="icon-action-btn edit" title="Edit">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                    </button>
-                    <button @click="deleteRow(item)" class="icon-action-btn delete" title="Delete">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="filteredDictionary.length > 100">
-                <td colspan="5" class="empty-state" style="padding: 15px !important; font-size: 0.7rem;">
-                  ... showing first 100 of {{ filteredDictionary.length }} results. Use search to find specific items.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <DictionaryTable 
+        v-if="subTab === 'dictionary'"
+        :data="dictionaryData"
+        :isLoading="isLoading"
+        :searchQuery="localSearchQuery"
+        :isStrict="isStrict"
+        :dictionaryPath="dictionaryPath"
+        @edit="openEditModal"
+        @delete="(item) => dictionaryData = dictionaryData.filter(i => i !== item)"
+        @copy="copyToClipboard"
+      />
 
-        <!-- Floating Add Button -->
-        <button @click="openAddModal" class="fab-add-btn" title="Add Entry">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        </button>
-      </div>
-
-      <!-- Quick Translate View -->
-      <div v-if="subTab === 'quick-translate'" class="quick-translate-container">
-        <div class="split-panes">
-          <div class="pane-group">
-            <div class="pane-header">
-              <span class="pane-label">INPUT SOURCE</span>
-              <div class="header-right">
-                <button @click="formatInputText" class="ghost-btn format-btn">FORMAT</button>
-                <button @click="clearAll" class="clear-btn">CLEAR ALL</button>
-              </div>
-            </div>
-            <div class="pane-editor glass">
-              <div class="line-numbers" ref="inputLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num" @mouseover="hoveredLineIndex = n" @mouseout="hoveredLineIndex = null" :class="{ 'hl-active': hoveredLineIndex === n }">{{ n }}</div></div>
-
-              <div class="editor-sub-container" @mousemove="handleEditorMouseMove($event, inputTextarea)" @mouseleave="hoveredLineIndex = null">
-                <div class="hover-row-overlay" v-if="hoveredLineIndex !== null" :style="{ top: 'calc(15px + ' + ((hoveredLineIndex - 1) * 1.36) + 'rem)' }"></div>
-                <textarea v-model="translateInput" ref="inputTextarea" @scroll="handleScroll('input')" placeholder="Paste text here..."></textarea>
-
-
-                <div class="highlighter" v-html="highlightedInput" ref="inputHighlighter" @click="handleHighlighterClick" @mouseover="handleHighlighterMouseOver" @mouseout="handleHighlighterMouseOut"></div>
-
-              </div>
-            </div>
-          </div>
-          <div class="pane-group">
-            <div class="pane-header">
-              <div class="header-left"><span class="pane-label">RESULT TO:</span>
-                <div class="lang-segmented">
-                  <button @click="sharedTargetLang = 'en'" :class="{ active: sharedTargetLang === 'en' }">EN</button>
-                  <button @click="sharedTargetLang = 'jp'" :class="{ active: sharedTargetLang === 'jp' }">JP</button>
-                  <button @click="sharedTargetLang = 'vi'" :class="{ active: sharedTargetLang === 'vi' }">VI</button>
-                </div>
-              </div>
-              <div class="header-right">
-                <div class="active-source-indicator" v-if="Object.values(advancedConfigs).some(c => c.enabled && c.sheet)">
-                  <span class="indicator-label">Active Sources:</span>
-                  <span class="indicator-value">{{ Object.values(advancedConfigs).filter(c => c.enabled && c.sheet).length }}</span>
-                </div>
-                
-                <label class="strict-checkbox" :class="{ disabled: !Object.values(advancedConfigs).some(c => c.enabled && c.sheet) }" title="If checked, only search within the exact selected sheets">
-                  <input type="checkbox" v-model="isStrictAdvancedSheet" :disabled="!Object.values(advancedConfigs).some(c => c.enabled && c.sheet)" />
-                  Advance Translate
-                </label>
-                <button @click="copyResult" class="ghost-btn">COPY RESULT</button>
-              </div>
-
-            </div>
-            <div class="pane-editor glass">
-              <div class="line-numbers" ref="resultLineNumbers"><div v-for="n in maxLines" :key="n" class="line-num" @mouseover="hoveredLineIndex = n" @mouseout="hoveredLineIndex = null" :class="{ 'hl-active': hoveredLineIndex === n }">{{ n }}</div></div>
-
-              <div class="editor-sub-container" @mousemove="handleEditorMouseMove($event, resultTextarea)" @mouseleave="hoveredLineIndex = null">
-                <div class="hover-row-overlay" v-if="hoveredLineIndex !== null" :style="{ top: 'calc(15px + ' + ((hoveredLineIndex - 1) * 1.36) + 'rem)' }"></div>
-                <textarea v-model="translateOutput" readonly ref="resultTextarea" @scroll="handleScroll('result')" placeholder="Translation..." class="clickable-result"></textarea>
-
-
-                <div class="highlighter" v-html="highlightedOutput" ref="resultHighlighter" @click="handleHighlighterClick" @mouseover="handleHighlighterMouseOver" @mouseout="handleHighlighterMouseOut"></div>
-
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <TranslationPane
+        v-if="subTab === 'quick-translate'"
+        ref="paneRef"
+        v-model:input="translateInput"
+        v-model:targetLang="sharedTargetLang"
+        v-model:hoveredLineIndex="hoveredLineIndex"
+        :output="translateOutput"
+        :highlighterInput="highlightedInput"
+        :highlighterOutput="highlightedOutput"
+        :maxLines="maxLines"
+        :activeSourcesCount="Object.values(advancedConfigs).filter(c => c.enabled && c.sheet).length"
+        @format="formatInputText"
+        @clear="clearAll"
+        @copy="copyResult"
+        @scroll="syncScroll"
+        @highlighterClick="handleHighlighterClick"
+        @highlighterMouseOver="handleHighlighterMouseOver"
+        @highlighterMouseOut="handleHighlighterMouseOut"
+        @mouseMove="handleEditorMouseMove"
+        :folderPath="selectedFolder"
+        :excelFiles="filteredFiles"
+        :selectedFile="selectedFile"
+        :sheets="filteredSheets"
+        :selectedSheets="selectedSheets"
+        :fileSheetCounts="fileSheetCounts"
+        :sheetRowCounts="sheetRowCounts"
+        :sheetMetadata="sheetMetadata"
+        v-model:fileSearch="fileSearchQuery"
+        v-model:sheetSearch="sheetSearchQuery"
+        @selectFolder="selectFolder"
+        @selectFile="selectExcelFile"
+        @toggleSheet="toggleSheet"
+        @toggleAllSheets="toggleAllSheets"
+      />
     </div>
 
-    <!-- Copy Bubble -->
-    <!-- Advanced Import Modal -->
-    <Teleport to="body">
-      <div v-if="showAdvancedModal" class="modal-overlay" :class="{ 'win95-overlay': theme === '95' }" @mousedown.self="showAdvancedModal = false">
-        <div class="modal-content advanced-modal" :class="{ 'win95-border': theme === '95' }">
-          <div class="modal-header" :class="{ 'win95-header': theme === '95' }">
-            <span>Import database file excel</span>
-            <button @click="showAdvancedModal = false" class="close-btn">&times;</button>
-          </div>
+    <!-- Modals -->
+    <!-- Old Advanced Modal Removed -->
 
-          <div class="modal-body">
-            <p class="modal-info">Load specialized Excel files (mapping <b>論理カラム名</b> to <b>物理カラム名</b>). Takes priority over main dict.</p>
-            
-            <div class="advanced-list" @scroll="openDropdown = null">
-              <div v-for="path in advancedTranslatePaths" :key="path" 
-                   class="advanced-row" :class="{ 'is-active': advancedConfigs[path]?.enabled }">
-                <div class="row-left" v-if="advancedConfigs[path]">
-                  <div class="selection-check">
-                    <input type="checkbox" v-model="advancedConfigs[path].enabled" />
-                  </div>
-                  <div class="file-info" :title="path">
-                    <div class="file-name">{{ path.split(/[/\\]/).pop() }}</div>
-                    <div class="file-path">{{ path }}</div>
-                  </div>
-                </div>
-
-                <div class="row-middle" v-if="advancedConfigs[path]">
-                  <div class="searchable-dropdown sheet-dropdown" @click.stop>
-                    <div class="dropdown-trigger compact" 
-                         @click="toggleSheetDropdown(path, $event)">
-                      {{ advancedConfigs[path].sheet ? advancedConfigs[path].sheet.split('::').pop() : 'Select Sheet' }}
-                    </div>
-                    
-                    <Teleport to="body">
-                      <div class="floating-dropdown-menu" 
-                           v-if="openDropdown === path"
-                           :style="{ 
-                             top: dropdownPosition.top + 'px', 
-                             left: dropdownPosition.left + 'px',
-                             minWidth: dropdownPosition.width + 'px'
-                           }"
-                           @click.stop>
-                        <input type="text" v-model="sheetSearch" placeholder="Search sheet..." class="dropdown-search" />
-                        <div class="dropdown-list">
-                          <div v-for="opt in filteredAvailableFileSheets" :key="opt.value" 
-                               class="dropdown-item" :class="{active: advancedConfigs[path].sheet === opt.value}"
-                               @click="advancedConfigs[path].sheet = opt.value; openDropdown = null; sheetSearch = ''; updateCachedWords()" :title="opt.label">
-                            {{ opt.label }}
-                          </div>
-                        </div>
-                      </div>
-                    </Teleport>
-                  </div>
-                </div>
-
-                <div class="row-right" v-if="advancedConfigs[path]">
-                    <div class="priority-dashboard" v-if="advancedConfigs[path].enabled">
-                      <button @click.stop="advancedConfigs[path].priority = Math.max(1, advancedConfigs[path].priority - 1)" class="prio-mini-btn">-</button>
-                      <input type="number" v-model.number="advancedConfigs[path].priority" min="1" max="99" class="prio-mini-input" />
-                      <button @click.stop="advancedConfigs[path].priority = Math.min(99, advancedConfigs[path].priority + 1)" class="prio-mini-btn">+</button>
-                    </div>
-                  <button @click="removeAdvancedPath(path)" class="remove-mini-btn" title="Remove Source">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="manual-add-row">
-              <input v-model="newManualPath" class="path-input-field" placeholder="Paste path here (C:\...)" @keyup.enter="validateAndAddPath" />
-              <button @click="validateAndAddPath" class="add-manual-btn">Add File</button>
-              <button @click="addAdvancedPath" class="browse-fab" title="Browse Files">&#128194;</button>
-            </div>
-            <p v-if="pathError" class="modal-error">{{ pathError }}</p>
-
-          </div>
-        </div>
-      </div>
-    </Teleport>
-
-    <transition name="bubble">
-
-      <div v-if="showCopyToast" class="copy-bubble" :style="{ left: copyPos.x + 'px', top: (copyPos.y - 30) + 'px' }">
-        Copied!
-      </div>
-    </transition>
-
-    <!-- Modal (Light Themed) -->
     <div v-if="showDictModal" class="modal-overlay">
       <div class="modal-content glass-modal">
         <div class="modal-header-modern">
           <h3>{{ modalMode === 'add' ? 'ADD NEW ENTRY' : 'EDIT ENTRY' }}</h3>
-          <button @click="showDictModal = false" class="close-modal-btn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
+          <button @click="showDictModal = false" class="close-modal-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
         </div>
         <div class="modal-body">
           <div class="modal-field"><label>JAPANESE</label><input v-model="editBuffer.jp" placeholder="JP word..." /></div>
@@ -1257,6 +801,11 @@ const toggleSheetDropdown = (path: string, event: MouseEvent) => {
         </div>
       </div>
     </div>
+
+    <!-- Feedback Toast -->
+    <transition name="bubble">
+      <div v-if="showCopyToast" class="copy-bubble" :style="{ left: copyPos.x + 'px', top: (copyPos.y - 30) + 'px' }">Copied!</div>
+    </transition>
   </div>
 </template>
 
@@ -1268,327 +817,69 @@ const toggleSheetDropdown = (path: string, event: MouseEvent) => {
 .tab-pill-btn.active { background: #fff; color: #6366f1; box-shadow: 0 4px 15px rgba(0,0,0,0.1); opacity: 1; }
 .search-container { flex: 1; display: flex; align-items: center; gap: 10px; max-width: 500px; position: relative; }
 .search-box { flex: 1; display: flex; align-items: center; background: rgba(128,128,128,0.08); border-radius: 50px; padding: 0 15px; height: 36px; border: 1px solid rgba(128,128,128,0.15); }
-
-/* Quick Search Popup */
-.quick-search-popup {
-  position: absolute;
-  top: 110%;
-  left: 0;
-  width: 100%;
-  max-height: 400px;
-  background: var(--container-bg);
-  border: 1px solid var(--accent-color);
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-  z-index: 2000;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  animation: slideIn 0.2s ease-out;
-}
-@keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-
-.popup-header { padding: 8px 15px; background: var(--accent-color); color: #fff; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.05em; }
-.popup-list { overflow-y: auto; }
-.popup-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 10px 15px; border-bottom: 1px solid rgba(128,128,128,0.08); cursor: pointer; transition: 0.2s; }
-.popup-row:hover { background: rgba(99, 102, 241, 0.05); }
-.popup-col { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.popup-col.jp { font-weight: bold; color: var(--accent-color); }
-.popup-footer { padding: 8px 15px; font-size: 0.65rem; text-align: center; opacity: 0.6; cursor: pointer; background: rgba(128,128,128,0.03); }
-.popup-footer:hover { opacity: 1; color: var(--accent-color); }
-
-.search-icon { opacity: 0.5; margin-right: 10px; color: var(--text-color); }
 .header-search-input { flex: 1; background: transparent; border: none; color: #6366f1; font-weight: 800; font-size: 0.8rem; outline: none; }
 .strict-mode { display: flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 900; opacity: 0.5; color: var(--text-color); cursor: pointer; }
-.strict-mode input { cursor: pointer; }
-:deep(.local-match) { background: #6366f1; color: white; border-radius: 2px; padding: 0 2px; }
-
-
-.active-advanced-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.65rem;
-  font-weight: 800;
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  margin-left: 15px;
-}
-
-.active-advanced-badge svg { color: #10b981; }
-
-/* Advanced Modal Styles */
-.advanced-modal { width: 850px; max-width: 95vw; }
-.advanced-list { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; margin-bottom: 25px; padding-right: 5px; }
-
-/* New Dashboard Rows */
-.advanced-row {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr 180px;
-  align-items: center;
-  gap: 15px;
-  background: rgba(128, 128, 128, 0.04);
-  border: 1px solid rgba(128, 128, 128, 0.1);
-  border-radius: 10px;
-  padding: 8px 15px;
-  transition: 0.2s;
-  position: relative;
-}
-.advanced-row:hover { background: rgba(128, 128, 128, 0.07); }
-.advanced-row.is-active { border-color: rgba(99, 102, 241, 0.3); background: rgba(99, 102, 241, 0.03); }
-
-.row-left { display: flex; align-items: center; gap: 12px; overflow: hidden; }
-.file-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.file-name { font-size: 0.75rem; font-weight: 800; color: var(--accent-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.file-path { font-size: 0.55rem; opacity: 0.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.row-middle { min-width: 0; }
-.dropdown-trigger.compact { 
-  padding: 4px 25px 4px 10px; font-size: 0.65rem; height: 28px; line-height: 18px;
-}
-
-.row-right { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.priority-dashboard { display: flex; align-items: center; background: rgba(0,0,0,0.04); border-radius: 6px; padding: 2px; height: 28px; }
-.prio-mini-btn { background: transparent; border: none; color: var(--accent-color); font-size: 0.8rem; font-weight: bold; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.prio-mini-input { background: transparent; border: none; width: 26px; font-size: 0.75rem; font-weight: 900; color: #6366f1; outline: none; text-align: center; }
-.remove-mini-btn { color: #f43f5e; opacity: 0.3; background: transparent; border: none; cursor: pointer; padding: 5px; transition: 0.2s; }
-.remove-mini-btn:hover { opacity: 1; transform: scale(1.1); }
-
-.fab-add-btn {
-
-  position: absolute;
-  bottom: 25px;
-  right: 25px;
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  border: none;
-  background: #6366f1;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 10;
-}
-.fab-add-btn:hover {
-  transform: scale(1.1) rotate(90deg);
-  box-shadow: 0 15px 30px rgba(99, 102, 241, 0.5);
-}
 .global-actions { display: flex; gap: 10px; }
 .action-btn-mint { padding: 8px 15px; background: #ecfdf5; color: #10b981; border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; }
-.action-btn-danger { padding: 8px 15px; background: rgba(244, 63, 94, 0.1); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; margin-right: 5px; }
-.action-btn-danger:hover { background: rgba(244, 63, 94, 0.2); }
+.action-btn-danger { padding: 8px 15px; background: rgba(244, 63, 94, 0.1); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; }
 .action-btn-purple { padding: 8px 15px; background: #6366f1; color: #fff; border: none; border-radius: 8px; font-weight: 800; font-size: 0.7rem; cursor: pointer; }
-.dictionary-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
-.dict-table-wrapper { flex: 1; overflow-y: auto; border-radius: 12px; }
-.dict-table { width: 100%; border-collapse: collapse; }
-.dict-table th { position: sticky; top: 0; background: #6366f1; color: #fff; padding: 12px 15px; text-align: left; font-size: 0.65rem; font-weight: 800; z-index: 5; }
-.dict-table tbody tr { transition: background 0.2s; }
-.dict-table tbody tr:hover { background-color: rgba(99, 102, 241, 0.04); }
-.dict-table td { padding: 10px 15px; font-size: 0.8rem; border-bottom: 1px solid rgba(128,128,128,0.08); color: var(--text-color); }
-.clickable-cell { cursor: pointer; transition: background 0.2s; }
-.clickable-cell:hover { background: rgba(99, 102, 241, 0.06); }
-.clickable-cell:active { background: rgba(99, 102, 241, 0.1); }
-.col-index { text-align: center; opacity: 0.4; }
-.col-actions { text-align: center; width: 80px; }
-.action-icons { display: flex; justify-content: center; gap: 5px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
-.dict-table tbody tr:hover .action-icons { opacity: 1; pointer-events: auto; }
-.icon-action-btn { width: 28px; height: 28px; border: 1px solid rgba(128,128,128,0.15); background: var(--container-bg); color: var(--text-color); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
-.icon-action-btn:hover { background: var(--button-hover); }
-.icon-action-btn.edit { color: #6366f1; }
-.icon-action-btn.delete { color: #f43f5e; }
-.quick-translate-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.split-panes { display: flex; gap: 15px; height: 100%; }
-.pane-group { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-.pane-header { display: flex; justify-content: space-between; align-items: center; height: 30px; }
-.header-left { display: flex; align-items: center; gap: 10px; }
-.header-right { display: flex; align-items: center; gap: 6px; }
-.pane-label { font-size: 0.6rem; font-weight: 950; opacity: 0.4; letter-spacing: 0.05em; color: var(--text-color); }
-.clear-btn { background: rgba(239,68,68,0.1); color: #f43f5e; border: none; padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
-.clear-btn:hover { background: rgba(239,68,68,0.2); }
-.format-btn { border-color: rgba(99,102,241,0.2); color: var(--accent-color); }
-.format-btn:hover { background: rgba(99,102,241,0.1); }
-.ghost-btn { background: rgba(128,128,128,0.05); border: 1px solid rgba(128,128,128,0.1); padding: 4px 10px; font-size: 0.6rem; font-weight: 900; border-radius: 6px; cursor: pointer; color: var(--text-color); }
-.lang-segmented { display: flex; background: rgba(128, 128, 128, 0.06); padding: 2px; border-radius: 8px; }
-
-.lang-segmented button { padding: 4px 10px; font-size: 0.6rem; border: none; background: transparent; font-weight: 950; border-radius: 6px; cursor: pointer; opacity: 0.4; color: var(--text-color); }
-.lang-segmented button.active { background: #3b82f6; color: #fff; opacity: 1; }
-.pane-editor { flex: 1; display: flex; overflow: hidden; border-radius: 12px; border: 1px solid rgba(128,128,128,0.12); }
-.line-numbers { width: 34px; background: rgba(0,0,0,0.02); padding: 15px 0; overflow: hidden; }
-.line-num { font-size: 0.85rem; line-height: 1.6; text-align: center; opacity: 0.2; font-family: 'Consolas', monospace; color: var(--text-color); }
-
-.editor-sub-container { position: relative; flex: 1; display: flex; overflow: hidden; }
-.highlighter {
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-  padding: 15px; box-sizing: border-box;
-  font-family: 'Consolas', monospace; font-size: 0.85rem; line-height: 1.6;
-  white-space: pre; overflow: hidden; word-break: normal;
-
-  color: transparent; pointer-events: none; z-index: 2;
-}
-
-.hover-row-overlay {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  height: 1.36rem;
-  background: rgba(99, 102, 241, 0.08);
-  pointer-events: none;
-  z-index: 0;
-  border-top: 1px solid rgba(99, 102, 241, 0.15);
-  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
-  box-sizing: border-box;
-}
-
-:deep(mark.hl-source) { background: transparent; color: var(--accent-color); font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; transition: all 0.2s; }
-
-:deep(mark.hl-target) { background: transparent; color: #10b981; font-weight: normal; text-shadow: 0 0 0.5px currentColor; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; pointer-events: auto; transition: all 0.2s; }
-
-
-
-
-textarea {
-  flex: 1; background: transparent; border: none; padding: 15px;
-  color: var(--text-color); font-family: 'Consolas', monospace; font-size: 0.85rem; line-height: 1.6;
-  resize: none; outline: none; position: relative; z-index: 1;
-  white-space: pre; overflow: auto; word-break: normal;
-
-}
-
-.clickable-result { transition: background 0.2s; }
-.clickable-result:hover { background: rgba(99, 102, 241, 0.01); }
-.glass { background: var(--input-bg); }
 .tab-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-/* Modal Design Fix */
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .glass-modal { background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 16px; width: 420px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.15); color: var(--text-color); }
-.modal-header-modern { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.modal-header-modern h3 { font-size: 0.85rem; font-weight: 950; color: #6366f1; letter-spacing: 0.05em; }
-.close-modal-btn { background: transparent; border: none; color: var(--text-color); cursor: pointer; opacity: 0.5; transition: 0.2s; }
-.close-modal-btn:hover { opacity: 1; transform: scale(1.1); }
 .modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 15px; }
-.modal-field label { font-size: 0.6rem; font-weight: 950; opacity: 0.6; }
-.modal-field input { background: var(--bg-color); border: 1px solid rgba(128,128,128,0.2); border-radius: 10px; padding: 12px; color: var(--text-color); font-size: 0.85rem; outline: none; transition: 0.2s; }
-.modal-field input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
-.modal-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px; }
+.modal-field input { background: var(--bg-color); border: 1px solid rgba(128,128,128,0.2); border-radius: 10px; padding: 12px; color: var(--text-color); font-size: 0.85rem; outline: none; }
+.advanced-modal { width: 850px; max-width: 95vw; background: var(--container-bg); border-radius: 16px; border: 1px solid var(--accent-color); overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+.modal-header { padding: 15px 20px; background: rgba(128,128,128,0.05); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(128,128,128,0.1); }
+.modal-header span { font-size: 0.75rem; font-weight: 900; letter-spacing: 0.05em; color: var(--accent-color); }
+.close-btn { background: transparent; border: none; color: var(--text-color); font-size: 1.5rem; cursor: pointer; opacity: 0.5; }
+.close-btn:hover { opacity: 1; }
 
-/* Bubble styles */
-.copy-bubble {
-  position: fixed;
-  background: #10b981;
-  color: #fff;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 0.65rem;
-  font-weight: 900;
-  box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3);
-  z-index: 3000;
-  pointer-events: none;
-  transform: translateX(-50%);
-}
+.modal-body { padding: 20px; overflow-y: auto; max-height: 70vh; }
+.modal-info { font-size: 0.75rem; opacity: 0.6; margin-bottom: 20px; line-height: 1.4; }
+.modal-info b { color: var(--accent-color); }
+
+.advanced-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.advanced-row { display: grid; grid-template-columns: 1.2fr 1fr 180px; align-items: center; gap: 15px; background: rgba(128, 128, 128, 0.04); border: 1px solid rgba(128, 128, 128, 0.1); border-radius: 10px; padding: 8px 15px; transition: 0.2s; }
+.advanced-row:hover { background: rgba(128, 128, 128, 0.08); border-color: rgba(99, 102, 241, 0.3); }
+.advanced-row.is-active { border-color: rgba(99, 102, 241, 0.5); background: rgba(99, 102, 241, 0.03); }
+
+.row-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.selection-check input { width: 16px; height: 16px; cursor: pointer; }
+.file-info { min-width: 0; }
+.file-name { font-size: 0.8rem; font-weight: 800; color: var(--text-color); margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-path { font-size: 0.6rem; opacity: 0.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.row-middle { display: flex; align-items: center; justify-content: center; }
+.sheet-dropdown { width: 100%; position: relative; }
+.dropdown-trigger { background: var(--bg-color); border: 1px solid rgba(128,128,128,0.2); padding: 6px 12px; border-radius: 8px; font-size: 0.7rem; font-weight: 700; cursor: pointer; text-align: center; color: var(--text-color); transition: 0.2s; }
+.dropdown-trigger:hover { border-color: var(--accent-color); }
+.dropdown-trigger.compact { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.floating-dropdown-menu { position: absolute; z-index: 99999; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 12px; padding: 10px; margin-top: 5px; box-shadow: 0 15px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 8px; }
+.dropdown-search { background: rgba(128,128,128,0.1); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; padding: 5px 10px; font-size: 0.7rem; color: var(--text-color); outline: none; }
+.dropdown-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.dropdown-item { padding: 6px 10px; font-size: 0.7rem; border-radius: 6px; cursor: pointer; transition: 0.2s; color: var(--text-color); }
+.dropdown-item:hover { background: rgba(99, 102, 241, 0.1); color: var(--accent-color); }
+.dropdown-item.active { background: var(--accent-color); color: white; }
+
+.row-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.priority-dashboard { display: flex; align-items: center; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 2px; }
+.prio-mini-btn { width: 24px; height: 24px; border: none; background: transparent; color: var(--text-color); cursor: pointer; border-radius: 4px; font-weight: bold; }
+.prio-mini-btn:hover { background: rgba(255,255,255,0.1); }
+.prio-mini-input { width: 30px; background: transparent; border: none; text-align: center; color: var(--accent-color); font-size: 0.75rem; font-weight: 900; -moz-appearance: textfield; }
+.prio-mini-input::-webkit-outer-spin-button, .prio-mini-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.remove-mini-btn { background: rgba(244, 63, 94, 0.1); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.2); padding: 5px; border-radius: 6px; cursor: pointer; transition: 0.2s; display: flex; }
+.remove-mini-btn:hover { background: #f43f5e; color: white; }
+
+.manual-add-row { display: flex; gap: 10px; margin-top: 10px; }
+.path-input-field { flex: 1; background: rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 8px 12px; color: var(--text-color); font-size: 0.75rem; outline: none; }
+.path-input-field:focus { border-color: var(--accent-color); }
+.add-manual-btn { background: var(--accent-color); color: white; border: none; border-radius: 8px; padding: 0 15px; font-size: 0.7rem; font-weight: 800; cursor: pointer; transition: opacity 0.2s; }
+.browse-fab { background: rgba(128,128,128,0.1); border: 1px solid rgba(128,128,128,0.1); border-radius: 8px; padding: 0 12px; cursor: pointer; font-size: 1rem; }
+.modal-error { font-size: 0.65rem; color: #f43f5e; margin-top: 5px; font-weight: bold; }
+.copy-bubble { position: fixed; background: #10b981; color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 0.65rem; font-weight: 900; z-index: 3000; transform: translateX(-50%); }
 .bubble-enter-active, .bubble-leave-active { transition: all 0.2s ease; }
 .bubble-enter-from { opacity: 0; transform: translate(-50%, 10px) scale(0.8); }
 .bubble-leave-to { opacity: 0; transform: translate(-50%, -10px) scale(0.8); }
-.empty-state { padding: 40px !important; text-align: center; opacity: 0.5; font-style: italic; }
-
-/* Win95 Specific Overrides for Advanced Modal */
-.win95-overlay { background: rgba(0,0,0,0.1); backdrop-filter: none; }
-
-.win95-header { background: #000080; border: 2px solid; border-top-color: #dfdfdf; border-left-color: #dfdfdf; border-right-color: #808080; border-bottom-color: #808080; padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; }
-.win95-header span { font-family: 'MS Sans Serif', sans-serif; font-size: 0.75rem; font-weight: bold; color: #ffffff !important; }
-.win95-header .close-btn { background: #c0c0c0; color: #000000 !important; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; width: 16px; height: 14px; display: flex; align-items: center; justify-content: center; font-size: 10px; padding: 0; line-height: 1; margin-top: -1px; }
-
-
-.advanced-modal.win95-border { background: #c0c0c0; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; border-radius: 0; box-shadow: none; padding: 2px; }
-
-.advanced-modal.win95-border .modal-body { padding: 15px; color: #000; }
-.advanced-modal.win95-border .modal-info { color: #000; opacity: 1; font-family: 'MS Sans Serif', sans-serif; font-weight: normal; }
-
-.advanced-modal.win95-border .advanced-item { border-radius: 0; background: #fff; border: 2px solid; border-top-color: #808080; border-left-color: #808080; border-right-color: #ffffff; border-bottom-color: #ffffff; margin-bottom: 2px; }
-.advanced-modal.win95-border .item-name { color: #000; }
-.advanced-modal.win95-border .item-path { color: #808080; }
-
-.advanced-modal.win95-border .add-path-btn { background: #c0c0c0; color: #000; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; border-radius: 0; font-family: 'MS Sans Serif', sans-serif; font-weight: normal; font-size: 0.7rem; }
-.advanced-modal.win95-border .add-path-btn:active { border-top-color: #808080; border-left-color: #808080; border-right-color: #ffffff; border-bottom-color: #ffffff; padding-top: 11px; padding-left: 21px; }
-
-.advanced-modal.win95-border .remove-btn { color: #000; border: 2px solid; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #808080; border-bottom-color: #808080; background: #c0c0c0; border-radius: 0; }
-
-.strict-checkbox { display: flex; align-items: center; gap: 4px; font-size: 0.65rem; font-weight: 800; cursor: pointer; color: var(--accent-color); transition: opacity 0.2s; }
-.strict-checkbox.disabled { opacity: 0.3; cursor: not-allowed; }
-.strict-checkbox input { accent-color: var(--accent-color); }
-
-.advanced-sheet-controls { display: flex; align-items: center; gap: 8px; margin-right: 15px; }
-
-.active-source-indicator { display: flex; align-items: center; gap: 6px; background: rgba(99, 102, 241, 0.08); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.15); margin-right: 10px; }
-.indicator-label { font-size: 0.6rem; font-weight: 800; opacity: 0.5; color: var(--text-color); }
-.indicator-value { font-size: 0.65rem; font-weight: 950; color: var(--accent-color); }
-
-.expand-enter-active, .expand-leave-active { transition: all 0.3s ease; max-height: 100px; overflow: hidden; }
-.expand-enter-from, .expand-leave-to { opacity: 0; max-height: 0; transform: translateY(-10px); }
-
-.selection-title { font-size: 0.7rem; font-weight: 900; color: var(--text-color); margin-bottom: 12px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.05em; }
-.selection-controls { display: flex; flex-direction: column; gap: 10px; }
-.selection-controls .searchable-dropdown { width: 100%; }
-.selection-controls .dropdown-trigger { width: 100%; box-sizing: border-box; height: 36px; display: flex; align-items: center; }
-
-/* Custom Searchable Dropdown Styles */
-.floating-dropdown-menu {
-  position: absolute;
-  z-index: 99999;
-  background: var(--container-bg);
-  border: 1px solid var(--accent-color);
-  border-radius: 12px;
-  box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-  padding: 10px;
-  margin-top: 5px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  backdrop-filter: blur(12px);
-  animation: dropdownFade 0.2s ease-out;
-}
-
-@keyframes dropdownFade {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.searchable-dropdown { position: relative; width: 100%; }
-.dropdown-trigger { 
-  background: rgba(0,0,0,0.05); border: 1px solid rgba(128,128,128,0.15); 
-  border-radius: 8px; padding: 6px 12px; font-size: 0.75rem; 
-  color: var(--text-color); cursor: pointer; display: flex; 
-  align-items: center; justify-content: space-between;
-  width: 100%; box-sizing: border-box;
-}
-
-.dropdown-search { 
-  width: 100%; background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.15); 
-  border-radius: 6px; padding: 6px 10px; color: var(--text-color); 
-  font-size: 0.7rem; outline: none; box-sizing: border-box;
-}
-
-.dropdown-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.dropdown-item { 
-  display: flex; align-items: center; 
-  padding: 0 15px; min-height: 40px; border-radius: 6px; cursor: pointer; transition: 0.2s; 
-  font-size: 0.8rem; line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.dropdown-item:hover { background: rgba(99, 102, 241, 0.1); color: #6366f1; }
-.dropdown-item.active { background: #6366f1; color: #fff; }
-
-
-.manual-add-row { display: flex; gap: 8px; margin-top: 10px; }
-
-.path-input-field { flex: 1; background: rgba(0,0,0,0.05); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 8px 12px; color: var(--text-color); font-size: 0.75rem; outline: none; }
-.add-manual-btn { background: var(--accent-color); color: white; border: none; padding: 0 15px; border-radius: 8px; font-weight: bold; cursor: pointer; }
-.browse-fab { background: rgba(128,128,128,0.1); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 0 10px; cursor: pointer; color: var(--text-color); }
-.modal-error { color: #f43f5e; font-size: 0.7rem; font-weight: bold; margin: 4px 0 0; }
 </style>

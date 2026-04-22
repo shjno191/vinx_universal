@@ -2,20 +2,20 @@
  * AstAnalyzer.ts
  * 
  * AST-based Flow Chart generator for JavaScript/TypeScript.
- * Uses @babel/parser to parse source → AST, then walks the tree
+ * Uses @babel/parser to parse source -> AST, then walks the tree
  * with a visitor pattern to emit Mermaid.js nodes and edges.
  * 
  * Architecture based on the 4-stage pipeline:
- *   1. Parse  → @babel/parser  
- *   2. Filter → noise removal (variable decls, trivial calls)
- *   3. Visit  → recursive AST walker with previousNodeId cursor
- *   4. Merge  → dangling end-of-branch resolution
+ *   1. Parse  -> @babel/parser  
+ *   2. Filter -> noise removal (variable decls, trivial calls)
+ *   3. Visit  -> recursive AST walker with previousNodeId cursor
+ *   4. Merge  -> dangling end-of-branch resolution
  */
 
 import * as babelParser from '@babel/parser';
 import { analyzeJava, looksLikeJava } from './JavaAnalyzer';
 
-// ── Data Structures ────────────────────────────────────────────────────────────
+// == Data Structures ============================================================
 
 type NodeType = 'process' | 'decision' | 'io' | 'terminal' | 'start';
 
@@ -78,7 +78,7 @@ class Flowchart {
     }
 }
 
-// ── Noise Filter ───────────────────────────────────────────────────────────────
+// == Noise Filter ===============================================================
 
 const TRIVIAL_METHODS = new Set([
     'log', 'warn', 'error', 'info', 'debug', 'trace',
@@ -119,7 +119,7 @@ function isNoise(node: any): boolean {
     }
 }
 
-// ── Visitor (Walk) ─────────────────────────────────────────────────────────────
+// == Visitor (Walk) =============================================================
 
 
 class AstWalker {
@@ -147,7 +147,7 @@ class AstWalker {
 
         switch (node.type) {
 
-            // ── Function / Arrow Function ───────────────────────────────────────────
+            // -- Function / Arrow Function -------------------------------------------
             case 'FunctionDeclaration':
             case 'FunctionExpression': {
                 const fname = node.id?.name ?? 'anonymous';
@@ -164,20 +164,20 @@ class AstWalker {
                 return [endId];
             }
 
-            // ── Arrow Function Expression ───────────────────────────────────────────
+            // -- Arrow Function Expression -------------------------------------------
             case 'ArrowFunctionExpression': {
                 const body = node.body;
                 if (body.type === 'BlockStatement') {
                     return this.walkBlock(body.body, prevIds);
                 }
-                // Implicit return expression — treat as a process
+                // Implicit return expression - treat as a process
                 const id = this.graph.newId();
                 this.graph.addNode(id, 'return ' + srcLabel(body), 'terminal');
                 for (const p of prevIds) this.graph.addEdge(p, id);
                 return [id];
             }
 
-            // ── Variable declaration that holds a function ──────────────────────────
+            // -- Variable declaration that holds a function --------------------------
             case 'VariableDeclaration': {
                 let danglers = prevIds;
                 for (const decl of node.declarations) {
@@ -200,7 +200,7 @@ class AstWalker {
                 return danglers;
             }
 
-            // ── If / Else ───────────────────────────────────────────────────────────
+            // -- If / Else -----------------------------------------------------------
             case 'IfStatement': {
                 const condLabel = srcLabel(node.test);
                 const ifId = this.graph.newId();
@@ -237,7 +237,7 @@ class AstWalker {
                 return [...thenFinal, ...elseFinal];
             }
 
-            // ── Switch / Case ───────────────────────────────────────────────────────
+            // -- Switch / Case -------------------------------------------------------
             case 'SwitchStatement': {
                 const switchId = this.graph.newId();
                 this.graph.addNode(switchId, `switch(${srcLabel(node.discriminant)})`, 'decision');
@@ -255,7 +255,7 @@ class AstWalker {
                 return allEnds;
             }
 
-            // ── For / While ─────────────────────────────────────────────────────────
+            // -- For / While ---------------------------------------------------------
             case 'ForStatement':
             case 'ForInStatement':
             case 'ForOfStatement':
@@ -271,7 +271,7 @@ class AstWalker {
                 const body = node.body?.type === 'BlockStatement' ? node.body.body : [node.body];
                 const bodyEnd = this.walkBlock(body, [loopId]);
 
-                // Back edge: body end → loop condition
+                // Back edge: body end -> loop condition
                 for (const b of bodyEnd) this.graph.addEdge(b, loopId, 'repeat');
 
                 // Loop exit
@@ -281,7 +281,7 @@ class AstWalker {
                 return [exitId];
             }
 
-            // ── Try / Catch / Finally ───────────────────────────────────────────────
+            // -- Try / Catch / Finally -----------------------------------------------
             case 'TryStatement': {
                 const tryId = this.graph.newId();
                 this.graph.addNode(tryId, 'try block', 'process');
@@ -311,7 +311,7 @@ class AstWalker {
                 return finalEnd.length ? finalEnd : [...tryEnd, ...catchEnds];
             }
 
-            // ── Return Statement ────────────────────────────────────────────────────
+            // -- Return Statement ----------------------------------------------------
             case 'ReturnStatement': {
                 const retId = this.graph.newId();
                 const label = node.argument ? `return ${srcLabel(node.argument)}` : 'return';
@@ -320,7 +320,7 @@ class AstWalker {
                 return []; // Terminal: no outgoing danglers
             }
 
-            // ── Throw Statement ─────────────────────────────────────────────────────
+            // -- Throw Statement -----------------------------------------------------
             case 'ThrowStatement': {
                 const throwId = this.graph.newId();
                 this.graph.addNode(throwId, `throw ${srcLabel(node.argument)}`, 'terminal');
@@ -328,7 +328,7 @@ class AstWalker {
                 return [];
             }
 
-            // ── Expression Statement (function calls etc.) ──────────────────────────
+            // -- Expression Statement (function calls etc.) --------------------------
             case 'ExpressionStatement': {
                 const expr = node.expression;
                 if (isTrivialCall(expr)) return prevIds;
@@ -349,7 +349,7 @@ class AstWalker {
                 return [callId];
             }
 
-            // ── Block Statement ─────────────────────────────────────────────────────
+            // -- Block Statement -----------------------------------------------------
             case 'BlockStatement':
                 return this.walkBlock(node.body, prevIds);
 
@@ -359,7 +359,7 @@ class AstWalker {
     }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// == Helpers ====================================================================
 
 function srcLabel(node: any): string {
     if (!node) return '';
@@ -398,7 +398,7 @@ function isIOCall(expr: any): boolean {
     return IO_PREFIXES.some(p => label.startsWith(p));
 }
 
-// ── Top-level test/describe detection ─────────────────────────────────────────
+// == Top-level test/describe detection =========================================
 
 function getTestBlocks(ast: any): Array<{ name: string; callback: any }> {
     const blocks: Array<{ name: string; callback: any }> = [];
@@ -418,7 +418,7 @@ function getTestBlocks(ast: any): Array<{ name: string; callback: any }> {
     return blocks;
 }
 
-// ── Public API ─────────────────────────────────────────────────────────────────
+// == Public API =================================================================
 
 export interface AnalysisResult {
     mermaid: string;
@@ -426,7 +426,7 @@ export interface AnalysisResult {
 }
 
 export function analyzeCode(source: string): AnalysisResult {
-    // ── Route Java code to the dedicated Java parser ───────────────────────────
+    // -- Route Java code to the dedicated Java parser ---------------------------
     if (looksLikeJava(source)) {
         const javaResult = analyzeJava(source);
         return { mermaid: javaResult.mermaid, error: javaResult.error };
@@ -440,7 +440,7 @@ export function analyzeCode(source: string): AnalysisResult {
         plugins: ['typescript', 'jsx', 'decorators-legacy', 'classProperties'] as any[],
     };
 
-    // Try multiple sourceType strategies: module → script → unambiguous
+    // Try multiple sourceType strategies: module -> script -> unambiguous
     let ast: any = null;
     let lastError = '';
     for (const sourceType of ['module', 'script', 'unambiguous'] as const) {

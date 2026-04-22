@@ -1,16 +1,16 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue';
 import mermaid from 'mermaid';
 import { currentFlowCode, aiSettings, mermaidCode, analysisMode, showRawFlowCode } from '../store';
 import { analyzeCode } from './AstAnalyzer';
 
-// ── State ─────────────────────────────────────────────────────────────────────
+// == State =====================================================================
 const isLoading = ref(false);
 const error = ref('');
 const diagramRef = ref<HTMLElement | null>(null);
 const zoomWrapRef = ref<HTMLElement | null>(null);
 
-// ── Zoom / Pan State ───────────────────────────────────────────────────────
+// == Zoom / Pan State =======================================================
 const zoomScale = ref(1);
 const zoomX = ref(0);
 const zoomY = ref(0);
@@ -65,7 +65,7 @@ const onMouseUp = (e: MouseEvent) => {
 
 const resetZoom = () => { zoomScale.value = 1; zoomX.value = 0; zoomY.value = 0; };
 
-// ── Mermaid Setup ─────────────────────────────────────────────────────────────
+// == Mermaid Setup =============================================================
 const initMermaid = () => {
   mermaid.initialize({
     startOnLoad: false,
@@ -78,7 +78,7 @@ const initMermaid = () => {
   });
 };
 
-// ── Render diagram ────────────────────────────────────────────────────────────
+// == Render diagram ============================================================
 const renderDiagram = async (code: string) => {
   if (!diagramRef.value || !code) return;
   try {
@@ -168,7 +168,7 @@ const renderDiagram = async (code: string) => {
   }
 };
 
-// ── System Prompt ─────────────────────────────────────────────────────────────
+// == System Prompt =============================================================
 const buildPrompt = (code: string) =>
   `# CONTEXT & ROLE
 You are a Senior Software Architect and an Expert in Reverse Engineering. Your task is to analyze the provided source code and translate its underlying logic into a highly accurate Control Flow Graph (CFG) using Mermaid.js.
@@ -177,20 +177,20 @@ You are a Senior Software Architect and an Expert in Reverse Engineering. Your t
 Generate a structured, easy-to-understand flowchart that maps out the core business logic, ignoring boilerplate syntax. 
 
 # PROCESSING RULES
-1. Main Execution Flow (Luồng chính):
+1. Main Execution Flow:
    - Identify significant logical blocks (e.g., functions, test suites, classes).
    - For files with multiple entry points, use Mermaid 'subgraph' syntax to group related operations.
    - Clearly delineate the "Happy Path" within each significant block.
 
-2. Decision & Branching Nodes (Các điểm rẽ nhánh):
+2. Decision & Branching Nodes:
    - Map all control structures (if/else, switch/case, try/catch, while/for).
    - For each decision node, explicitly state the exact condition causing the branch (e.g., "is valid?", "count > 0?", "has error?").
 
-3. Intra-Branch Operations (Xử lý đặc biệt trong nhánh):
+3. Intra-Branch Operations:
    - DO NOT transcribe line-by-line code. 
    - ONLY highlight critical operations: State mutations, I/O (API/DB/File), and Exception handling.
 
-4. Visual Formatting (Định dạng hiển thị):
+4. Visual Formatting:
    - Use 'flowchart TD'.
    - Use standard shapes: ([Start/End]) for entries/exits, {Decision} for conditions, [Process] for actions, [(Database/IO)] for external calls.
    - If the code is a test suite, map the sequence of tests and their internal assertions.
@@ -201,7 +201,7 @@ ${code}
 # OUTPUT FORMAT
 Return ONLY the Mermaid.js code block. No conversational filler.`;
 
-// ── AI API Wrapper ─────────────────────────────────────────────────────────────
+// == AI API Wrapper =============================================================
 const extractMermaidCode = (text: string): string => {
   // Try to extract from ```mermaid ... ``` block
   const match = text.match(/```mermaid\s*([\s\S]*?)```/i);
@@ -215,7 +215,7 @@ const extractMermaidCode = (text: string): string => {
 
 const callGemini = async (prompt: string): Promise<string> => {
   const key = aiSettings.value.geminiKey.trim();
-  if (!key) throw new Error('Gemini API Key is not configured. Go to Settings → AI.');
+  if (!key) throw new Error('Gemini API Key is not configured. Go to Settings -> AI.');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${aiSettings.value.geminiModel}:generateContent?key=${key}`;
   const res = await fetch(url, {
     method: 'POST',
@@ -229,7 +229,7 @@ const callGemini = async (prompt: string): Promise<string> => {
 
 const callOpenAI = async (prompt: string): Promise<string> => {
   const key = aiSettings.value.openaiKey.trim();
-  if (!key) throw new Error('OpenAI API Key is not configured. Go to Settings → AI.');
+  if (!key) throw new Error('OpenAI API Key is not configured. Go to Settings -> AI.');
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
@@ -246,7 +246,7 @@ const callOpenAI = async (prompt: string): Promise<string> => {
 
 const callClaude = async (prompt: string): Promise<string> => {
   const key = aiSettings.value.claudeKey.trim();
-  if (!key) throw new Error('Claude API Key is not configured. Go to Settings → AI.');
+  if (!key) throw new Error('Claude API Key is not configured. Go to Settings -> AI.');
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -287,7 +287,7 @@ const callAI = async (prompt: string): Promise<string> => {
   }
 };
 
-// ── Generate Flow ──────────────────────────────────────────────────────────────
+// == Generate Flow ==============================================================
 const generate = async () => {
   const code = currentFlowCode.value.trim();
   if (!code) {
@@ -340,7 +340,7 @@ const toggleRawCode = () => {
   showRawFlowCode.value = !showRawFlowCode.value;
 };
 
-// ── Lifecycle ─────────────────────────────────────────────────────────────────
+// == Lifecycle =================================================================
 onMounted(async () => {
   initMermaid();
   if (mermaidCode.value) {

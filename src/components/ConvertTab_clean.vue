@@ -102,13 +102,13 @@ const handleConvert = async () => {
   }
 };
 
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
-// STEP 1 ? Th?m version v?o header comment <%-- --%>
-// C?ng th?c: t?m d?ng "- Version X.0Y" cu?i c?ng trong block <%-- --%>,
-// t?ng minor +1, th?m d?ng m?i ngay sau, tr??c d?ng " --%>"
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 1: Add version info to the header comment block <%-- --%>
+// Logic: Find the last "- Version X.0Y" line within the header block,
+// increment the minor version, and append a new entry before the block closing " --%>"
+// ==========================================================================================================================================================
 const addVersionComment = (code: string): string => {
-  // L?y t?t c? d?ng version b?n trong <%-- ... --%>
+  // Extract all version lines inside the header comment block
   const headerBlock = code.match(/<%--[\s\S]*?--%>/);
   if (!headerBlock) return code;
 
@@ -119,10 +119,9 @@ const addVersionComment = (code: string): string => {
   const major = last[1];
   const minor = parseInt(last[2], 10);
   const newMinor = String(minor + 1).padStart(2, '0');
-  const newLine = ` - Version ${major}.${newMinor} 2026/04/10 VINX redmine#43477_UI���P�Ή�`;
+  const newLine = ` - Version ${major}.${newMinor} 2026/04/22 VINX Standardization`;
 
-  // Ch?n sau d?ng version cu?i, tr??c " --%>"
-  // Regex: kh?p ??ng d?ng version cu?i c?ng (to?n d?ng) r?i ch?n sau n?
+  // Insert after the last version line, before the closing tag " --%>"
   const lastVersionLineRegex = /([ \t]*-\s*Version\s+\d+\.\d+[^\n]*)(\n[ \t]*--%>)/;
   if (lastVersionLineRegex.test(code)) {
     return code.replace(lastVersionLineRegex, `$1\n${newLine}$2`);
@@ -130,28 +129,27 @@ const addVersionComment = (code: string): string => {
   return code;
 };
 
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
-// STEP 2 ? Fix CSS links
-// 2a: href="css/common.css"  ��  href="css/common_pda.css"  (ch? khi mode PDA)
-// 2b: x?a to?n b? d?ng c? link default_*.css
-// 2c: x?a <!-- ... //--> wrapper b?n trong <script>
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 2: Fix CSS links and script wrappers
+// 2a: Replace common.css with common_pda.css (PDA mode only)
+// 2b: Remove legacy link tags
+// 2c: Remove legacy HTML comment wrappers <!-- ... //--> inside <script> tags
+// ==========================================================================================================================================================
 const fixCssLinks = (code: string): string => {
-  // 2a ? ch? ??i khi href tr? ??ng common.css (kh?ng ph?i common_pda ?? ??ng r?i)
+  // 2a - Switch to common_pda.css
   code = code.replace(
     /(<link[^>]*href=["'])css\/common\.css(["'][^>]*>)/g,
     '$1css/common_pda.css$2'
   );
 
-  // 2b ? x?a c? d?ng ch?a link default_*.css
+  // 2b - Remove outdated default_*.css links
   code = code.replace(/^[ \t]*<link[^>]+href=["'][^"']*default_[^"']*["'][^>]*>[ \t]*\n?/gm, '');
 
-  // 2c ? x?a <!-- ... //--> wrapper trong <script type="text/JavaScript">
-  // Gi? nguy?n n?i dung JS b?n trong, ch? b? d?ng <!-- v? //--> 
+  // 2c - Clear legacy HTML comment wrappers inside script tags
   code = code.replace(
     /(<script[^>]*>)\s*\n[ \t]*<!--[ \t]*\n([\s\S]*?)\n[ \t]*\/\/-->[ \t]*\n/g,
     (_, openTag, inner) => {
-      // B? indent th?a 4 space t? format c?
+      // Remove legacy 4-space indentation from old formatter
       const trimmed = inner.replace(/^    /gm, '');
       return `${openTag}\n${trimmed}\n`;
     }
@@ -160,20 +158,20 @@ const fixCssLinks = (code: string): string => {
   return code;
 };
 
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
-// STEP 3 ? Chu?n h?a HTML
-// - X?a <br> / <br /> d?ng l?m spacing (d?ng ch? c? <br>)
-// - window.close() �� window.open('about:blank','_self').close()
-// - X?a border=0, cellspacing=0, cellpadding=0 (clean attribute th?a)
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 3: Normalize HTML structure
+// - Remove empty <br> tags used for spacing
+// - Replace window.close() with a reliable self-closing script
+// - Remove obsolete layout attributes (border=0, etc.) from tables
+// ==========================================================================================================================================================
 const normalizeHtml = (code: string): string => {
-  // X?a d?ng ch? ch?a <br> ho?c <br /> (spacing r?c)
+  // Remove redundant <br> spacing lines
   code = code.replace(/^[ \t]*<br\s*\/?>[ \t]*\n/gm, '');
 
-  // Fix window.close
+  // Fix window.close consistency
   code = code.replace(/window\.close\(\);/g, "window.open('about:blank', '_self').close();");
 
-  // X?a attribute layout th?a tr?n table
+  // Remove legacy layout attributes
   code = code.replace(/\s+border=["']0["']/g, '');
   code = code.replace(/\s+cellspacing=["']0["']/g, '');
   code = code.replace(/\s+cellpadding=["']0["']/g, '');
@@ -181,17 +179,17 @@ const normalizeHtml = (code: string): string => {
   return code;
 };
 
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
-// STEP 4 ? Build <style> block t? inline style
-// C?ng th?c: m?i inline style="..." �� 1 CSS rule v?i selector tagname.class ho?c tag#id
-// Style button (width/height/border/border-radius) �� KH?NG t?o class �� b?
-// Ch? display:none �� gi? nguy?n inline
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 4: Build <style> block from extracted inline styles
+// Logic: Extract more inline style="..." and convert each to a CSS rule using tag+class or tag#id selector
+// Skip button styles (width/height/border) to use standard pda_btn instead.
+// Keep display:none inline for dynamic control.
+// ==========================================================================================================================================================
 const buildStyleBlock = (code: string): string => {
   const cssRules: string[] = [];
   const seen = new Set<string>();
 
-  // Regex qu?t t?ng th? HTML/JSP c? inline style
+  // Extract tags with inline styles
   const tagRegex = /<([\w:]+)([^>]*?)>/gs;
   let m: RegExpExecArray | null;
 
@@ -204,16 +202,13 @@ const buildStyleBlock = (code: string): string => {
 
     const styleVal = styleMatch[1].trim();
 
-    // Gi? l?i display:none inline ? kh?ng tr?ch ra
+    // Keep display:none inline
     if (/^\s*display\s*:\s*none\s*;?\s*$/.test(styleVal)) continue;
-    // B? qua style button (width + height + border) �� d?ng class pda_btn
+    // Skip button styles
     if (/width\s*:/.test(styleVal) && /height\s*:/.test(styleVal) && /(border|border-radius)\s*:/.test(styleVal)) continue;
 
-    // T?m class
     const classMatch = attrs.match(/\bclass=["']([^"']+)["']/);
-    // T?m id
     const idMatch = attrs.match(/\bid=["']([^"']+)["']/);
-    // fvo: property �� d?ng l?m id
     const propMatch = attrs.match(/\bproperty=['"]([^'"]+)['"]/);
 
     let selector = '';
@@ -223,7 +218,6 @@ const buildStyleBlock = (code: string): string => {
     } else if (idMatch) {
       selector = `${tag}#${idMatch[1]}`;
     } else if (propMatch) {
-      // fvo:span property='disp_alarm_title' �� span#disp_alarm_title
       const cleanId = propMatch[1].replace(/[[\].]/g, '_');
       selector = `span#${cleanId}`;
     }
@@ -245,68 +239,55 @@ const buildStyleBlock = (code: string): string => {
 
   const styleBlock = `<style type="text/css">\n${cssRules.join('\n\n')}\n</style>`;
 
-  // X?a <style> block c? n?u c?
+  // Remove existing style block
   code = code.replace(/<style[^>]*>[\s\S]*?<\/style>\n?/g, '');
 
-  // Ch?n tr??c </head>
+  // Insert before </head>
   return code.replace(/(\n?)([ \t]*<\/head>)/i, `\n${styleBlock}\n$2`);
 };
 
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
-// STEP 5 ? Chu?n h?a tab indent
-// Quy t?c:
-//   - D?ng \t (1 tab = 1 c?p)
-//   - JSP directive / comment header �� level 0, kh?ng indent
-//   - Closing tag �� gi?m depth TR??C khi in d?ng
-//   - Opening tag t? ??ng (/>), <meta>, <link>, <br>, fvo:text/submit/checkbox �� kh?ng t?ng depth
-//   - CSS b?n trong <style>: m?i { t?ng 1, m?i } gi?m 1 (t??ng ??i v?i depth hi?n t?i)
-//   - JS b?n trong <script>: m?i { t?ng 1, m?i } gi?m 1
-// ����������������������������������������������������������������������������������������������������������������������������������������������������������
+// ==========================================================================================================================================================
+// STEP 5: Normalize indentation using Tabs
+// Logic:
+//   - Uses \t (1 tab = 1 indentation level)
+//   - JSP directives and headers stay at level 0
+//   - Decrement depth BEFORE printing the closing tag
+//   - Increment depth AFTER printing an opening tag (skip self-closing tags)
+// ==========================================================================================================================================================
 const normalizeIndent = (code: string): string => {
   const TAB = '\t';
   const lines = code.split('\n');
   const result: string[] = [];
   let depth = 0;
 
-  // Tags m? l?m t?ng depth (c?n tag ??ng t??ng ?ng)
+  // Indent-triggering tags
   const BLOCK_OPEN = /^<(html:html|html:form|head|body|table|tbody|thead|tfoot|tr|td|th|div|ul|ol|li|select|option|style|script|fvo:span|logic:iterate|logic:notEmpty|logic:empty|logic:equal|logic:notEqual|bean:define)(\s|>)/i;
 
-  // Tags t? ??ng ? kh?ng t?ng depth
+  // Self-closing tags that do not increase depth
   const SELF_CLOSE = /\/>$|^<(meta|link|input|br|hr|img|jsp:include|jsp:param|fvo:text|fvo:submit|fvo:checkbox|fvo:button|fvo:hidden|html:hidden)(\s|>|\/)/i;
 
-  // Tags ??ng ? gi?m depth
+  // Closing tags that decrease depth
   const BLOCK_CLOSE = /^<\/(html:html|html:form|head|body|table|tbody|thead|tfoot|tr|td|th|div|ul|ol|li|select|option|style|script|fvo:span|logic:iterate|logic:notEmpty|logic:empty|logic:equal|logic:notEqual|bean:define)>/i;
-
-  // D?ng JSP level-0 (kh?ng indent)
-
 
   for (const raw of lines) {
     const line = raw.trim();
+    if (!line) { result.push(''); continue; }
 
-    // D?ng tr?ng �� gi? nguy?n
-    if (!line) {
-      result.push('');
-      continue;
-    }
-
-    // JSP directive / header comment / DOCTYPE �� lu?n level 0
+    // Level 0 tags
     if (/^<%[@!]/.test(line) || /^<%--/.test(line) || /^--%>/.test(line) || /^<!DOCTYPE/i.test(line)) {
       result.push(line);
       continue;
     }
 
-    // Closing tag �� gi?m depth TR??C khi in
     if (BLOCK_CLOSE.test(line)) {
       depth = Math.max(0, depth - 1);
     }
 
     result.push(TAB.repeat(depth) + line);
 
-    // Opening tag (kh?ng ph?i self-close, kh?ng c? closing tr?n c?ng d?ng) �� t?ng depth
     if (BLOCK_OPEN.test(line) && !SELF_CLOSE.test(line) && !BLOCK_CLOSE.test(line)) {
-      // N?u c?ng 1 d?ng c? c? m? v? ??ng (vd: <td>text</td>) �� kh?ng t?ng
       const tagName = line.match(/^<([\w:]+)/)?.[1] ?? '';
-      const closeOnSameLine = new RegExp(`</${tagName}>`, 'i').test(line);
+      const closeOnSameLine = new RegExp(`</${tagName.replace(':', '\\:')}>`, 'i').test(line);
       if (!closeOnSameLine) {
         depth++;
       }

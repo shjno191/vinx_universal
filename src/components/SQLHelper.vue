@@ -3,6 +3,7 @@ import { ref, computed, nextTick, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { activeTab } from '../store';
+import { sanitize } from '../utils/security';
 
 
 const logPath = ref('');
@@ -62,9 +63,7 @@ const highlightSql = (sql: string) => {
   h = h.replace(/\b(FROM|JOIN)\b\s+([a-zA-Z0-9_]+)/gi, '$1 <span class="sql-tbl">$2</span>');
   h = h.replace(/'([^']*)'/g, '<span class="sql-str">\'$1\'</span>');
   
-
-  
-  return h;
+  return sanitize(h);
 };
 
 const loadFromFile = async () => {
@@ -238,9 +237,7 @@ const updateDisplayHtml = () => {
     return `${idPre}<span class="clickable-id${extra}" data-id="${idVal}">${idVal}</span>`;
   });
 
-
-
-  displayHtml.value = html;
+  displayHtml.value = sanitize(html);
 };
 
 watch([logContent, activeTab], () => {
@@ -398,10 +395,10 @@ watch(activeTab, (newTab: string) => {
 .mini-icon-btn:hover { background: rgba(128, 128, 128, 0.2); opacity: 1; transform: translateY(-1px); }
 
 .log-pane-content { flex: 1; position: relative; display: flex; flex-direction: column; overflow: hidden; }
-.log-display { flex: 1; padding: 15px; font-family: \'Consolas\', monospace; font-size: 0.8rem; line-height: 1.5; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: transparent; color: var(--text-color); }
+.log-display { flex: 1; padding: 15px; font-family: 'Consolas', monospace; font-size: 0.8rem; line-height: 1.5; overflow-y: auto; white-space: pre-wrap; word-break: break-all; background: transparent; color: var(--text-color); }
 .log-editor { 
   flex: 1; width: 100%; border: none; background: transparent; color: var(--text-color); padding: 15px; 
-  font-family: \'Consolas\', monospace; font-size: 0.8rem; line-height: 1.5; resize: none; outline: none;
+  font-family: 'Consolas', monospace; font-size: 0.8rem; line-height: 1.5; resize: none; outline: none;
 }
 .log-warning-overlay {
   position: absolute; bottom: 10px; right: 20px; background: rgba(245, 158, 11, 0.9);
@@ -428,7 +425,7 @@ watch(activeTab, (newTab: string) => {
 }
 .format-btn:hover, .copy-btn:hover { background: var(--accent-color); color: white; border-color: var(--accent-color); }
 
-.sql-output { margin: 0; padding: 12px; background-color: rgba(0,0,0,0.2); color: #d4d4d4; overflow-x: auto; border-radius: 8px; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; font-family: \'Consolas\', monospace; border: 1px solid rgba(255,255,255,0.03); }
+.sql-output { margin: 0; padding: 12px; background-color: rgba(0,0,0,0.2); color: #d4d4d4; overflow-x: auto; border-radius: 8px; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; font-family: 'Consolas', monospace; border: 1px solid rgba(255,255,255,0.03); }
 
 :deep(.clickable-id) { color: var(--accent-color); text-decoration: underline; cursor: pointer; font-weight: bold; }
 :deep(.clickable-id.existing-id) { color: #f59e0b; }

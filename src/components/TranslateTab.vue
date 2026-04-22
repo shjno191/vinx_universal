@@ -21,6 +21,7 @@ const dictionaryPath = ref('');
 const dictionarySearchInput = ref<HTMLInputElement | null>(null);
 const localSearchQuery = ref('');
 
+const isOnlySelectedSheets = ref(false);
 const isStrict = ref(false);
 
 const advancedDictData = ref<Map<string, Map<string, string>>>(new Map());
@@ -165,6 +166,7 @@ const loadDictionary = async () => {
           }))
           .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
         dictionaryData.value = rows;
+        rebuildBaseDictionaryCache();
       }
     }
 
@@ -177,6 +179,9 @@ const loadDictionary = async () => {
       loadFilesFromFolder(selectedFolder.value);
     }
 
+    if (translateInput.value) {
+      debouncedInput.value = translateInput.value;
+    }
     updateCachedWords();
     handleQuickTranslate();
   } catch (e) {
@@ -279,23 +284,52 @@ const rebuildBaseDictionaryCache = () => {
 };
 
 const performUpdateCachedWords = () => {
-  const sourceSet = new Set(baseSourceWords.value);
-  const targetSet = new Set(baseTargetWords.value);
-  const lookup = new Map(baseLookupPart.value);
-
   const activeConfigs = Object.entries(advancedConfigs.value)
     .filter(([path, cfg]) => cfg.enabled && cfg.sheet)
     .map(([path, cfg]) => ({ path, ...cfg }))
     .sort((a, b) => a.priority - b.priority);
 
-  if (activeConfigs.length > 0) {
+  let sourceSet: Set<string>;
+  let targetSet: Set<string>;
+  let lookup: Map<string, string>;
+
+  // Case 1: No sheets selected -> Always use Base Dictionary
+  if (activeConfigs.length === 0) {
+    sourceSet = new Set(baseSourceWords.value);
+    targetSet = new Set(baseTargetWords.value);
+    lookup = new Map(baseLookupPart.value);
+  } else {
+    // Case 2: Sheets are selected
+    if (isOnlySelectedSheets.value) {
+      // "Only" mode -> Start with empty sets
+      sourceSet = new Set();
+      targetSet = new Set();
+      lookup = new Map();
+    } else {
+      // Normal mode -> Start with Base Dictionary, then add sheets (sheets will overwrite)
+      sourceSet = new Set(baseSourceWords.value);
+      targetSet = new Set(baseTargetWords.value);
+      lookup = new Map(baseLookupPart.value);
+    }
+
     activeConfigs.forEach(cfg => {
       const mapping = advancedDictData.value.get(cfg.sheet);
-      if (mapping) mapping.forEach((val, key) => { if (key && val) lookup.set(key, val); });
-      const cache = sheetCacheMap.get(cfg.sheet);
-      if (cache) {
-        cache.sources.forEach(s => sourceSet.add(s));
-        cache.targets.forEach(t => targetSet.add(t));
+      if (mapping) {
+        mapping.forEach((physical, logical) => {
+          if (!logical || !physical) return;
+          
+          if (sharedTargetLang.value === 'jp') {
+            // Target is JP: We want to translate Technical/English (Physical) -> Japanese (Logical)
+            lookup.set(physical, logical);
+            sourceSet.add(physical);
+            targetSet.add(logical);
+          } else {
+            // Target is EN/VI: We want to translate Japanese (Logical) -> Technical/English (Physical)
+            lookup.set(logical, physical);
+            sourceSet.add(logical);
+            targetSet.add(physical);
+          }
+        });
       }
     });
   }
@@ -304,8 +338,12 @@ const performUpdateCachedWords = () => {
   targetWordsList.value = Array.from(targetSet).sort((a, b) => b.length - a.length);
   cachedLookup.value = lookup;
   translationRegex.value = buildTranslationRegex(lookup);
-  
   updateAllHighlights();
+  
+  // Ensure UI reactive states are applied before final translate
+  nextTick(() => {
+    handleQuickTranslate();
+  });
 };
 
 const handleQuickTranslate = () => {
@@ -522,27 +560,56 @@ const loadSingleSheet = async (filePath: string, sheetName: string) => {
     if (!worksheet) return;
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
-    let headerRowIndex = -1, logicalColIdx = -1, physicalColIdx = -1;
+    let bestScore = -1, headerRowIndex = -1, logicalColIdx = -1, physicalColIdx = -1;
     for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
       const row = jsonData[i] || [];
-      const li = row.findIndex((c: any) => String(c||'').toLowerCase().includes('論理') || String(c||'').toLowerCase().includes('logical'));
-      const pi = row.findIndex((c: any) => String(c||'').toLowerCase().includes('物理') || String(c||'').toLowerCase().includes('physical'));
-      if (li !== -1 && pi !== -1) { headerRowIndex = i; logicalColIdx = li; physicalColIdx = pi; break; }
+      let score = 0, li = -1, pi = -1;
+      
+      row.forEach((cell, idx) => {
+        const s = String(cell||'').toLowerCase();
+        // High priority for columns mentioning 'column' or specific 'name' patterns
+        if (s.includes('論理') && s.includes('名')) {
+          li = idx;
+          score += (s.includes('カラム') || s.includes('column')) ? 10 : 2;
+        }
+        if (s.includes('物理') && s.includes('名')) {
+          pi = idx;
+          score += (s.includes('カラム') || s.includes('column')) ? 10 : 2;
+        }
+        // Additional indicators
+        if (s === 'no.' || s === 'no' || s === '番号') score += 2;
+        if (s.includes('型') || s.includes('タイプ')) score += 2;
+        if (s.includes('長') || s.includes('精度')) score += 1;
+        if (s.includes('必須') || s === 'pk') score += 1;
+        // Negative indicator: Table description info
+        if (s.includes('テーブル') || s.includes('table')) score -= 15;
+      });
+
+      if (li !== -1 && pi !== -1 && score > bestScore) {
+        bestScore = score;
+        headerRowIndex = i;
+        logicalColIdx = li;
+        physicalColIdx = pi;
+      }
     }
 
     const mapping = new Map<string, string>();
     if (headerRowIndex !== -1) {
       for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
         const row = jsonData[i] || [];
-        const src = String(row[logicalColIdx]||'').trim();
-        const tgt = String(row[physicalColIdx]||'').trim();
-        if (src && tgt) mapping.set(src, tgt);
+        const logical = String(row[logicalColIdx]||'').trim();
+        const physical = String(row[physicalColIdx]||'').trim();
+        if (logical && physical) {
+          mapping.set(logical, physical); // Store as Logical -> Physical
+        }
       }
     } else {
       jsonData.forEach(row => {
         if (row.length >= 2) {
-          const src = String(row[0]||'').trim(), tgt = String(row[1]||'').trim();
-          if (src && tgt && src.length < 200) mapping.set(src, tgt);
+          const logical = String(row[0]||'').trim(), physical = String(row[1]||'').trim();
+          if (logical && physical && logical.length < 200) {
+            mapping.set(logical, physical);
+          }
         }
       });
     }
@@ -550,9 +617,6 @@ const loadSingleSheet = async (filePath: string, sheetName: string) => {
     const sheetKey = `${filePath}::${sheetName}`;
     if (mapping.size > 0) {
       advancedDictData.value.set(sheetKey, mapping);
-      const ss = new Set<string>(), ts = new Set<string>();
-      mapping.forEach((v, k) => { ss.add(k); ts.add(v); });
-      sheetCacheMap.set(sheetKey, { sources: ss, targets: ts });
     }
   } catch (e) {
     console.error(`Failed to load sheet ${sheetName}:`, e);
@@ -702,6 +766,15 @@ watch(triggerDictionaryFocus, async () => {
   if (dictionarySearchInput.value) { dictionarySearchInput.value.focus(); dictionarySearchInput.value.select(); }
 });
 
+watch(isOnlySelectedSheets, () => {
+  updateCachedWords();
+});
+
+watch(sharedTargetLang, () => {
+  rebuildBaseDictionaryCache();
+  updateCachedWords();
+});
+
 watch(dictionaryData, () => {
   rebuildBaseDictionaryCache(); updateCachedWords();
   if (subTab.value === 'quick-translate' && translateInput.value) handleQuickTranslate();
@@ -774,6 +847,7 @@ watch(dictionaryData, () => {
         :sheetMetadata="sheetMetadata"
         v-model:fileSearch="fileSearchQuery"
         v-model:sheetSearch="sheetSearchQuery"
+        v-model:isOnlySelectedSheets="isOnlySelectedSheets"
         @selectFolder="selectFolder"
         @selectFile="selectExcelFile"
         @toggleSheet="toggleSheet"

@@ -21,6 +21,7 @@ const props = defineProps<{
   sheetMetadata: Record<string, { logical: string, physical: string, colCount: number }>;
   fileSearch: string;
   sheetSearch: string;
+  isOnlySelectedSheets: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -41,6 +42,7 @@ const emit = defineEmits<{
   (e: 'toggleAllSheets'): void;
   (e: 'update:fileSearch', val: string): void;
   (e: 'update:sheetSearch', val: string): void;
+  (e: 'update:isOnlySelectedSheets', val: boolean): void;
 }>();
 
 // == COLUMN RESIZING LOGIC ====================================================
@@ -229,10 +231,6 @@ const handleScroll = (side: 'input' | 'result') => {
             </div>
           </div>
           <div class="header-right">
-            <div class="active-source-indicator" v-if="activeSourcesCount > 0">
-              <span class="indicator-label">Active Sources:</span>
-              <span class="indicator-value">{{ activeSourcesCount }}</span>
-            </div>
             <button @click="emit('copy')" class="ghost-btn">COPY RESULT</button>
           </div>
         </div>
@@ -279,6 +277,12 @@ const handleScroll = (side: 'input' | 'result') => {
         <div class="pane-header">
           <div class="header-left">
             <span class="pane-label">SHEETS LIST</span>
+            <label class="only-checkbox" title="Only use selected sheets (skip base dictionary)">
+              <input type="checkbox" 
+                     :checked="isOnlySelectedSheets"
+                     @change="emit('update:isOnlySelectedSheets', ($event.target as HTMLInputElement).checked)" />
+              <span>ONLY</span>
+            </label>
           </div>
           <div class="header-right">
             <button v-if="sheets.length > 0" @click="emit('toggleAllSheets')" class="ghost-btn check-all-btn">CHECK ALL</button>
@@ -404,4 +408,7 @@ textarea {
 .active-source-indicator { display: flex; align-items: center; gap: 6px; background: rgba(99, 102, 241, 0.08); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.15); margin-right: 10px; }
 .indicator-label { font-size: 0.6rem; font-weight: 800; opacity: 0.5; color: var(--text-color); }
 .indicator-value { font-size: 0.65rem; font-weight: 950; color: var(--accent-color); }
+.only-checkbox { display: flex; align-items: center; gap: 4px; font-size: 0.55rem; font-weight: 950; color: var(--accent-color); cursor: pointer; opacity: 0.6; transition: opacity 0.2s; margin-left: 6px; background: rgba(99, 102, 241, 0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.15); }
+.only-checkbox:hover { opacity: 1; background: rgba(99, 102, 241, 0.12); }
+.only-checkbox input { width: 12px; height: 12px; cursor: pointer; accent-color: var(--accent-color); margin: 0; }
 </style>

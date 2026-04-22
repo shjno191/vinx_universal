@@ -15,6 +15,7 @@ export function useSQLHelper() {
   const extractions = ref<Extraction[]>([{ searchId: '', resultSql: '' }]);
   const displayHtml = shallowRef('');
   const isLoading = ref(false);
+  const isLogTooLarge = computed(() => logContent.value.length > 200000);
 
   const clearLog = () => {
     logContent.value = '';
@@ -210,6 +211,7 @@ export function useSQLHelper() {
     extractions,
     displayHtml,
     isLoading,
+    isLogTooLarge,
     clearLog,
     pasteFromClipboard,
     removeExtraction,

@@ -16,6 +16,8 @@ const {
   saveSettings,
   openSettingsFile,
   pickDictionary,
+  pickAdvancedPath,
+  removeAdvancedPath,
   downloadTemplate,
   startRecording,
   formatShortcut,
@@ -60,167 +62,220 @@ watch(showSettingsTrigger, (val) => {
     </aside>
 
     <main v-if="settings && settings.editor" class="settings-content">
+      <!-- GENERAL / APPEARANCE -->
       <div v-show="currentCategory === 'general'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Giao diện & Hệ thống</h2>
+          <p class="section-desc">Cấu hình chủ đề và các cài đặt chung cho toàn bộ ứng dụng.</p>
+        </div>
+
         <div class="setting-item">
-          <label>Theme</label>
+          <label>Chủ đề ứng dụng (Theme)</label>
           <select v-model="settings.theme" class="theme-select" @change="handleSaveAndEmit">
-            <option value="dark">Dark Mode</option>
-            <option value="light">Light Mode</option>
-            <option value="95">Windows 95</option>
+            <option value="dark">Tối (Dark Mode)</option>
+            <option value="light">Sáng (Light Mode)</option>
+            <option value="95">Cổ điển (Windows 95)</option>
           </select>
         </div>
 
+        <div class="setting-item">
+          <label>Thư mục cấu hình (Config)</label>
+          <button class="save-all-btn" @click="openSettingsFile">Mở thư mục cài đặt</button>
+        </div>
+      </div>
+
+      <!-- TRANSLATE / DICTIONARY -->
+      <div v-show="currentCategory === 'translate'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Tab Dictionary & Translate</h2>
+          <p class="section-desc">Cấu hình từ điển định dạng Excel phục vụ tính năng dịch nhanh và quản lý từ vựng.</p>
+        </div>
+
         <div class="setting-item-vertical">
-          <label>Translation Dictionary (.xlsx)</label>
+          <label>Đường dẫn file từ điển chính (.xlsx)</label>
           <div class="path-picker">
-            <input v-model="settings.dictionary_path" type="text" class="text-input path-input" readonly placeholder="No dictionary selected..." />
-            <button class="save-all-btn" @click="pickDictionary">Browse</button>
+            <input v-model="settings.dictionary_path" type="text" class="text-input path-input" readonly placeholder="Chưa chọn file từ điển..." />
+            <button class="save-all-btn" @click="pickDictionary">Chọn file</button>
           </div>
           <div class="helper-actions">
              <button class="text-link-btn" @click="downloadTemplate">
                <span v-html="Icons.Download" style="display:inline-block; vertical-align:middle; margin-right:4px;"></span>
-               Download Template
+               Tải file Excel mẫu (.xlsx)
              </button>
           </div>
+        </div>
+
+        <div class="setting-item-vertical" style="margin-top: 10px; border-top: 1px solid rgba(128,128,128,0.1); padding-top: 20px;">
+          <div class="section-label-group">
+            <label>Quick Translate Source Folders</label>
+            <p class="field-hint">Danh sách các thư mục chứa file Excel dùng để quét từ điển nâng cao.</p>
+          </div>
+          
+          <div class="path-list-modern">
+            <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="path-list-item glass">
+              <span class="path-text" :title="path">{{ path }}</span>
+              <button class="remove-path-btn" @click="removeAdvancedPath(idx)" title="Remove">
+                <span v-html="Icons.Trash"></span>
+              </button>
+            </div>
+            
+            <button class="add-path-btn-dashed" @click="pickAdvancedPath">
+              <span v-html="Icons.Plus" style="margin-right: 8px;"></span>
+              Thêm thư mục nguồn dữ liệu mới
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- GIT CONTROL -->
+      <div v-show="currentCategory === 'git'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Tab Git Control</h2>
+          <p class="section-desc">Cấu hình đường dẫn Repository để sử dụng các tính năng Git tích hợp.</p>
         </div>
         
-        <div class="setting-item">
-          <label>Open Config Folder</label>
-          <button class="save-all-btn" @click="openSettingsFile">Open Folder</button>
-        </div>
-      </div>
-
-      <div v-show="currentCategory === 'translate'" class="settings-section">
         <div class="setting-item-vertical">
-          <label>Primary Translation Dictionary (.xlsx)</label>
+          <label>Đường dẫn Local Repository</label>
           <div class="path-picker">
-            <input v-model="settings.dictionary_path" type="text" class="text-input path-input" readonly placeholder="No dictionary selected..." />
-            <button class="save-all-btn" @click="pickDictionary">Browse</button>
+            <input v-model="settings.last_git_repo" type="text" class="text-input path-input" placeholder="Ví dụ: C:/Projects/my-app" @change="saveSettings" />
           </div>
-          <div class="helper-actions">
-             <button class="text-link-btn" @click="downloadTemplate">
-               <span v-html="Icons.Download" style="display:inline-block; vertical-align:middle; margin-right:4px;"></span>
-               Download Template
-             </button>
-          </div>
+          <p class="field-hint">Nhập đường dẫn tuyệt đối đến thư mục chứa <code>.git</code> của dự án.</p>
         </div>
       </div>
 
+      <!-- EDITOR TAB -->
       <div v-show="currentCategory === 'editor'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Tab Editor</h2>
+          <p class="section-desc">Cấu hình các hành vi và trải nghiệm người dùng khi làm việc với trình chỉnh sửa mã.</p>
+        </div>
+
         <div class="setting-item-vertical">
-          <label>Editor Behavior</label>
+          <label>Hành vi chuột & Tab</label>
           <div class="setting-checkbox-list">
             <label class="checkbox-container">
               <input type="checkbox" v-model="settings.editor.middleClickClose" @change="saveSettings" />
               <span class="checkmark"></span>
-              Middle click to close tab
+              Nhấn chuột giữa để đóng Tab
             </label>
             <label class="checkbox-container">
               <input type="checkbox" v-model="settings.editor.doubleClickNewTab" @change="saveSettings" />
               <span class="checkmark"></span>
-              Double click bar to open new tab
+              Nhấp đúp vào thanh tab để mở Tab mới
             </label>
             <label class="checkbox-container">
               <input type="checkbox" v-model="settings.editor.mouseNavHistory" @change="saveSettings" />
               <span class="checkmark"></span>
-              Mouse back/forward buttons for tab history
+              Sử dụng nút Back/Forward của chuột để quay lại Tab cũ
             </label>
           </div>
         </div>
       </div>
 
+      <!-- SHORTCUTS -->
       <div v-show="currentCategory === 'shortcut'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Phím tắt hệ thống</h2>
+          <p class="section-desc">Cấu hình các tổ hợp phím để thao tác nhanh mà không cần dùng chuột.</p>
+        </div>
+
         <div class="setting-item-vertical">
-          <label>Editor Shortcuts (Click to change)</label>
+          <label>Phím tắt Editor (Nhấp để thay đổi)</label>
           <div class="shortcut-list">
             <div class="shortcut-row" @click="startRecording('open_file')">
-              <span class="shortcut-desc">Open File</span>
+              <span class="shortcut-desc">Mở file (Open File)</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_file' }">
-                {{ isRecording === 'open_file' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.open_file) }}
+                {{ isRecording === 'open_file' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file) }}
               </span>
-              <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('open_file', $event)" @blur="isRecording = null" />
+              <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
             <div class="shortcut-row locked">
-              <span class="shortcut-desc">Global Text Search</span>
+              <span class="shortcut-desc">Tìm kiếm văn bản toàn cục</span>
               <span class="shortcut-key">CTRL + SHIFT + F</span>
-            </div>
-            <div class="shortcut-row locked">
-              <span class="shortcut-desc">Generate Flow Chart</span>
-              <span class="shortcut-key">CTRL + SHIFT + G</span>
             </div>
           </div>
         </div>
 
         <div class="setting-item-vertical">
-          <label>Tab Navigation Shortcuts (Global)</label>
+          <label>Phím tắt Điều hướng Tab (Global)</label>
           <div class="shortcut-list">
             <div class="shortcut-row" @click="startRecording('prev_tab')">
-              <span class="shortcut-desc">Switch to Previous Tab</span>
+              <span class="shortcut-desc">Chuyển về Tab phía trước</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
-                {{ isRecording === 'prev_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.prev_tab) }}
+                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab) }}
               </span>
-              <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('prev_tab', $event)" @blur="isRecording = null" />
+              <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
             <div class="shortcut-row" @click="startRecording('next_tab')">
-              <span class="shortcut-desc">Switch to Next Tab</span>
+              <span class="shortcut-desc">Chuyển sang Tab tiếp theo</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
-                {{ isRecording === 'next_tab' ? 'PLEASE PRESS NEW KEYS...' : formatShortcut(settings.shortcuts?.next_tab) }}
+                {{ isRecording === 'next_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab) }}
               </span>
-              <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey('next_tab', $event)" @blur="isRecording = null" />
+              <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
           </div>
         </div>
       </div>
 
+      <!-- AI SERVICES -->
       <div v-show="currentCategory === 'ai'" class="settings-section">
-        <div class="ai-settings-header glass">
-          <h3 style="margin:0;font-size:1rem;">AI Provider Settings</h3>
-          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Used by the Flow Chart feature to generate diagrams from code.</p>
+        <div class="section-header-modern">
+          <h2 class="section-title">AI Content Services</h2>
+          <p class="section-desc">Cấu hình API Key cho các mô hình AI, phục vụ tính năng vẽ Flowchart và hỗ trợ viết code.</p>
         </div>
+
         <div class="setting-item">
-          <label>Default Provider</label>
+          <label>Nhà cung cấp mặc định (Provider)</label>
           <select v-model="settings.ai.provider" class="theme-select" @change="saveSettings">
-            <option value="gemini">Gemini (Google)</option>
+            <option value="gemini">Gemini (Google) - Nên dùng</option>
             <option value="openai">ChatGPT (OpenAI)</option>
             <option value="claude">Claude (Anthropic)</option>
-            <option value="ollama">Ollama (Local)</option>
+            <option value="ollama">Ollama (Chạy Offline cục bộ)</option>
           </select>
         </div>
 
         <div class="provider-block glass" :class="{ active: settings.ai.provider === 'gemini' }">
-          <div class="provider-label"><span class="provider-dot gemini"></span> Gemini</div>
-          <input v-model="settings.ai.geminiKey" type="password" class="text-input" placeholder="AIza... (API Key)" @change="saveSettings"/>
+          <div class="provider-label"><span class="provider-dot gemini"></span> Google Gemini API</div>
+          <input v-model="settings.ai.geminiKey" type="password" class="text-input" placeholder="Nhập API Key (AIza...)" @change="saveSettings"/>
           <select v-model="settings.ai.geminiModel" class="theme-select" @change="saveSettings">
-            <option value="gemini-1.5-flash">gemini-1.5-flash</option>
-            <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+            <option value="gemini-1.5-flash">gemini-1.5-flash (Nhanh)</option>
+            <option value="gemini-1.5-pro">gemini-1.5-pro (Mạnh nhất)</option>
           </select>
         </div>
       </div>
 
+      <!-- SMOKING / CHILL -->
       <div v-show="currentCategory === 'chill'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Smoking & Relax</h2>
+          <p class="section-desc">Cài đặt cho widget giải lao khi làm việc căng thẳng.</p>
+        </div>
+
         <div class="setting-item-vertical">
-          <label>Chill Widget</label>
+          <label>Trạng thái Widget</label>
           <label class="checkbox-container">
             <input type="checkbox" v-model="settings.chill.enableWidget" @change="saveSettings" />
             <span class="checkmark"></span>
-            Show smoking widget
+            Hiển thị điếu thuốc ở góc màn hình
           </label>
         </div>
       </div>
 
+      <!-- CONVERT UI -->
       <div v-show="currentCategory === 'convert'" class="settings-section">
-        <div class="ai-settings-header glass">
-          <h3 style="margin:0;font-size:1rem;">Convert UI Transformation Rules</h3>
-          <p style="margin:4px 0 0;font-size:0.75rem;opacity:0.6;">Rules applied during JSP to PDA/Common conversion.</p>
+        <div class="section-header-modern">
+          <h2 class="section-title">Tab Convert UI Rules</h2>
+          <p class="section-desc">Các quy tắc định dạng được áp dụng khi thực hiện chuyển đổi JSP sang cấu trúc PDA/Common.</p>
         </div>
+
         <div class="rules-container">
           <div class="rule-group glass">
-            <h4 class="rule-title">Type: PDA JSP</h4>
+            <h4 class="rule-title">Định dạng tập tin: PDA JSP</h4>
             <div class="rule-list">
-              <div class="rule-item"><span class="rule-tag">CSS</span><p>Replaces with <code>common_pda.css</code>.</p></div>
-              <div class="rule-item"><span class="rule-tag">LAYOUT</span><p>Wraps in <code>div.pda_list</code>.</p></div>
-              <div class="rule-item"><span class="rule-tag">STYLE</span><p>Extracts to <code>&lt;style&gt;</code> before script.</p></div>
-              <div class="rule-item"><span class="rule-tag">INDENT</span><p>Uses 4-char tabs.</p></div>
+              <div class="rule-item"><span class="rule-tag">CSS</span><p>Tự động thay bằng <code>common_pda.css</code>.</p></div>
+              <div class="rule-item"><span class="rule-tag">LAYOUT</span><p>Bọc trang trong thẻ <code>div.pda_list</code>.</p></div>
+              <div class="rule-item"><span class="rule-tag">STYLE</span><p>Tách CSS ra khỏi mã JSP và đưa lên phần đầu.</p></div>
+              <div class="rule-item"><span class="rule-tag">INDENT</span><p>Sử dụng 4 khoảng trắng cho thụt dòng.</p></div>
             </div>
           </div>
         </div>
@@ -272,6 +327,23 @@ watch(showSettingsTrigger, (val) => {
 .setting-item { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 1px solid rgba(128,128,128,0.08); }
 .setting-item-vertical { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid rgba(128,128,128,0.08); }
 .setting-item label, .setting-item-vertical label { font-weight: 800; font-size: 0.7rem; text-transform: uppercase; opacity: 0.4; letter-spacing: 0.1em; }
+
+.section-header-modern { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid rgba(128, 128, 128, 0.1); }
+.section-title { margin: 0; font-size: 1.25rem; font-weight: 900; color: var(--accent-color); letter-spacing: -0.02em; }
+.section-desc { margin: 4px 0 0; font-size: 0.8rem; opacity: 0.6; font-weight: 500; }
+.field-hint { margin: 4px 0 0; font-size: 0.7rem; opacity: 0.4; font-style: italic; }
+
+.path-list-modern { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.path-list-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(0,0,0,0.05); border-radius: 8px; border: 1px solid rgba(128,128,128,0.1); }
+.path-text { font-size: 0.75rem; font-weight: 600; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+.remove-path-btn { background: transparent; border: none; color: #ef4444; cursor: pointer; padding: 4px; display: flex; align-items: center; opacity: 0.6; transition: opacity 0.2s; }
+.remove-path-btn:hover { opacity: 1; }
+.add-path-btn-dashed { 
+  background: transparent; border: 1.5px dashed rgba(128,128,128,0.3); border-radius: 8px; 
+  padding: 12px; color: var(--accent-color); font-weight: 700; font-size: 0.75rem; 
+  cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+}
+.add-path-btn-dashed:hover { background: rgba(99,102,241,0.05); border-color: var(--accent-color); }
 
 .theme-select, .text-input { 
   padding: 8px 12px; 

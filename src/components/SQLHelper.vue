@@ -11,6 +11,7 @@ const {
   extractions,
   displayHtml,
   isLoading,
+  isLogTooLarge,
   clearLog,
   pasteFromClipboard,
   removeExtraction,

@@ -151,13 +151,14 @@ const handleScroll = (side: 'input' | 'result') => {
         <div class="pane-editor glass side-body">
           <div class="panel-body">
             <!-- File Filter -->
-            <div class="side-search-box" v-if="folderPath">
+            <div class="side-search-box" v-if="folderPath || excelFiles.length > 0">
               <input :value="fileSearch" 
                      @input="emit('update:fileSearch', ($event.target as HTMLInputElement).value)" 
                      placeholder="Filter files..." />
             </div>
 
-            <div v-if="!folderPath" class="empty-hint">No folder selected</div>
+            <div v-if="!folderPath && excelFiles.length === 0" class="empty-hint">No folder selected</div>
+            <div v-else-if="excelFiles.length === 0" class="empty-hint">No files found</div>
             <div v-for="file in excelFiles" :key="file"
                  v-memo="[file, selectedFile === file, fileSheetCounts[file]]"
                  class="file-item" :class="{ active: selectedFile === file }"
@@ -349,6 +350,8 @@ const handleScroll = (side: 'input' | 'result') => {
 }
 .pane-group { display: flex; flex-direction: column; gap: 8px; overflow: hidden; padding: 0 4px; }
 .pane-header { display: flex; justify-content: space-between; align-items: center; height: 36px; padding: 0 4px; flex-shrink: 0; }
+.pane-label-group { display: flex; flex-direction: column; line-height: 1.1; }
+.path-description { font-size: 0.55rem; font-weight: 700; opacity: 0.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
 .header-left { display: flex; align-items: center; gap: 8px; overflow: hidden; }
 .header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .pane-label { font-size: 0.6rem; font-weight: 950; opacity: 0.4; letter-spacing: 0.1em; color: var(--text-color); white-space: nowrap; text-transform: uppercase; }

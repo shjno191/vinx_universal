@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useTranslateManager } from '../composables/useTranslateManager';
+import { useSettings } from '../composables/useSettings';
 import { useClipboard } from '../composables/useClipboard';
 import { Icons } from '../utils/icons';
 import { listSystemControls } from '../utils/systemControl';
 import { invoke } from '@tauri-apps/api/core';
+import { advancedTranslatePaths } from '../store';
 
 // Sub-components
 import DictionaryTable from './translate/DictionaryTable.vue';
@@ -23,6 +25,7 @@ import {
 const props = defineProps<{ theme?: string }>();
 
 // --- Initialization ----------------------------------------------------------
+const { settings } = useSettings();
 const {
   subTab,
   dictionaryData,
@@ -45,6 +48,7 @@ const {
   sourceWordsList,
   targetWordsList,
   loadDictionary,
+  loadFilesFromMultipleFolders,
   selectExcelFile,
   loadSingleSheet,
   updateCachedWords,
@@ -52,6 +56,15 @@ const {
   rebuildBaseDictionaryCache,
   saveDictionaryFile
 } = useTranslateManager();
+
+// Sync files from multiple folders defined in store
+watch(advancedTranslatePaths, (newPaths) => {
+  if (newPaths && newPaths.length > 0) {
+    loadFilesFromMultipleFolders(newPaths);
+  } else {
+    excelFilesInFolder.value = [];
+  }
+}, { deep: true, immediate: true });
 
 const { copyToClipboard } = useClipboard();
 
@@ -127,6 +140,22 @@ const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null
   const idx = Math.floor(contentY / lineHeightPx) + 1;
   const maxL = Math.max(translateInput.value.split('\n').length, translateOutput.value.split('\n').length);
   hoveredLineIndex.value = idx <= maxL ? idx : null;
+};
+
+const pickQuickTranslateFolder = async () => {
+  try {
+    const selected = await open({
+      multiple: false,
+      directory: true,
+    });
+    if (selected) {
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      selectedFolder.value = path;
+      await loadFilesFromFolder(path);
+    }
+  } catch (e) {
+    console.error('[TranslateTab] Failed to pick folder:', e);
+  }
 };
 
 // --- Dictionary CRUD ---
@@ -205,7 +234,7 @@ const loadSystemControls = async () => {
 
 onMounted(async () => {
   await loadSystemControls();
-  // We rely on the immediate watch of globalDictionaryPath for the initial load
+  // We rely on the immediate watch of globalDictionaryPath and advancedTranslatePaths for the initial load
   window.addEventListener('keydown', handleGlobalKeyDown);
 });
 
@@ -350,6 +379,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         :highlighterInput="highlightedInput"
         :highlighterOutput="highlightedOutput"
         :maxLines="Math.max(translateInput.split('\n').length, translateOutput.split('\n').length)"
+        :activeSourcesCount="settings.advanced_translate_paths.length"
         @format="formatInputText"
         @clear="() => { translateInput = ''; translateOutput = ''; }"
         @copy="(text, event) => handleCopyFeedback(text, event)"
@@ -369,6 +399,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         v-model:fileSearch="fileSearchQuery"
         v-model:sheetSearch="sheetSearchQuery"
         v-model:isOnlySelectedSheets="isOnlySelectedSheets"
+        @selectFolder="pickQuickTranslateFolder"
         @selectFile="selectExcelFile"
         @toggleSheet="(name) => selectedSheets.has(name) ? selectedSheets.delete(name) : (async () => { selectedSheets.add(name); await loadSingleSheet(selectedFile, name); updateCachedWords(); })()"
       />
@@ -383,7 +414,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
               <span class="header-icon" v-html="modalMode === 'add' ? Icons.Plus : Icons.Edit3"></span>
               <h3>{{ modalMode === 'add' ? 'ADD NEW ENTRY' : 'EDIT ENTRY' }}</h3>
             </div>
-            <button @click="showDictModal = false" class="close-modal-btn" v-html="Icons.Close"></button>
+            <button @click="showDictModal = false" class="close-modal-btn" v-html="Icons.CloseLarge"></button>
           </div>
           <div class="modal-body">
             <div class="modal-field">

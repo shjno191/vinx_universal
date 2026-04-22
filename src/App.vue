@@ -162,7 +162,7 @@ onMounted(() => {
               <div class="header-tools">
                 <button @click="settingsRef?.refreshSettings()" class="tool-btn" title="Refresh"><span v-html="Icons.RefreshCw"></span></button>
                 <button @click="settingsRef?.openSettingsFile()" class="tool-btn" title="Open File"><span v-html="Icons.Folder"></span></button>
-                <button @click="showSettingsModal = false" class="close-btn"><span v-html="Icons.X"></span></button>
+                <button @click="showSettingsModal = false" class="close-btn" v-html="Icons.CloseLarge"></button>
               </div>
             </header>
             <div class="modal-body">

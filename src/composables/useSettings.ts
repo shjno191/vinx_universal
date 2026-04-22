@@ -9,7 +9,8 @@ import {
   aiSettings, 
   chillSettings, 
   triggerSettingsRefresh,
-  globalDictionaryPath
+  globalDictionaryPath,
+  advancedTranslatePaths
 } from '../store';
 
 export function useSettings() {
@@ -55,13 +56,14 @@ export function useSettings() {
   const shortcutInputRef = ref<HTMLInputElement | null>(null);
 
   const categories = [
-    { id: 'general', name: 'General', icon: 'Settings' },
-    { id: 'translate', name: 'Globe', icon: 'Globe' },
-    { id: 'editor', name: 'Editor', icon: 'Edit3' },
-    { id: 'shortcut', name: 'Shortcut', icon: 'Keyboard' },
-    { id: 'ai', name: 'AI', icon: 'Cpu' },
-    { id: 'chill', name: 'Chill', icon: 'Coffee' },
-    { id: 'convert', name: 'Convert UI', icon: 'RefreshCw' },
+    { id: 'general', name: 'Giao diện & Hệ thống', icon: 'Settings' },
+    { id: 'translate', name: 'Dictionary & Translate', icon: 'Globe' },
+    { id: 'git', name: 'Git Control Tab', icon: 'GitBranch' },
+    { id: 'editor', name: 'Editor Tab', icon: 'Edit3' },
+    { id: 'shortcut', name: 'Phím tắt bàn phím', icon: 'Keyboard' },
+    { id: 'ai', name: 'AI Service (Flowchart)', icon: 'Cpu' },
+    { id: 'chill', name: 'Smoking Tab', icon: 'Coffee' },
+    { id: 'convert', name: 'Convert UI Tab', icon: 'RefreshCw' },
   ];
 
   const refreshSettings = async () => {
@@ -76,6 +78,7 @@ export function useSettings() {
         aiSettings.value = settings.value.ai as any;
         chillSettings.value = settings.value.chill;
         globalDictionaryPath.value = settings.value.dictionary_path || '';
+        advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
       }
     } catch (e) {
       console.error('[useSettings] Failed to get settings:', e);
@@ -90,6 +93,7 @@ export function useSettings() {
       theme.value = settings.value.theme as 'light' | 'dark' | '95';
       aiSettings.value = settings.value.ai as any;
       chillSettings.value = settings.value.chill;
+      advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
       triggerSettingsRefresh.value++;
     } catch (e) {
       console.error('[useSettings] Failed to save settings:', e);
@@ -117,6 +121,36 @@ export function useSettings() {
       }
     } catch (e) {
       console.error('[useSettings] Failed to pick dictionary:', e);
+    }
+  };
+
+  const pickAdvancedPath = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: true,
+      });
+      if (selected) {
+        const path = Array.isArray(selected) ? selected[0] : selected;
+        if (!settings.value.advanced_translate_paths) {
+          settings.value.advanced_translate_paths = [];
+        }
+        if (!settings.value.advanced_translate_paths.includes(path)) {
+          settings.value.advanced_translate_paths.push(path);
+          advancedTranslatePaths.value = [...settings.value.advanced_translate_paths];
+          await saveSettings();
+        }
+      }
+    } catch (e) {
+      console.error('[useSettings] Failed to pick advanced path:', e);
+    }
+  };
+
+  const removeAdvancedPath = async (index: number) => {
+    if (settings.value.advanced_translate_paths) {
+      settings.value.advanced_translate_paths.splice(index, 1);
+      advancedTranslatePaths.value = [...settings.value.advanced_translate_paths];
+      await saveSettings();
     }
   };
 
@@ -210,6 +244,8 @@ export function useSettings() {
     saveSettings,
     openSettingsFile,
     pickDictionary,
+    pickAdvancedPath,
+    removeAdvancedPath,
     downloadTemplate,
     startRecording,
     formatShortcut,

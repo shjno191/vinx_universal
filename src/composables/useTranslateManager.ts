@@ -171,13 +171,31 @@ export function useTranslateManager() {
     }
   };
 
-  const loadFilesFromFolder = async (folderPath: string) => {
+  const loadFilesFromMultipleFolders = async (folders: string[]) => {
+    if (!folders || folders.length === 0) {
+      excelFilesInFolder.value = [];
+      fileSheetCounts.value = {};
+      return;
+    }
+    
+    console.log(`[TranslateManager] Syncing files from ${folders.length} folders:`, folders);
     try {
-      const files = await invoke('list_files_in_dir', { path: folderPath, extension: 'xlsx' }) as string[];
-      excelFilesInFolder.value = files.map(f => {
-        if (typeof f !== 'string') return String(f);
-        return f.replace(/\\/g, '/');
-      });
+      const allFiles: string[] = [];
+      for (const folder of folders) {
+        try {
+          const files = await invoke('list_files_in_dir', { path: folder, extension: 'xlsx' }) as string[];
+          console.log(`[TranslateManager] Folder ${folder} has ${files.length} files`);
+          const normalized = files.map(f => String(f).replace(/\\/g, '/'));
+          allFiles.push(...normalized);
+        } catch (dirErr) {
+          console.warn(`[TranslateManager] Skip folder ${folder}:`, dirErr);
+        }
+      }
+      
+      // Remove duplicates
+      const uniqueFiles = [...new Set(allFiles)];
+      excelFilesInFolder.value = uniqueFiles;
+      console.log(`[TranslateManager] Total unique files found: ${uniqueFiles.length}`);
       
       const newSheetCounts: Record<string, number> = {};
       for (const f of excelFilesInFolder.value) {
@@ -191,8 +209,12 @@ export function useTranslateManager() {
       }
       fileSheetCounts.value = newSheetCounts;
     } catch (e) {
-      console.error('[TranslateManager] Failed to load files from folder:', e);
+      console.error('[TranslateManager] Failed to load files from folders:', e);
     }
+  };
+
+  const loadFilesFromFolder = async (folderPath: string) => {
+    await loadFilesFromMultipleFolders([folderPath]);
   };
 
   const selectExcelFile = async (filePath: string) => {
@@ -354,6 +376,7 @@ export function useTranslateManager() {
     sourceWordsList,
     targetWordsList,
     loadDictionary,
+    loadFilesFromMultipleFolders,
     loadFilesFromFolder,
     selectExcelFile,
     loadSingleSheet,

@@ -25,7 +25,7 @@ import {
 const props = defineProps<{ theme?: string }>();
 
 // --- Initialization ----------------------------------------------------------
-const { settings } = useSettings();
+const { settings, pickAdvancedPath } = useSettings();
 const {
   subTab,
   dictionaryData,
@@ -142,21 +142,6 @@ const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null
   hoveredLineIndex.value = idx <= maxL ? idx : null;
 };
 
-const pickQuickTranslateFolder = async () => {
-  try {
-    const selected = await open({
-      multiple: false,
-      directory: true,
-    });
-    if (selected) {
-      const path = Array.isArray(selected) ? selected[0] : selected;
-      selectedFolder.value = path;
-      await loadFilesFromFolder(path);
-    }
-  } catch (e) {
-    console.error('[TranslateTab] Failed to pick folder:', e);
-  }
-};
 
 // --- Dictionary CRUD ---
 const openAddModal = () => { modalMode.value = 'add'; editBuffer.value = { jp: '', en: '', vi: '' }; showDictModal.value = true; };
@@ -296,6 +281,14 @@ watch([debouncedInput, translateOutput, activeTab], () => {
   }, 400);
 });
 
+const pickQuickTranslateFolder = async () => {
+  const selected = await pickAdvancedPath();
+  if (selected) {
+    await loadFilesFromMultipleFolders(advancedTranslatePaths.value);
+    showToast('Folder added and files refreshed!');
+  }
+};
+
 const hoverStyleTag = ref<HTMLStyleElement | null>(null);
 watch(hoveredWord, (newWord) => {
   if (!hoverStyleTag.value) { hoverStyleTag.value = document.createElement('style'); document.head.appendChild(hoverStyleTag.value); }
@@ -379,7 +372,6 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         :highlighterInput="highlightedInput"
         :highlighterOutput="highlightedOutput"
         :maxLines="Math.max(translateInput.split('\n').length, translateOutput.split('\n').length)"
-        :activeSourcesCount="settings.advanced_translate_paths.length"
         @format="formatInputText"
         @clear="() => { translateInput = ''; translateOutput = ''; }"
         @copy="(text, event) => handleCopyFeedback(text, event)"
@@ -400,6 +392,8 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         v-model:sheetSearch="sheetSearchQuery"
         v-model:isOnlySelectedSheets="isOnlySelectedSheets"
         @selectFolder="pickQuickTranslateFolder"
+        @refreshFiles="() => loadFilesFromMultipleFolders(advancedTranslatePaths)"
+        @clearSheets="() => { selectedSheets.clear(); updateCachedWords(); }"
         @selectFile="selectExcelFile"
         @toggleSheet="(name) => selectedSheets.has(name) ? selectedSheets.delete(name) : (async () => { selectedSheets.add(name); await loadSingleSheet(selectedFile, name); updateCachedWords(); })()"
       />
@@ -482,25 +476,25 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 .strict-mode { display: flex; align-items: center; gap: 6px; font-size: 0.6rem; font-weight: 900; opacity: 0.4; color: var(--text-color); cursor: pointer; transition: opacity 0.2s; }
 .strict-mode:hover { opacity: 0.8; }
 
-.header-actions { display: flex; gap: 8px; }
-.action-btn-circle { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-color); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
-.action-btn-circle:hover { border-color: var(--accent-color); color: var(--accent-color); transform: translateY(-1px); }
+.header-actions { display: flex; gap: 10px; }
+.action-btn-circle { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-color); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.action-btn-circle:hover { border-color: var(--accent-color); color: var(--accent-color); transform: translateY(-1px); background: rgba(99, 102, 241, 0.05); }
 
 .action-btn-rect { 
   display: flex; 
   align-items: center; 
   gap: 8px; 
-  padding: 0 16px; 
+  padding: 0 14px; 
   height: 32px; 
-  border-radius: 16px; 
+  border-radius: 8px; 
   border: 1px solid var(--accent-color); 
   background: var(--accent-color); 
   color: #fff; 
   font-size: 0.65rem; 
-  font-weight: 900; 
+  font-weight: 850; 
   cursor: pointer; 
-  transition: all 0.2s;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
 }
 .action-btn-rect:hover { 
   transform: translateY(-1px); 
@@ -531,10 +525,10 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 .modal-field input { width: 100%; background: transparent; border: none; padding: 10px; color: var(--text-color); font-size: 0.85rem; outline: none; font-weight: 500; }
 
 .modal-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
-.ghost-btn { background: transparent; border: 1px solid var(--glass-border); color: var(--text-color); padding: 8px 20px; border-radius: 10px; font-weight: 800; font-size: 0.7rem; cursor: pointer; transition: all 0.2s; }
-.ghost-btn:hover { background: rgba(0,0,0,0.05); }
-.action-btn-purple { padding: 8px 24px; background: var(--accent-color); color: #fff; border: none; border-radius: 10px; font-weight: 800; font-size: 0.7rem; cursor: pointer; box-shadow: 0 8px 16px rgba(99, 102, 241, 0.2); transition: all 0.2s; }
-.action-btn-purple:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(99, 102, 241, 0.3); }
+.ghost-btn { background: transparent; border: 1px solid var(--glass-border); color: var(--text-color); padding: 8px 18px; border-radius: 8px; font-weight: 800; font-size: 0.68rem; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.ghost-btn:hover { background: rgba(0,0,0,0.05); transform: translateY(-1px); border-color: var(--accent-color); color: var(--accent-color); }
+.action-btn-purple { padding: 8px 22px; background: var(--accent-color); color: #fff; border: none; border-radius: 8px; font-weight: 850; font-size: 0.68rem; cursor: pointer; box-shadow: 0 8px 16px rgba(99, 102, 241, 0.15); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.action-btn-purple:hover { transform: translateY(-1px); box-shadow: 0 10px 20px rgba(99, 102, 241, 0.25); filter: brightness(1.1); }
 
 .copy-bubble { position: fixed; background: #10b981; color: #fff; padding: 6px 14px; border-radius: 8px; font-size: 0.65rem; font-weight: 900; z-index: 10000; box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3); transform: translateX(-50%); display: flex; align-items: center; }
 .bubble-enter-active, .bubble-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }

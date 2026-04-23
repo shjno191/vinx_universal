@@ -78,7 +78,10 @@ const aggregatedSheets = computed(() => {
 });
 
 // Sync files from multiple folders defined in store
-watch(advancedTranslatePaths, (newPaths) => {
+watch(advancedTranslatePaths, (newPaths, oldPaths) => {
+  // Prevent unnecessary reloads if the paths haven't actually changed in content
+  if (oldPaths && newPaths.length === oldPaths.length && newPaths.every((v, i) => v === oldPaths[i])) return;
+
   if (newPaths && newPaths.length > 0) {
     loadFilesFromMultipleFolders(newPaths);
   } else {

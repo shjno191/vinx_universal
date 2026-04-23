@@ -164,3 +164,5 @@ export const systemControlSettings = ref<SystemControl[]>([]);
 export const globalDictionaryPath = ref('');
 export const advancedTranslatePaths = ref<string[]>([]);
 
+export const loadingTheme = ref<'cute' | 'premium' | 'retro' | 'cyber' | 'nature' | 'orbit'>('cute');
+

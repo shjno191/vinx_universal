@@ -8,6 +8,7 @@ import {
   theme, 
   aiSettings, 
   chillSettings, 
+  loadingTheme,
   triggerSettingsRefresh,
   globalDictionaryPath,
   advancedTranslatePaths
@@ -17,6 +18,7 @@ export function useSettings() {
   const currentCategory = ref('general');
   const settings = ref({
     theme: 'dark',
+    loading_theme: 'cute',
     dictionary_path: '',
     advanced_translate_paths: [] as string[],
     shortcuts: {
@@ -75,6 +77,7 @@ export function useSettings() {
         globalShortcuts.value = settings.value.shortcuts;
         editorSettings.value = settings.value.editor;
         theme.value = settings.value.theme as 'light' | 'dark' | '95';
+        loadingTheme.value = (settings.value.loading_theme || 'cute') as any;
         aiSettings.value = settings.value.ai as any;
         chillSettings.value = settings.value.chill;
         globalDictionaryPath.value = settings.value.dictionary_path || '';
@@ -91,6 +94,7 @@ export function useSettings() {
       globalShortcuts.value = settings.value.shortcuts;
       editorSettings.value = settings.value.editor;
       theme.value = settings.value.theme as 'light' | 'dark' | '95';
+      loadingTheme.value = (settings.value.loading_theme || 'cute') as any;
       aiSettings.value = settings.value.ai as any;
       chillSettings.value = settings.value.chill;
       advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];

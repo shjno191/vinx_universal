@@ -23,6 +23,7 @@ import GitTab from "./components/GitTab.vue";
 import ConvertTab from "./components/ConvertTab.vue";
 import SmokeTab from "./components/SmokeTab.vue";
 import Cigarette from "./components/Cigarette.vue";
+import GlobalLoading from "./components/GlobalLoading.vue";
 
 const {
   currentTab,
@@ -178,6 +179,8 @@ onMounted(() => {
         <Cigarette :is-widget="true" :force-smoking="isGlobalSmoking" />
       </div>
     </Teleport>
+
+    <GlobalLoading />
   </div>
 </template>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue';
 import { useSettings } from '../composables/useSettings';
+import { useTranslateManager } from '../composables/useTranslateManager';
 import { Icons } from '../utils/icons';
 import { showSettingsTrigger, theme } from '../store';
 
@@ -76,6 +77,24 @@ watch(showSettingsTrigger, (val) => {
             <option value="light">Sáng (Light Mode)</option>
             <option value="95">Cổ điển (Windows 95)</option>
           </select>
+        </div>
+
+        <div class="setting-item">
+          <label>Chủ đề nạp dữ liệu (Loading Theme)</label>
+          <div class="theme-select-group">
+            <select v-model="settings.loading_theme" class="theme-select" @change="saveSettings">
+              <option value="cute">Chú mèo dễ thương (Cute Cat)</option>
+              <option value="premium">Neon hiện đại (Premium Neon)</option>
+              <option value="retro">Cổ điển Win95 (Retro UI)</option>
+              <option value="cyber">Cyberpunk (High Tech)</option>
+              <option value="nature">Thiên nhiên (Nature/Garden)</option>
+              <option value="orbit">Không gian (Space Orbit)</option>
+            </select>
+            <button class="test-loading-btn" @click="() => useTranslateManager().simulateLoading()" title="Click to test loading screen">
+              <span v-html="Icons.Play" class="test-icon"></span>
+              TEST
+            </button>
+          </div>
         </div>
 
         <div class="setting-item">
@@ -357,6 +376,16 @@ watch(showSettingsTrigger, (val) => {
   transition: border-color 0.2s;
 }
 .theme-select:focus, .text-input:focus { border-color: var(--accent-color); }
+
+.theme-select-group { display: flex; gap: 10px; align-items: center; }
+.test-loading-btn { 
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+  background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--accent-color); border-radius: 8px; font-weight: 800; font-size: 0.7rem;
+  cursor: pointer; transition: all 0.2s;
+}
+.test-loading-btn:hover { background: var(--accent-color); color: #fff; }
+.test-icon { width: 14px; height: 14px; display: flex; align-items: center; }
 
 .path-picker { display: flex; gap: 8px; }
 .path-input { flex: 1; opacity: 0.7; cursor: default; }

@@ -17,46 +17,42 @@ export interface AdvancedConfig {
   enabled: boolean;
 }
 
+// --- Global Shared State (Singleton) ---
+const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
+const dictionaryData = shallowRef<any[]>([]);
+const isLoading = ref(false);
+const dictionaryPath = ref('');
+const localSearchQuery = ref('');
+
+const isOnlySelectedSheets = ref(false);
+const isStrict = ref(false);
+
+const advancedDictData = shallowRef<Map<string, Map<string, string>>>(new Map());
+const advancedConfigs = ref<Record<string, AdvancedConfig>>({});
+
+const selectedFolder = ref<string>('');
+const excelFilesInFolder = shallowRef<string[]>([]);
+const selectedFiles = ref<Set<string>>(new Set()); 
+const fileSheetsData = shallowRef<Map<string, string[]>>(new Map());
+const selectedSheets = ref<Set<string>>(new Set());
+
+const fileSheetCounts = shallowRef<Record<string, number>>({});
+const sheetRowCounts = shallowRef<Record<string, number>>({});
+const sheetMetadata = shallowRef<Record<string, { logical: string, physical: string, rowCount: number }>>({});
+
+const fileSearchQuery = ref('');
+const sheetSearchQuery = ref('');
+
+const globalLoading = ref({
+  active: false,
+  message: '',
+  progress: 0
+});
+let loadingTimer: any = null;
+let loadingCount = 0;
+
 export function useTranslateManager() {
   const { readBinary } = useFileSystem();
-
-  // --- State ---
-  const subTab = ref<'dictionary' | 'quick-translate'>('quick-translate');
-  const dictionaryData = shallowRef<any[]>([]);
-  const isLoading = ref(false);
-  const dictionaryPath = ref('');
-  const localSearchQuery = ref('');
-  
-  const isOnlySelectedSheets = ref(false);
-  const isStrict = ref(false);
-
-  // Advanced Dictionary Data - shallowRef for performance
-  const advancedDictData = shallowRef<Map<string, Map<string, string>>>(new Map());
-  const advancedConfigs = ref<Record<string, AdvancedConfig>>({});
-
-  // Quick Translate Folder State
-  const selectedFolder = ref<string>('');
-  const excelFilesInFolder = shallowRef<string[]>([]);
-  const selectedFiles = ref<Set<string>>(new Set()); // Files actually "selected" via checkbox
-  const fileSheetsData = shallowRef<Map<string, string[]>>(new Map()); // Cache: filePath -> string[]
-  const selectedSheets = ref<Set<string>>(new Set()); // Stores "filePath::sheetName"
-
-  // Metrics and Metadata
-  const fileSheetCounts = shallowRef<Record<string, number>>({});
-  const sheetRowCounts = shallowRef<Record<string, number>>({});
-  const sheetMetadata = shallowRef<Record<string, { logical: string, physical: string, rowCount: number }>>({});
-
-  const fileSearchQuery = ref('');
-  const sheetSearchQuery = ref('');
-
-  // Global Loading State
-  const globalLoading = ref({
-    active: false,
-    message: '',
-    progress: 0
-  });
-  let loadingTimer: any = null;
-  let loadingCount = 0;
 
   const startLoading = (msg: string) => {
     loadingCount++;
@@ -453,6 +449,25 @@ export function useTranslateManager() {
     translateOutput.value = translateText(translateInput.value, translationRegex.value, cachedLookup.value);
   };
 
+  const simulateLoading = async (durationMs: number = 5000) => {
+    if (globalLoading.value.active) return;
+    globalLoading.value.active = true;
+    globalLoading.value.message = 'Simulating Data Processing...';
+    globalLoading.value.progress = 0;
+    
+    const steps = 100;
+    const interval = durationMs / steps;
+    
+    for (let i = 0; i <= steps; i++) {
+        globalLoading.value.progress = i;
+        await new Promise(resolve => setTimeout(resolve, interval));
+    }
+    
+    setTimeout(() => {
+        globalLoading.value.active = false;
+    }, 500);
+  };
+
   return {
     subTab,
     dictionaryData,
@@ -487,6 +502,7 @@ export function useTranslateManager() {
     updateCachedWords,
     performQuickTranslate,
     rebuildBaseDictionaryCache,
-    saveDictionaryFile
+    saveDictionaryFile,
+    simulateLoading
   };
 }

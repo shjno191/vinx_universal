@@ -12,12 +12,12 @@ const props = defineProps<{
   maxLines: number;
   hoveredLineIndex: number | null;
   folderPath: string;
-  excelFiles: string[];       // list of files in column 1
-  selectedFile: string;       // currently active file
-  sheets: string[];           // list of sheets in column 4
-  selectedSheets: Set<string>; // currently checked sheets
-  fileSheetCounts: Record<string, number>; // sheet count per file
-  sheetRowCounts: Record<string, number>;  // row count per sheet
+  excelFiles: string[];       
+  selectedFiles: Set<string>; 
+  aggregatedSheets: { file: string, name: string }[]; 
+  selectedSheets: Set<string>; 
+  fileSheetCounts: Record<string, number>; 
+  sheetRowCounts: Record<string, number>;  
   sheetMetadata: Record<string, { logical: string, physical: string, colCount: number }>;
   fileSearch: string;
   sheetSearch: string;
@@ -37,8 +37,8 @@ const emit = defineEmits<{
   (e: 'mouseMove', event: MouseEvent, target: HTMLTextAreaElement | null): void;
   (e: 'update:hoveredLineIndex', val: number | null): void;
   (e: 'selectFolder'): void;
-  (e: 'selectFile', path: string): void;
-  (e: 'toggleSheet', name: string): void;
+  (e: 'toggleFile', path: string): void;
+  (e: 'toggleSheet', fullKey: string): void;
   (e: 'toggleAllSheets'): void;
   (e: 'update:fileSearch', val: string): void;
   (e: 'update:sheetSearch', val: string): void;
@@ -154,6 +154,50 @@ const localInput = computed({
 const handleScroll = (side: 'input' | 'result') => {
   emit('scroll', side);
 };
+
+// == FILTERING LOGIC ========================================================
+const filteredFiles = computed(() => {
+  if (!props.excelFiles) return [];
+  const query = (props.fileSearch || '').trim().toLowerCase();
+  if (!query) return props.excelFiles;
+  
+  return props.excelFiles.filter(f => {
+    if (!f) return false;
+    const pathLower = f.toLowerCase();
+    const nameLower = f.split(/[/\\]/).pop()?.toLowerCase() || '';
+    return pathLower.includes(query) || nameLower.includes(query);
+  });
+});
+
+const filteredSheets = computed(() => {
+  if (!props.aggregatedSheets) return [];
+  const query = (props.sheetSearch || '').trim().toLowerCase();
+  
+  const base = props.aggregatedSheets;
+  if (!query) return base;
+
+  return base.filter(s => {
+    const fullKey = `${s.file}::${s.name}`;
+    const isNameMatch = s.name.toLowerCase().includes(query);
+    const metadata = props.sheetMetadata[fullKey];
+    const isLogicalMatch = metadata?.logical?.toLowerCase().includes(query);
+    const isPhysicalMatch = metadata?.physical?.toLowerCase().includes(query);
+    const isFileMatch = s.file.toLowerCase().includes(query);
+    
+    return isNameMatch || isLogicalMatch || isPhysicalMatch || isFileMatch;
+  });
+});
+
+const groupedSelectedSheets = computed(() => {
+  const groups = new Map<string, string[]>();
+  // selectedSheets is a Set of "file::sheet"
+  Array.from(props.selectedSheets).forEach(fullKey => {
+    const file = fullKey.split('::')[0];
+    if (!groups.has(file)) groups.set(file, []);
+    groups.get(file)!.push(fullKey);
+  });
+  return groups;
+});
 </script>
 
 <template>
@@ -179,14 +223,18 @@ const handleScroll = (side: 'input' | 'result') => {
                      placeholder="Filter files..." />
             </div>
 
-            <div v-if="!folderPath && excelFiles.length === 0" class="empty-hint">No folder selected</div>
-            <div v-else-if="excelFiles.length === 0" class="empty-hint">No files found</div>
-            <div v-for="file in excelFiles" :key="file"
-                 v-memo="[file, selectedFile === file, fileSheetCounts[file]]"
-                 class="file-item" :class="{ active: selectedFile === file }"
-                 @click="emit('selectFile', file)"
+            <div v-if="!folderPath && filteredFiles.length === 0" class="empty-hint">No folder selected</div>
+            <div v-else-if="filteredFiles.length === 0" class="empty-hint">No files found</div>
+            <div v-for="file in filteredFiles" :key="file"
+                 v-memo="[file, selectedFiles.has(file), fileSheetCounts[file]]"
+                 class="file-item" :class="{ selected: selectedFiles.has(file) }"
+                 @click="emit('toggleFile', file)"
                  :title="file">
-              <span class="file-icon" v-html="Icons.File"></span>
+              <input type="checkbox" 
+                     class="file-checkbox"
+                     :checked="selectedFiles.has(file)"
+                     @click.stop
+                     @change="emit('toggleFile', file)" />
               <div class="file-info-v">
                 <span class="file-name-label">{{ file.split(/[/\\]/).pop() }}</span>
                 <span class="item-stats" v-if="fileSheetCounts[file]">({{ fileSheetCounts[file] }} sheets)</span>
@@ -323,16 +371,25 @@ const handleScroll = (side: 'input' | 'result') => {
           <div class="sheet-split-container">
             <!-- PART 1: Selected Sheets (Top) -->
             <div class="selected-sheets-zone" :style="{ height: selectedSheetsHeight + 'px' }">
-              <div class="zone-label">SELECTED ({{ selectedSheets.size }})</div>
+              <div class="zone-label">ENABLED IN TRANSLATOR ({{ selectedSheets.size }})</div>
               <div class="sheet-list-scroll">
-                <div v-if="selectedSheets.size === 0" class="empty-hint-small">No sheets selected</div>
-                <label v-for="sheet in Array.from(selectedSheets)" :key="'sel-' + sheet" 
-                       class="sheet-item compact" :title="sheetMetadata[sheet]?.physical || sheet">
-                  <input type="checkbox" checked @change="emit('toggleSheet', sheet)" />
-                  <div class="sheet-info-v">
-                    <span class="sheet-name-label">{{ sheet }}</span>
+                <div v-if="selectedSheets.size === 0" class="empty-hint-small">No sheets enabled</div>
+                
+                <div v-else v-for="[file, fullKeys] in Array.from(groupedSelectedSheets)" :key="'group-' + file" class="sheet-group-container">
+                  <div class="sheet-group-header">
+                    <span v-html="Icons.File" class="group-icon"></span>
+                    <span class="group-filename">{{ file.split(/[/\\]/).pop() }}</span>
                   </div>
-                </label>
+                  <label v-for="fullKey in fullKeys" :key="'sel-' + fullKey" 
+                         class="sheet-item compact" :title="sheetMetadata[fullKey]?.physical || fullKey">
+                    <input type="checkbox" checked @change="emit('toggleSheet', fullKey)" />
+                    <div class="sheet-info-v">
+                      <div class="sheet-header-line">
+                        <span class="sheet-name-label">{{ fullKey.split('::').pop() }}</span>
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -341,27 +398,32 @@ const handleScroll = (side: 'input' | 'result') => {
               <div class="resizer-handle"></div>
             </div>
 
-            <!-- PART 2: All Sheets & Search (Bottom) -->
+            <!-- PART 2: Aggregated Sheets & Search (Bottom) -->
             <div class="available-sheets-zone">
-              <div class="zone-label">AVAILABLE</div>
-              <div class="side-search-box" v-if="selectedFile">
+              <div class="zone-label">{{ selectedFiles.size === 0 ? `ALL SHEETS (${aggregatedSheets.length})` : `SELECTED FILES (${selectedFiles.size})` }}</div>
+              <div class="side-search-box" v-if="aggregatedSheets.length > 0">
                 <input :value="sheetSearch" 
                        @input="emit('update:sheetSearch', ($event.target as HTMLInputElement).value)" 
                        placeholder="Filter sheets..." />
               </div>
               <div class="sheet-list-scroll full">
-                <div v-if="!selectedFile" class="empty-hint">Select a file first</div>
-                <label v-for="sheet in sheets" :key="'all-' + sheet" 
-                       v-memo="[sheet, selectedSheets.has(sheet), sheetRowCounts[sheet]]"
-                       class="sheet-item" :title="sheetMetadata[sheet]?.physical || sheet">
+                <div v-if="aggregatedSheets.length === 0" class="empty-hint">No sheets available</div>
+                <label v-for="s in filteredSheets" :key="'all-' + s.file + '::' + s.name" 
+                       v-memo="[s.name, s.file, selectedSheets.has(s.file + '::' + s.name), sheetRowCounts[s.file + '::' + s.name]]"
+                       class="sheet-item" :title="sheetMetadata[s.file + '::' + s.name]?.physical || s.name">
                   <input type="checkbox" 
-                         :checked="selectedSheets.has(sheet)"
-                         @change="emit('toggleSheet', sheet)" />
+                         :checked="selectedSheets.has(s.file + '::' + s.name)"
+                         @change="emit('toggleSheet', s.file + '::' + s.name)" />
                   <div class="sheet-info-v">
-                    <span class="sheet-name-label">{{ sheet }}</span>
-                    <div class="sheet-meta-sub" v-if="sheetMetadata[sheet]">
-                      <span class="table-logical" v-if="sheetMetadata[sheet].logical && sheetMetadata[sheet].logical !== sheet">{{ sheetMetadata[sheet].logical }}</span>
-                      <span class="item-stats" v-if="sheetRowCounts[sheet]">({{ sheetRowCounts[sheet] }} cols)</span>
+                    <div class="sheet-header-line">
+                      <span class="sheet-name-label">{{ s.name }}</span>
+                      <span class="file-source-tag" v-if="selectedFiles.size !== 1">{{ s.file.split(/[/\\]/).pop() }}</span>
+                    </div>
+                    <div class="sheet-meta-sub" v-if="sheetMetadata[s.file + '::' + s.name]">
+                      <span class="table-logical" v-if="sheetMetadata[s.file + '::' + s.name].logical && sheetMetadata[s.file + '::' + s.name].logical !== s.name">
+                        {{ sheetMetadata[s.file + '::' + s.name].logical }}
+                      </span>
+                      <span class="item-stats" v-if="sheetRowCounts[s.file + '::' + s.name]">({{ sheetRowCounts[s.file + '::' + s.name] }} rows)</span>
                     </div>
                   </div>
                 </label>
@@ -409,7 +471,24 @@ const handleScroll = (side: 'input' | 'result') => {
 .panel-body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
 .file-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 0.72rem; color: var(--text-color); transition: all 0.2s; }
 .file-item:hover { background: rgba(99,102,241,0.08); transform: translateX(2px); }
-.file-item.active { background: rgba(99,102,241,0.12); color: var(--accent-color); font-weight: 800; border-left: 3px solid var(--accent-color); }
+.file-item.selected { background: rgba(99,102,241,0.05); color: var(--accent-color); border-left: 2px solid var(--accent-color); }
+.file-checkbox { cursor: pointer; accent-color: var(--accent-color); width: 14px; height: 14px; flex-shrink: 0; }
+.sheet-header-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.file-source-tag { 
+  font-size: 0.5rem; 
+  opacity: 0.7; 
+  background: var(--accent-color); 
+  color: #fff;
+  padding: 1px 6px; 
+  border-radius: 4px; 
+  font-weight: 800; 
+  font-family: 'Inter', sans-serif; 
+  white-space: nowrap; 
+  max-width: 80px; 
+  overflow: hidden; 
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
 .file-info-v, .sheet-info-v { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .item-stats { font-size: 0.55rem; opacity: 0.4; font-weight: 500; font-style: italic; }
 
@@ -484,6 +563,22 @@ textarea {
 .available-sheets-zone { flex: 1; border-top: 1px solid rgba(128,128,128,0.05); }
 .sheet-list-scroll { flex: 1; overflow-y: auto; padding: 4px 10px 10px 10px; display: flex; flex-direction: column; gap: 4px; }
 .sheet-list-scroll.full { padding-top: 0; }
+
+/* Visibility Improvements for Scrollbars */
+.sheet-list-scroll::-webkit-scrollbar, .panel-body::-webkit-scrollbar {
+  width: 6px;
+}
+.sheet-list-scroll::-webkit-scrollbar-track, .panel-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sheet-list-scroll::-webkit-scrollbar-thumb, .panel-body::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 10px;
+}
+.sheet-list-scroll::-webkit-scrollbar-thumb:hover, .panel-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.4);
+}
+
 .zone-label { font-size: 0.55rem; font-weight: 850; opacity: 0.3; padding: 8px 12px 4px 12px; letter-spacing: 0.05em; color: var(--text-color); flex-shrink: 0; }
 .empty-hint-small { font-size: 0.65rem; opacity: 0.2; text-align: center; padding: 20px 10px; font-style: italic; }
 
@@ -531,6 +626,36 @@ textarea {
 
 .sheet-item.compact { padding: 4px 10px; }
 .sheet-item.compact .sheet-name-label { font-size: 0.68rem; opacity: 0.8; }
+
+/* Group Styles */
+.sheet-group-container { 
+  margin-bottom: 12px; 
+  border: 1px solid rgba(128,128,128,0.08); 
+  border-radius: 12px; 
+  overflow: hidden; 
+  background: rgba(0,0,0,0.015); 
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+}
+.sheet-group-header { 
+  display: flex; 
+  align-items: center; 
+  gap: 10px; 
+  background: rgba(99, 102, 241, 0.04); 
+  padding: 6px 12px; 
+  border-bottom: 1px solid rgba(128,128,128,0.06); 
+  border-left: 3px solid var(--accent-color);
+}
+.group-icon { width: 14px; height: 14px; opacity: 0.4; display: flex; align-items: center; color: var(--accent-color); }
+.group-filename { 
+  font-size: 0.65rem; 
+  font-weight: 900; 
+  color: var(--accent-color); 
+  text-transform: uppercase; 
+  letter-spacing: 0.08em; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  white-space: nowrap; 
+}
 
 .side-search-box { margin: 4px 10px 8px 10px; position: sticky; top: 0; z-index: 10; background: var(--input-bg); border-radius: 8px; border: 1px solid rgba(128,128,128,0.15); padding: 2px 8px; display: flex; align-items: center; }
 .side-search-box input { width: 100%; background: transparent; border: none; outline: none; color: var(--text-color); font-size: 0.65rem; font-weight: 700; height: 20px; }

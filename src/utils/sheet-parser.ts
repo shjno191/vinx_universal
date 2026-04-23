@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 export interface SheetMetadata {
   logical: string;
   physical: string;
-  colCount: number;
+  rowCount: number;
 }
 
 /**
@@ -88,7 +88,7 @@ export function extractSheetMetadata(worksheet: XLSX.WorkSheet): SheetMetadata {
   
   let logical = '';
   let physical = '';
-  let colCount = 0;
+  let rowCount = 0;
 
   if (jsonData.length >= 2) {
     const row1 = jsonData[0] || []; // Labels Row
@@ -108,11 +108,15 @@ export function extractSheetMetadata(worksheet: XLSX.WorkSheet): SheetMetadata {
   if (jsonData.length >= 5) {
     for (let i = 4; i < jsonData.length; i++) {
       const row = jsonData[i];
-      if (row && (row[0] !== undefined && row[0] !== '' || row[1])) {
-        colCount++;
+      // A row is valid if it has content in either column 0 or 1 (Logical/Physical)
+      if (row && (String(row[0] || '').trim() || String(row[1] || '').trim())) {
+        rowCount++;
       }
     }
+  } else {
+    // Fallback row count for non-technical sheets
+    rowCount = Math.max(0, jsonData.length - 1);
   }
 
-  return { logical, physical, colCount };
+  return { logical, physical, rowCount };
 }

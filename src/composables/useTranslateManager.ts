@@ -37,18 +37,50 @@ export function useTranslateManager() {
   // Quick Translate Folder State
   const selectedFolder = ref<string>('');
   const excelFilesInFolder = shallowRef<string[]>([]);
-  const selectedFile = ref<string>('');
-  const sheetsOfSelectedFile = shallowRef<string[]>([]);
-  const selectedSheets = ref<Set<string>>(new Set());
+  const selectedFiles = ref<Set<string>>(new Set()); // Files actually "selected" via checkbox
+  const fileSheetsData = shallowRef<Map<string, string[]>>(new Map()); // Cache: filePath -> string[]
+  const selectedSheets = ref<Set<string>>(new Set()); // Stores "filePath::sheetName"
 
   // Metrics and Metadata
   const fileSheetCounts = shallowRef<Record<string, number>>({});
   const sheetRowCounts = shallowRef<Record<string, number>>({});
-  const sheetMetadata = shallowRef<Record<string, { logical: string, physical: string, colCount: number }>>({});
+  const sheetMetadata = shallowRef<Record<string, { logical: string, physical: string, rowCount: number }>>({});
 
-  // Search/Filters
   const fileSearchQuery = ref('');
   const sheetSearchQuery = ref('');
+
+  // Global Loading State
+  const globalLoading = ref({
+    active: false,
+    message: '',
+    progress: 0
+  });
+  let loadingTimer: any = null;
+  let loadingCount = 0;
+
+  const startLoading = (msg: string) => {
+    loadingCount++;
+    globalLoading.value.message = msg;
+    globalLoading.value.progress = 0;
+    
+    if (loadingCount === 1) {
+      if (loadingTimer) clearTimeout(loadingTimer);
+      globalLoading.value.active = false;
+      loadingTimer = setTimeout(() => {
+        globalLoading.value.active = true;
+      }, 100);
+    }
+  };
+
+  const stopLoading = () => {
+    loadingCount = Math.max(0, loadingCount - 1);
+    if (loadingCount === 0) {
+      if (loadingTimer) clearTimeout(loadingTimer);
+      loadingTimer = null;
+      globalLoading.value.active = false;
+      globalLoading.value.progress = 0;
+    }
+  };
 
   // Translation Engine State
   const debouncedInput = ref(translateInput.value);
@@ -89,6 +121,12 @@ export function useTranslateManager() {
       
       isLoading.value = true;
       console.log(`[TranslateManager] Loading dictionary: ${cleanPath}`);
+      
+      startLoading('Parsing dictionary entries...');
+      // Give UI a chance to show the modal before the main thread gets busy reading binary
+      await nextTick();
+      await new Promise(resolve => setTimeout(resolve, 50));
+
       const b64 = await readBinary(cleanPath);
       if (!b64 || b64.length === 0) {
         throw new Error('Dictionary file is empty or could not be read');
@@ -108,18 +146,24 @@ export function useTranslateManager() {
           .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
         
         // Deduplicate based on JP and EN columns (2 first columns)
+        const totalRows = rawRows.length;
+        const finalRows: any[] = [];
         const uniqueMap = new Map();
-        rawRows.forEach(row => {
+        
+        for (const [idx, row] of rawRows.entries()) {
           const key = `${row.jp}|${row.en}`;
-          uniqueMap.set(key, row); // Keep the last occurrence
-        });
-        const finalRows = Array.from(uniqueMap.values());
+          if (!uniqueMap.has(key)) {
+            uniqueMap.set(key, row);
+            finalRows.push(row);
+          }
+          if (idx % 1000 === 0) {
+            globalLoading.value.progress = Math.round((idx / totalRows) * 100);
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
         const removedCount = rawRows.length - finalRows.length;
         
         console.log(`[TranslateManager] Loaded ${rawRows.length} total, filtered ${removedCount} duplicates. Final: ${finalRows.length} entries.`);
-        if (finalRows.length > 0) {
-          console.log('[TranslateManager] Sample data (first 3 rows):', finalRows.slice(0, 3));
-        }
         
         dictionaryData.value = finalRows;
         rebuildBaseDictionaryCache();
@@ -131,15 +175,12 @@ export function useTranslateManager() {
         return { total: 0, removed: 0, final: 0 };
       }
     } catch (error) {
-      if (path) {
-        console.error(`[TranslateManager] Failed to load dictionary From path "${path}":`, error);
-      } else {
-        console.error(`[TranslateManager] Failed to load dictionary (null path):`, error);
-      }
+      console.error(`[TranslateManager] Failed to load dictionary:`, error);
       dictionaryData.value = [];
       return null;
     } finally {
       isLoading.value = false;
+      stopLoading();
     }
   };
 
@@ -175,10 +216,17 @@ export function useTranslateManager() {
     if (!folders || folders.length === 0) {
       excelFilesInFolder.value = [];
       fileSheetCounts.value = {};
+      fileSheetsData.value = new Map();
       return;
     }
     
     console.log(`[TranslateManager] Syncing files from ${folders.length} folders:`, folders);
+    startLoading('Scanning Excel folders...');
+    
+    // Give UI a chance to show the modal
+    await nextTick();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     try {
       const allFiles: string[] = [];
       for (const folder of folders) {
@@ -197,19 +245,48 @@ export function useTranslateManager() {
       excelFilesInFolder.value = uniqueFiles;
       console.log(`[TranslateManager] Total unique files found: ${uniqueFiles.length}`);
       
+      const totalItems = excelFilesInFolder.value.length;
+      let processed = 0;
       const newSheetCounts: Record<string, number> = {};
+      const newFileSheets = new Map<string, string[]>();
+      const newMetadata = { ...sheetMetadata.value };
+      const newRowCounts = { ...sheetRowCounts.value };
+
       for (const f of excelFilesInFolder.value) {
         try {
+          processed++;
+          globalLoading.value.message = `Analyzing file: ${processed}/${totalItems} (${f.split(/[/\\]/).pop()})`;
+          globalLoading.value.progress = Math.round(((processed - 0.5) / totalItems) * 100);
+          await new Promise(resolve => setTimeout(resolve, 0));
+
           const b64 = await readBinary(f);
-          const workbook = XLSX.read(b64, { type: 'array', bookSheets: true });
+          const workbook = XLSX.read(b64, { type: 'array' });
+          
           newSheetCounts[f] = workbook.SheetNames.length;
+          newFileSheets.set(f, workbook.SheetNames);
+
+          workbook.SheetNames.forEach(name => {
+            const meta = extractSheetMetadata(workbook.Sheets[name]);
+            const key = `${f}::${name}`;
+            newMetadata[key] = meta;
+            newRowCounts[key] = meta.rowCount;
+          });
+          
+          globalLoading.value.progress = Math.round((processed / totalItems) * 100);
+          // Yield to UI thread
+          await new Promise(resolve => setTimeout(resolve, 0));
         } catch (err) {
-          console.error(`[TranslateManager] Failed to scan sheets for ${f}:`, err);
+          console.error(`[TranslateManager] Failed to scan contents for ${f}:`, err);
         }
       }
       fileSheetCounts.value = newSheetCounts;
+      fileSheetsData.value = newFileSheets;
+      sheetMetadata.value = newMetadata;
+      sheetRowCounts.value = newRowCounts;
     } catch (e) {
       console.error('[TranslateManager] Failed to load files from folders:', e);
+    } finally {
+      stopLoading();
     }
   };
 
@@ -218,49 +295,70 @@ export function useTranslateManager() {
   };
 
   const selectExcelFile = async (filePath: string) => {
-    selectedFile.value = filePath;
-    selectedSheets.value = new Set();
-    sheetRowCounts.value = {};
-    sheetMetadata.value = {};
-    sheetSearchQuery.value = '';
-    try {
-      const b64 = await readBinary(filePath);
-      const workbook = XLSX.read(b64, { type: 'array' });
-      sheetsOfSelectedFile.value = workbook.SheetNames;
+    if (!fileSheetsData.value.has(filePath)) {
+      try {
+        const b64 = await readBinary(filePath);
+        const workbook = XLSX.read(b64, { type: 'array' });
+        
+        const newFileSheets = new Map(fileSheetsData.value);
+        newFileSheets.set(filePath, workbook.SheetNames);
+        fileSheetsData.value = newFileSheets;
 
-      const newMetadata: Record<string, any> = {};
-      const newRowCounts: Record<string, number> = {};
-      
-      workbook.SheetNames.forEach(name => {
-        const metadata = extractSheetMetadata(workbook.Sheets[name]);
-        newMetadata[name] = metadata;
-        newRowCounts[name] = metadata.colCount;
-      });
-      
-      sheetMetadata.value = newMetadata;
-      sheetRowCounts.value = newRowCounts;
-    } catch (e) {
-      console.error('[TranslateManager] Failed to read sheets:', e);
-      sheetsOfSelectedFile.value = [];
+        const newMetadata = { ...sheetMetadata.value };
+        const newRowCounts = { ...sheetRowCounts.value };
+        
+        workbook.SheetNames.forEach(name => {
+          const metadata = extractSheetMetadata(workbook.Sheets[name]);
+          newMetadata[`${filePath}::${name}`] = metadata;
+          newRowCounts[`${filePath}::${name}`] = metadata.rowCount;
+        });
+        
+        sheetMetadata.value = newMetadata;
+        sheetRowCounts.value = newRowCounts;
+      } catch (e) {
+        console.error('[TranslateManager] Failed to read sheets:', e);
+      }
     }
   };
 
+  const toggleExcelFile = async (filePath: string) => {
+    if (selectedFiles.value.has(filePath)) {
+      selectedFiles.value.delete(filePath);
+      // Automatically deselect all sheets of this file
+      const newSelectedSheets = new Set(selectedSheets.value);
+      for (const s of newSelectedSheets) {
+        if (s.startsWith(`${filePath}::`)) {
+          newSelectedSheets.delete(s);
+        }
+      }
+      selectedSheets.value = newSelectedSheets;
+    } else {
+      selectedFiles.value.add(filePath);
+      await selectExcelFile(filePath);
+    }
+    updateCachedWords();
+  };
+
   const loadSingleSheet = async (filePath: string, sheetName: string) => {
+    const sheetKey = `${filePath}::${sheetName}`;
+    if (advancedDictData.value.has(sheetKey)) return;
+
     try {
+      startLoading(`Loading sheet: ${sheetName}...`);
       const b64 = await readBinary(filePath);
       const workbook = XLSX.read(b64, { type: 'array' });
-      const mapping = parseTechnicalSheet(workbook.Sheets[sheetName]);
-      const sheetKey = `${filePath}::${sheetName}`;
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) return;
+
+      const mapping = parseTechnicalSheet(worksheet);
       if (mapping && mapping.size > 0) {
         console.log(`[TranslateManager] Loaded ${mapping.size} mappings from sheet: ${sheetName}`);
         const newMap = new Map(advancedDictData.value);
         newMap.set(sheetKey, mapping);
         advancedDictData.value = newMap;
-      } else {
-        console.warn(`[TranslateManager] No valid mappings found in sheet: ${sheetName}`);
       }
-    } catch (e) {
-      console.error(`[TranslateManager] Failed to load sheet ${sheetName}:`, e);
+    } finally {
+      stopLoading();
     }
   };
 
@@ -293,50 +391,54 @@ export function useTranslateManager() {
   };
 
   const updateCachedWords = () => {
-    const activeConfigs = Object.entries(advancedConfigs.value)
-      .filter(([_, cfg]) => cfg.enabled && cfg.sheet)
-      .map(([path, cfg]) => ({ path, ...cfg }))
-      .sort((a, b) => a.priority - b.priority);
+    const sourceSet = new Set<string>();
+    const targetSet = new Set<string>();
+    const lookup = new Map<string, string>();
 
-    let sourceSet: Set<string>;
-    let targetSet: Set<string>;
-    let lookup: Map<string, string>;
+    // 1. Process Selected Sheets first (Insertion order = "First selected wins")
+    selectedSheets.value.forEach(fullKey => {
+      const mapping = advancedDictData.value.get(fullKey);
 
-    if (activeConfigs.length === 0) {
-      sourceSet = new Set(baseSourceWords.value);
-      targetSet = new Set(baseTargetWords.value);
-      lookup = new Map(baseLookupPart.value);
-    } else {
-      sourceSet = isOnlySelectedSheets.value ? new Set() : new Set(baseSourceWords.value);
-      targetSet = isOnlySelectedSheets.value ? new Set() : new Set(baseTargetWords.value);
-      lookup = isOnlySelectedSheets.value ? new Map() : new Map(baseLookupPart.value);
+      if (mapping) {
+        mapping.forEach((physical, logical) => {
+          if (!logical || !physical) return;
 
-      activeConfigs.forEach(cfg => {
-        const mapping = advancedDictData.value.get(cfg.sheet);
-        if (mapping) {
-          mapping.forEach((physical, logical) => {
-            if (!logical || !physical) return;
-            if (sharedTargetLang.value === 'jp') {
-              // Target is JP: map from Physical (EN) to Logical (JP)
-              lookup.set(physical, logical);
-              sourceSet.add(physical);
-              targetSet.add(logical);
-            } else if (sharedTargetLang.value === 'en') {
-              // Target is EN: map from Logical (JP) to Physical (EN)
-              lookup.set(logical, physical);
-              sourceSet.add(logical);
-              targetSet.add(physical);
-            } else if (sharedTargetLang.value === 'vi') {
-              // For VI, technical sheets (JP/EN) usually don't have direct VI columns.
-              // We rely on the base dictionary for JP->VI or EN->VI.
-              // But we can add JP->EN as a fallback if desired, though usually not.
-              // Let's at least add them to source/target sets for highlighting.
-              sourceSet.add(logical);
-              sourceSet.add(physical);
+          let source = '';
+          let target = '';
+
+          if (sharedTargetLang.value === 'jp') {
+            source = physical;
+            target = logical;
+          } else if (sharedTargetLang.value === 'en') {
+            source = logical;
+            target = physical;
+          } else if (sharedTargetLang.value === 'vi') {
+            sourceSet.add(logical);
+            sourceSet.add(physical);
+            return;
+          }
+
+          if (source && target) {
+            if (!lookup.has(source)) {
+              lookup.set(source, target);
+              sourceSet.add(source);
+              targetSet.add(target);
             }
-          });
+          }
+        });
+      }
+    });
+
+    // 2. Process Base Dictionary last (if not in ONLY mode)
+    if (!isOnlySelectedSheets.value) {
+      baseLookupPart.value.forEach((target, source) => {
+        if (!lookup.has(source)) {
+          lookup.set(source, target);
+          sourceSet.add(source);
+          targetSet.add(target);
         }
       });
+      baseTargetWords.value.forEach(word => targetSet.add(word));
     }
 
     sourceWordsList.value = Array.from(sourceSet).sort((a, b) => b.length - a.length);
@@ -362,12 +464,13 @@ export function useTranslateManager() {
     advancedConfigs,
     selectedFolder,
     excelFilesInFolder,
-    selectedFile,
-    sheetsOfSelectedFile,
+    selectedFiles,
+    fileSheetsData,
     selectedSheets,
     fileSheetCounts,
     sheetRowCounts,
     sheetMetadata,
+    globalLoading,
     fileSearchQuery,
     sheetSearchQuery,
     debouncedInput,
@@ -379,6 +482,7 @@ export function useTranslateManager() {
     loadFilesFromMultipleFolders,
     loadFilesFromFolder,
     selectExcelFile,
+    toggleExcelFile,
     loadSingleSheet,
     updateCachedWords,
     performQuickTranslate,

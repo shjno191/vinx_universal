@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useTranslateManager } from '../composables/useTranslateManager';
 import { useSettings } from '../composables/useSettings';
 import { useClipboard } from '../composables/useClipboard';
@@ -36,12 +36,13 @@ const {
   advancedConfigs,
   selectedFolder,
   excelFilesInFolder,
-  selectedFile,
-  sheetsOfSelectedFile,
+  selectedFiles,
+  fileSheetsData,
   selectedSheets,
   fileSheetCounts,
   sheetRowCounts,
   sheetMetadata,
+  globalLoading,
   fileSearchQuery,
   sheetSearchQuery,
   debouncedInput,
@@ -50,12 +51,30 @@ const {
   loadDictionary,
   loadFilesFromMultipleFolders,
   selectExcelFile,
+  toggleExcelFile,
   loadSingleSheet,
   updateCachedWords,
   performQuickTranslate,
   rebuildBaseDictionaryCache,
   saveDictionaryFile
 } = useTranslateManager();
+
+const aggregatedSheets = computed(() => {
+  const result: { file: string, name: string }[] = [];
+  
+  // If no files are selected, show ALL sheets from ALL files
+  const sourceFiles = selectedFiles.value.size === 0 
+    ? excelFilesInFolder.value 
+    : Array.from(selectedFiles.value);
+
+  sourceFiles.forEach(filePath => {
+    const sheets = fileSheetsData.value.get(filePath) || [];
+    sheets.forEach(name => {
+      result.push({ file: filePath, name });
+    });
+  });
+  return result;
+});
 
 // Sync files from multiple folders defined in store
 watch(advancedTranslatePaths, (newPaths) => {
@@ -218,8 +237,16 @@ const loadSystemControls = async () => {
 };
 
 onMounted(async () => {
+  console.log('[TranslateTab] Mounted, initializing...');
+  await nextTick();
   await loadSystemControls();
-  // We rely on the immediate watch of globalDictionaryPath and advancedTranslatePaths for the initial load
+  
+  // If we already have paths but no files listed, trigger a scan
+  if (advancedTranslatePaths.value.length > 0 && excelFilesInFolder.value.length === 0) {
+    console.log('[TranslateTab] Initial scan for files...');
+    loadFilesFromMultipleFolders(advancedTranslatePaths.value);
+  }
+
   window.addEventListener('keydown', handleGlobalKeyDown);
 });
 
@@ -382,8 +409,8 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         @mouseMove="handleEditorMouseMove"
         :folderPath="selectedFolder"
         :excelFiles="excelFilesInFolder"
-        :selectedFile="selectedFile"
-        :sheets="sheetsOfSelectedFile"
+        :selectedFiles="selectedFiles"
+        :aggregatedSheets="aggregatedSheets"
         :selectedSheets="selectedSheets"
         :fileSheetCounts="fileSheetCounts"
         :sheetRowCounts="sheetRowCounts"
@@ -394,8 +421,20 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         @selectFolder="pickQuickTranslateFolder"
         @refreshFiles="() => loadFilesFromMultipleFolders(advancedTranslatePaths)"
         @clearSheets="() => { selectedSheets.clear(); updateCachedWords(); }"
-        @selectFile="selectExcelFile"
-        @toggleSheet="(name) => selectedSheets.has(name) ? selectedSheets.delete(name) : (async () => { selectedSheets.add(name); await loadSingleSheet(selectedFile, name); updateCachedWords(); })()"
+        @toggleFile="toggleExcelFile"
+        @toggleSheet="(fullKey) => { 
+          if (selectedSheets.has(fullKey)) { 
+            selectedSheets.delete(fullKey); 
+            updateCachedWords(); 
+          } else { 
+            (async () => { 
+              const [file, sheet] = fullKey.split('::');
+              selectedSheets.add(fullKey); 
+              await loadSingleSheet(file, sheet); 
+              updateCachedWords(); 
+            })(); 
+          } 
+        }"
       />
     </div>
 
@@ -447,6 +486,64 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         <div v-if="showCopyToast" class="copy-bubble" :style="{ left: copyPos.x + 'px', top: (copyPos.y - 30) + 'px' }">
           <span v-html="Icons.Check" style="display:inline-block; margin-right:4px;"></span>
           Copied!
+        </div>
+      </transition>
+    </Teleport>
+
+    <!-- Global Loading Modal -->
+    <Teleport to="body">
+      <transition name="loading-fade">
+        <div v-if="globalLoading.active" class="p-loading-overlay cute-mode">
+          <div class="p-loading-card">
+            <!-- Cute Animal: Kawaii Cat Animation -->
+            <div class="cute-cat-container">
+              <div class="cat-head">
+                <div class="cat-ear left"></div>
+                <div class="cat-ear right"></div>
+                <div class="cat-face">
+                  <div class="cat-eye left"><div class="eye-sparkle"></div></div>
+                  <div class="cat-eye right"><div class="eye-sparkle"></div></div>
+                  <div class="cat-nose"></div>
+                  <div class="cat-mouth"></div>
+                  <div class="cat-whiskers left">
+                    <span></span><span></span><span></span>
+                  </div>
+                  <div class="cat-whiskers right">
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
+              </div>
+              <div class="cat-paws">
+                <div class="cat-paw left"></div>
+                <div class="cat-paw right"></div>
+              </div>
+            </div>
+
+            <div class="p-info-box">
+              <div class="p-label-group">
+                <div class="cute-status-badge">Working hard for you! <span>(｡◕‿◕｡)</span></div>
+                <h3 class="cute-main-title">{{ globalLoading.message }}</h3>
+              </div>
+              
+              <div class="cute-progress-section">
+                <div class="cute-progress-header">
+                  <span class="pct-num">{{ globalLoading.progress }}%</span>
+                  <span class="pct-detail">Almost there...</span>
+                </div>
+                <div class="cute-bar-track">
+                  <div class="cute-bar-fill" :style="{ width: globalLoading.progress + '%' }">
+                    <div class="paw-indicator">🐾</div>
+                  </div>
+                </div>
+                <p class="cute-motivational">Be patient, humans! ✨</p>
+              </div>
+            </div>
+            
+            <!-- Decorative background elements -->
+            <div class="cute-decor-bubble bubble-1"></div>
+            <div class="cute-decor-bubble bubble-2"></div>
+            <div class="cute-decor-bubble bubble-3"></div>
+          </div>
         </div>
       </transition>
     </Teleport>
@@ -559,7 +656,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 .toast-enter-from { opacity: 0; transform: translate(-50%, 20px) scale(0.9); }
 .toast-leave-to { opacity: 0; transform: translate(-50%, -20px) scale(0.9); }
 
-.is-win95 .vinx-toast {
+.is-win95 .vinx_toast {
   border-radius: 0;
   background: #c0c0c0 !important;
   border: 2px outset #fff !important;
@@ -567,4 +664,226 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
   bottom: 40px;
 }
 .is-win95 .toast-text { color: #000; }
+
+/* CUTE KAWAII LOADING MODAL STYLES */
+.p-loading-overlay.cute-mode {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(255, 240, 245, 0.85); /* Lavender Blush */
+  backdrop-filter: blur(15px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 99999;
+  font-family: 'Outfit', 'Quicksand', sans-serif;
+}
+
+.p-loading-card {
+  position: relative;
+  width: 460px;
+  background: #FFF;
+  border: 4px solid #FFD1DC; /* Pastel Pink */
+  border-radius: 40px;
+  padding: 50px 30px;
+  display: flex; flex-direction: column; align-items: center; gap: 30px;
+  box-shadow: 
+    0 30px 60px -12px rgba(255, 182, 193, 0.4),
+    0 18px 36px -18px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+/* Kawaii Cat Animation */
+.cute-cat-container {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin-bottom: 10px;
+}
+
+.cat-head {
+  position: absolute;
+  width: 100px;
+  height: 85px;
+  background: #FFF;
+  border: 3px solid #f0f0f0;
+  border-radius: 50% 50% 45% 45%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+}
+
+.cat-ear {
+  position: absolute;
+  width: 35px;
+  height: 35px;
+  background: #FFF;
+  border: 3px solid #f0f0f0;
+  border-radius: 8px 30px 8px 8px;
+  z-index: 1;
+  top: -15px;
+}
+.cat-ear.left { left: 10px; transform: rotate(-15deg); animation: earWiggleLeft 3s infinite; }
+.cat-ear.right { right: 10px; transform: rotate(60deg) scaleX(-1); animation: earWiggleRight 3s infinite; }
+
+.cat-ear::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background: #FFD1DC;
+  border-radius: 5px 20px 5px 5px;
+  top: 6px;
+  left: 6px;
+}
+
+@keyframes earWiggleLeft { 0%, 90%, 100% { transform: rotate(-15deg); } 95% { transform: rotate(-25deg); } }
+@keyframes earWiggleRight { 0%, 90%, 100% { transform: rotate(60deg) scaleX(-1); } 95% { transform: rotate(70deg) scaleX(-1); } }
+
+.cat-eye {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #333;
+  border-radius: 50%;
+  top: 35px;
+  animation: blink 4s infinite;
+}
+.cat-eye.left { left: 25px; }
+.cat-eye.right { right: 25px; }
+
+.eye-sparkle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: #FFF;
+  border-radius: 50%;
+  top: 2px;
+  left: 3px;
+}
+
+@keyframes blink { 0%, 95%, 100% { transform: scaleY(1); } 97.5% { transform: scaleY(0.1); } }
+
+.cat-nose {
+  position: absolute;
+  width: 8px;
+  height: 5px;
+  background: #FFB6C1;
+  border-radius: 50%;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.cat-mouth {
+  position: absolute;
+  width: 16px;
+  height: 8px;
+  border-bottom: 2.5px solid #FFB6C1;
+  border-radius: 0 0 10px 10px;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.cat-whiskers { position: absolute; top: 45px; display: flex; flex-direction: column; gap: 4px; }
+.cat-whiskers.left { left: -15px; }
+.cat-whiskers.right { right: -15px; transform: scaleX(-1); }
+.cat-whiskers span { width: 25px; height: 2px; background: #EEE; border-radius: 2px; }
+.cat-whiskers span:nth-child(2) { width: 30px; margin-left: -5px; }
+
+.cat-paws { position: absolute; bottom: 15px; width: 100%; display: flex; justify-content: center; gap: 40px; }
+.cat-paw { width: 20px; height: 12px; background: #FFF; border: 2px solid #EEE; border-radius: 10px 10px 5px 5px; animation: pawStep 1.5s infinite alternate; }
+.cat-paw.right { animation-delay: 0.75s; }
+
+@keyframes pawStep { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+
+/* Info Boxes */
+.cute-status-badge {
+  display: inline-block;
+  background: #FFF0F5;
+  color: #DB2777;
+  padding: 6px 20px;
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  border: 2px solid #FFD1DC;
+  margin-bottom: 10px;
+}
+
+.cute-main-title {
+  color: #555;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+  text-align: center;
+}
+
+/* Cute Progress Section */
+.cute-progress-section { width: 100%; display: flex; flex-direction: column; gap: 15px; margin-top: 10px; }
+
+.cute-progress-header { display: flex; justify-content: space-between; align-items: flex-end; }
+.pct-num { font-size: 1.8rem; font-weight: 900; color: #DB2777; line-height: 1; }
+.pct-detail { font-size: 0.7rem; font-weight: 700; color: #AAA; text-transform: uppercase; letter-spacing: 0.05em; }
+
+.cute-bar-track {
+  height: 20px;
+  background: #F8F8F8;
+  border-radius: 50px;
+  border: 3px solid #FFD1DC;
+  position: relative;
+  overflow: hidden;
+}
+
+.cute-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FFD1DC, #FFB6C1, #DB2777);
+  background-size: 300% 100%;
+  animation: candyMove 3s linear infinite;
+  border-radius: 50px;
+  position: relative;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes candyMove { 0% { background-position: 100% 0; } 100% { background-position: -200% 0; } }
+
+.paw-indicator {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.8rem;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+}
+
+.cute-motivational {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #DB2777;
+  text-align: center;
+  font-style: italic;
+  opacity: 0.8;
+  margin: 0;
+}
+
+/* Decorative Ornaments */
+.cute-decor-bubble {
+  position: absolute;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255,192,203,0.2), rgba(255,255,255,0.1));
+  pointer-events: none;
+  animation: floatBubble 5s infinite alternate ease-in-out;
+}
+.bubble-1 { width: 100px; height: 100px; top: -20px; right: -20px; }
+.bubble-2 { width: 50px; height: 50px; bottom: 20px; left: -10px; animation-delay: 1s; }
+.bubble-3 { width: 30px; height: 30px; top: 40%; right: 10px; animation-delay: 2s; }
+
+@keyframes floatBubble { from { transform: translateY(0) rotate(0deg); } to { transform: translateY(-20px) rotate(10deg); } }
+
+.loading-fade-enter-active, .loading-fade-leave-active {
+  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.loading-fade-enter-from { opacity: 0; transform: scale(0.8) rotate(-5deg); filter: blur(10px); }
+.loading-fade-leave-to { opacity: 0; transform: scale(0.9) rotate(5deg); filter: blur(5px); }
+
+
 </style>

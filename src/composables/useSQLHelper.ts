@@ -2,6 +2,7 @@ import { ref, shallowRef, computed, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { sanitize } from '../utils/security';
+import { cleanAndFormatSql } from '../utils/sql-formatter';
 
 export interface Extraction {
   searchId: string;
@@ -137,49 +138,11 @@ export function useSQLHelper() {
     }
   };
 
+
   const formatSql = (index: number) => {
-    let sql = extractions.value[index].resultSql;
+    const sql = extractions.value[index].resultSql;
     if (!sql || sql.startsWith('--')) return;
-
-    sql = sql.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').replace(/\s+/g, ' ').trim();
-    const tokens = sql.split(' ');
-    const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'AND', 'OR', 'ORDER', 'GROUP', 'SET', 'VALUES', 'LIMIT', 'UPDATE', 'INSERT', 'DELETE', 'UNION', 'HAVING'];
-    
-    let indentLevel = 0;
-    let result = '';
-    const indentStep = '    ';
-
-    for (let i = 0; i < tokens.length; i++) {
-      const token = tokens[i];
-      const upperToken = token.toUpperCase();
-      
-      if (keywords.includes(upperToken)) {
-        let combinedToken = token;
-        if (['ORDER', 'GROUP', 'DELETE'].includes(upperToken)) {
-          const next = tokens[i+1]?.toUpperCase();
-          if ((upperToken === 'DELETE' && next === 'FROM') || (upperToken !== 'DELETE' && next === 'BY')) {
-            combinedToken += ' ' + tokens[++i];
-          }
-        } else if (upperToken === 'INSERT' && tokens[i+1]?.toUpperCase() === 'INTO') {
-          combinedToken += ' ' + tokens[++i];
-        }
-        
-        if (result.length > 0) {
-          result = result.trimEnd() + '\n' + indentStep.repeat(indentLevel);
-        }
-        result += combinedToken + ' ';
-      } else if (token === '(') {
-        result = result.trimEnd() + ' (\n' + indentStep.repeat(++indentLevel);
-      } else if (token === ')') {
-        indentLevel = Math.max(0, indentLevel - 1);
-        result = result.trimEnd() + '\n' + indentStep.repeat(indentLevel) + ') ';
-      } else if (token === ',') {
-        result = result.trimEnd() + ', ';
-      } else {
-        result += token + ' ';
-      }
-    }
-    extractions.value[index].resultSql = result.trim().replace(/ +\n/g, '\n');
+    extractions.value[index].resultSql = cleanAndFormatSql(sql);
   };
 
   const updateDisplayHtml = () => {

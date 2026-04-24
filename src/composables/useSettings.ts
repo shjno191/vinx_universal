@@ -1,3 +1,4 @@
+// Settings management composable (Singleton)
 import { ref, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -14,48 +15,49 @@ import {
   advancedTranslatePaths
 } from '../store';
 
+export const settings = ref({
+  theme: 'dark',
+  loading_theme: 'cute',
+  dictionary_path: '',
+  advanced_translate_paths: [] as string[],
+  shortcuts: {
+    focus_search: 'ctrl+f',
+    open_settings: 'ctrl+shift+s',
+    open_file: 'ctrl+o',
+    prev_tab: 'ctrl+arrowleft',
+    next_tab: 'ctrl+arrowright'
+  },
+  editor: {
+    middleClickClose: true,
+    doubleClickNewTab: true,
+    mouseNavHistory: true
+  },
+  last_project_root: '',
+  last_git_repo: '',
+  chill: {
+    shortcutSmoke: 'ctrl+space',
+    shortcutFlick: 'ctrl+space+space',
+    burnTimeMinutes: 5,
+    enableWidget: false
+  },
+  ai: {
+    provider: 'gemini',
+    geminiKey: '',
+    geminiModel: 'gemini-1.5-flash',
+    openaiKey: '',
+    openaiModel: 'gpt-4o-mini',
+    claudeKey: '',
+    claudeModel: 'claude-3-haiku-20240307',
+    ollamaUrl: 'http://localhost:11434/api/generate',
+    ollamaModel: 'llama3',
+  }
+});
+
+const isRecording = ref<string | null>(null);
+const shortcutInputRef = ref<HTMLInputElement | null>(null);
+
 export function useSettings() {
   const currentCategory = ref('general');
-  const settings = ref({
-    theme: 'dark',
-    loading_theme: 'cute',
-    dictionary_path: '',
-    advanced_translate_paths: [] as string[],
-    shortcuts: {
-      focus_search: 'ctrl+f',
-      open_settings: 'ctrl+shift+s',
-      open_file: 'ctrl+o',
-      prev_tab: 'ctrl+arrowleft',
-      next_tab: 'ctrl+arrowright'
-    },
-    editor: {
-      middleClickClose: true,
-      doubleClickNewTab: true,
-      mouseNavHistory: true
-    },
-    last_project_root: '',
-    last_git_repo: '',
-    chill: {
-      shortcutSmoke: 'ctrl+space',
-      shortcutFlick: 'ctrl+space+space',
-      burnTimeMinutes: 5,
-      enableWidget: false
-    },
-    ai: {
-      provider: 'gemini',
-      geminiKey: '',
-      geminiModel: 'gemini-1.5-flash',
-      openaiKey: '',
-      openaiModel: 'gpt-4o-mini',
-      claudeKey: '',
-      claudeModel: 'claude-3-haiku-20240307',
-      ollamaUrl: 'http://localhost:11434/api/generate',
-      ollamaModel: 'llama3',
-    }
-  });
-
-  const isRecording = ref<string | null>(null);
-  const shortcutInputRef = ref<HTMLInputElement | null>(null);
 
   const categories = [
     { id: 'general', name: 'Giao diện & Hệ thống', icon: 'Settings' },

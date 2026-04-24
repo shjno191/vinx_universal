@@ -7,6 +7,7 @@ import { Icons } from '../utils/icons';
 import { listSystemControls } from '../utils/systemControl';
 import { invoke } from '@tauri-apps/api/core';
 import { advancedTranslatePaths } from '../store';
+import { cleanAndFormatSql } from '../utils/sql-formatter';
 
 // Sub-components
 import DictionaryTable from './translate/DictionaryTable.vue';
@@ -212,10 +213,10 @@ const showToast = (message: string) => {
   setTimeout(() => { toastMessage.value = ''; }, 3000);
 };
 
+
 const formatInputText = () => {
-  let text = translateInput.value;
-  if (!text) return;
-  translateInput.value = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(line => line.length > 0).join('\n').trim();
+  if (!translateInput.value) return;
+  translateInput.value = cleanAndFormatSql(translateInput.value);
   nextTick(() => performQuickTranslate());
 };
 

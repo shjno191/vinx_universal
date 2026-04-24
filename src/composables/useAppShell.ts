@@ -8,11 +8,15 @@ import {
   showSettingsTrigger, 
   projectRootPath, 
   gitTabRepoPath, 
-  triggerCloseModals, 
-  activeTab,
+  advancedTranslatePaths,
   globalDictionaryPath,
-  advancedTranslatePaths
+  loadingTheme,
+  aiSettings,
+  editorSettings,
+  chillSettings,
+  activeTab
 } from '../store';
+import { settings } from './useSettings';
 
 export function useAppShell() {
   const currentTab = ref('SQL-Helper');
@@ -78,7 +82,13 @@ export function useAppShell() {
     try {
       const raw = await invoke('get_settings') as string;
       const s = JSON.parse(raw || '{}');
+      if (!s || Object.keys(s).length === 0) return;
+
+      // Update singleton settings
+      settings.value = { ...settings.value, ...s };
+
       if (s.theme) applyTheme(s.theme);
+      if (s.loading_theme) loadingTheme.value = s.loading_theme;
       if (s.shortcuts) {
         globalShortcuts.value = { ...globalShortcuts.value, ...s.shortcuts };
       }
@@ -86,6 +96,9 @@ export function useAppShell() {
       if (s.last_git_repo) gitTabRepoPath.value = s.last_git_repo;
       if (s.dictionary_path) globalDictionaryPath.value = s.dictionary_path;
       if (s.advanced_translate_paths) advancedTranslatePaths.value = s.advanced_translate_paths;
+      if (s.ai) aiSettings.value = { ...aiSettings.value, ...s.ai };
+      if (s.editor) editorSettings.value = { ...editorSettings.value, ...s.editor };
+      if (s.chill) chillSettings.value = { ...chillSettings.value, ...s.chill };
     } catch (e) {
       console.error('Failed to load settings:', e);
     }

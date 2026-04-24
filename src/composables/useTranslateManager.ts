@@ -391,37 +391,43 @@ export function useTranslateManager() {
     const targetSet = new Set<string>();
     const lookup = new Map<string, string>();
 
+    // Helper to add word mapping with direction awareness
+    const addToLookup = (logical: string, physical: string) => {
+      if (!logical || !physical) return;
+      let source = '';
+      let target = '';
+      
+      if (sharedTargetLang.value === 'jp') {
+        source = physical;
+        target = logical;
+      } else if (sharedTargetLang.value === 'en') {
+        source = logical;
+        target = physical;
+      } else if (sharedTargetLang.value === 'vi') {
+        sourceSet.add(logical);
+        sourceSet.add(physical);
+        return;
+      }
+
+      if (source && target && !lookup.has(source)) {
+        lookup.set(source, target);
+        sourceSet.add(source);
+        targetSet.add(target);
+      }
+    };
+
     // 1. Process Selected Sheets first (Insertion order = "First selected wins")
     selectedSheets.value.forEach(fullKey => {
+      // 1.1 Add Table/Sheet Name from Metadata
+      const meta = sheetMetadata.value[fullKey];
+      if (meta) {
+        addToLookup(meta.logical, meta.physical);
+      }
+
+      // 1.2 Add Columns mappings
       const mapping = advancedDictData.value.get(fullKey);
-
       if (mapping) {
-        mapping.forEach((physical, logical) => {
-          if (!logical || !physical) return;
-
-          let source = '';
-          let target = '';
-
-          if (sharedTargetLang.value === 'jp') {
-            source = physical;
-            target = logical;
-          } else if (sharedTargetLang.value === 'en') {
-            source = logical;
-            target = physical;
-          } else if (sharedTargetLang.value === 'vi') {
-            sourceSet.add(logical);
-            sourceSet.add(physical);
-            return;
-          }
-
-          if (source && target) {
-            if (!lookup.has(source)) {
-              lookup.set(source, target);
-              sourceSet.add(source);
-              targetSet.add(target);
-            }
-          }
-        });
+        mapping.forEach((physical, logical) => addToLookup(logical, physical));
       }
     });
 

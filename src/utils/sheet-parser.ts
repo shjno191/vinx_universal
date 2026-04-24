@@ -90,31 +90,43 @@ export function extractSheetMetadata(worksheet: XLSX.WorkSheet): SheetMetadata {
   let physical = '';
   let rowCount = 0;
 
-  if (jsonData.length >= 2) {
-    const row1 = jsonData[0] || []; // Labels Row
-    const row2 = jsonData[1] || []; // Data Row
+  // Search for table names in the first 20 rows
+  for (let i = 0; i < Math.min(jsonData.length, 20); i++) {
+    const row = jsonData[i] || [];
+    for (let j = 0; j < row.length; j++) {
+      const cell = String(row[j] || '').trim();
+      if (cell.includes('テーブル') && cell.includes('名')) {
+        const val = String(row[j + 1] || '').trim();
+        if (val) {
+          if (cell.includes('論理')) logical = val;
+          if (cell.includes('物理')) physical = val;
+        }
+      }
+    }
+    if (logical && physical) break;
+  }
 
-    const lIdx = row1.findIndex((c: any) => String(c || '').includes('論理'));
-    const pIdx = row1.findIndex((c: any) => String(c || '').includes('物理'));
-
-    if (lIdx !== -1) logical = String(row2[lIdx] || '').trim();
-    else logical = String(row2[0] || '').trim();
-
-    if (pIdx !== -1) physical = String(row2[pIdx] || '').trim();
-    else physical = String(row2[3] || row2[1] || '').trim();
+  // Fallback old logic if not found
+  if (!logical || !physical) {
+    if (jsonData.length >= 2) {
+      const row1 = jsonData[0] || [];
+      const row2 = jsonData[1] || [];
+      const lIdx = row1.findIndex((c: any) => String(c || '').includes('論理'));
+      const pIdx = row1.findIndex((c: any) => String(c || '').includes('物理'));
+      if (lIdx !== -1 && !logical) logical = String(row2[lIdx] || '').trim();
+      if (pIdx !== -1 && !physical) physical = String(row2[pIdx] || '').trim();
+    }
   }
 
   // Count rows starting from Row 5 (typical technical sheet layout)
   if (jsonData.length >= 5) {
     for (let i = 4; i < jsonData.length; i++) {
       const row = jsonData[i];
-      // A row is valid if it has content in either column 0 or 1 (Logical/Physical)
       if (row && (String(row[0] || '').trim() || String(row[1] || '').trim())) {
         rowCount++;
       }
     }
   } else {
-    // Fallback row count for non-technical sheets
     rowCount = Math.max(0, jsonData.length - 1);
   }
 

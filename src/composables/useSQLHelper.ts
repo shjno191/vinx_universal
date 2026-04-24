@@ -1,4 +1,4 @@
-import { ref, shallowRef, computed, nextTick } from 'vue';
+import { ref, shallowRef, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { sanitize } from '../utils/security';

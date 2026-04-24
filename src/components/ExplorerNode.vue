@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Icons } from '../utils/icons';
+import { activeContextMenu } from '../store';
 
 interface FileNode {
   name: string;
@@ -76,7 +78,7 @@ const getIcon = () => {
       @contextmenu="handleRightClick"
       :title="node.path"
     >
-      <span v-if="node.is_dir" class="folder-arrow" v-html="isExpanded() ? ChevronDown : ChevronRight" :title="isExpanded() ? 'Collapse' : 'Expand'"></span>
+      <span v-if="node.is_dir" class="folder-arrow" v-html="isExpanded() ? Icons.ChevronDown : Icons.ChevronRight" :title="isExpanded() ? 'Collapse' : 'Expand'"></span>
       <span v-else class="file-spacer"></span>
       <span class="node-icon" :class="node.is_dir ? 'icon-folder' : 'icon-file'" v-html="getIcon()" :title="node.is_dir ? 'Directory' : 'File'"></span>
       <span class="node-name" :title="node.name">{{ node.name }}</span>

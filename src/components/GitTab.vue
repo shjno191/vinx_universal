@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, shallowRef } from 'vue';
-import { activeTab } from '../store';
+import { ref, onMounted, watch, shallowRef } from 'vue';
+import { activeTab, type GitFile } from '../store';
 import { Icons } from '../utils/icons';
-import { useGit, type GitFile } from '../composables/useGit';
+import { useGit } from '../composables/useGit';
 
 // == Logic ===================================================
 const {
@@ -40,9 +40,6 @@ watch(diffContent, (val) => {
   diffLines.value = val ? val.split('\n') : [];
 });
 
-const handleRefresh = async () => {
-  await refresh();
-};
 
 const handleCheckout = async (branch: string) => {
   try {
@@ -56,14 +53,6 @@ const handleCheckout = async (branch: string) => {
 const handleGitOp = async (op: 'pull' | 'push' | 'fetch' | 'stash' | 'pop') => {
   try {
     await gitOp(op);
-  } catch (e) {
-    alert(e);
-  }
-};
-
-const handleCommit = async () => {
-  try {
-    await commit();
   } catch (e) {
     alert(e);
   }

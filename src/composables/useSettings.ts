@@ -15,11 +15,49 @@ import {
   advancedTranslatePaths
 } from '../store';
 
-export const settings = ref({
+export interface Settings {
+  theme: string;
+  loading_theme: string;
+  dictionary_path: string;
+  advanced_translate_paths: string[];
+  shortcuts: {
+    focus_search: string;
+    open_settings: string;
+    open_file: string;
+    prev_tab: string;
+    next_tab: string;
+  };
+  editor: {
+    middleClickClose: boolean;
+    doubleClickNewTab: boolean;
+    mouseNavHistory: boolean;
+  };
+  last_project_root: string;
+  last_git_repo: string;
+  chill: {
+    shortcutSmoke: string;
+    shortcutFlick: string;
+    burnTimeMinutes: number;
+    enableWidget: boolean;
+  };
+  ai: {
+    provider: string;
+    geminiKey: string;
+    geminiModel: string;
+    openaiKey: string;
+    openaiModel: string;
+    claudeKey: string;
+    claudeModel: string;
+    ollamaUrl: string;
+    ollamaModel: string;
+  };
+}
+
+export const settings = ref<Settings>({
   theme: 'dark',
   loading_theme: 'cute',
   dictionary_path: '',
-  advanced_translate_paths: [] as string[],
+  advanced_translate_paths: [],
   shortcuts: {
     focus_search: 'ctrl+f',
     open_settings: 'ctrl+shift+s',
@@ -130,7 +168,7 @@ export function useSettings() {
     }
   };
 
-  const pickAdvancedPath = async () => {
+  const pickAdvancedPath = async (): Promise<string | null> => {
     try {
       const selected = await open({
         multiple: false,
@@ -146,9 +184,12 @@ export function useSettings() {
           advancedTranslatePaths.value = [...settings.value.advanced_translate_paths];
           await saveSettings();
         }
+        return path;
       }
+      return null;
     } catch (e) {
-      console.error('[useSettings] Failed to pick advanced path:', e);
+      console.error('[useSettings] Failed to pick advanced translation path:', e);
+      return null;
     }
   };
 

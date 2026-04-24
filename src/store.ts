@@ -153,9 +153,9 @@ export const activeTab = ref('SQL-Helper');
 
 // System Control State
 export interface SystemControl {
-    controlKey: string;
+    key: string;
     section: string;
-    controlValue: string | null;
+    value: string | null;
     description: string | null;
 }
 

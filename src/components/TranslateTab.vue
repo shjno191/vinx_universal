@@ -20,14 +20,13 @@ import {
   sharedTargetLang, 
   activeTab,
   systemControlSettings,
-  globalDictionaryPath,
-  loadingTheme
+  globalDictionaryPath
 } from '../store';
 
 const props = defineProps<{ theme?: string }>();
 
 // --- Initialization ----------------------------------------------------------
-const { settings, pickAdvancedPath } = useSettings();
+const { pickAdvancedPath } = useSettings();
 const {
   subTab,
   dictionaryData,
@@ -35,7 +34,6 @@ const {
   localSearchQuery,
   isOnlySelectedSheets,
   isStrict,
-  advancedConfigs,
   selectedFolder,
   excelFilesInFolder,
   selectedFiles,
@@ -44,7 +42,6 @@ const {
   fileSheetCounts,
   sheetRowCounts,
   sheetMetadata,
-  globalLoading,
   fileSearchQuery,
   sheetSearchQuery,
   debouncedInput,
@@ -52,7 +49,6 @@ const {
   targetWordsList,
   loadDictionary,
   loadFilesFromMultipleFolders,
-  selectExcelFile,
   toggleExcelFile,
   loadSingleSheet,
   updateCachedWords,

@@ -16,10 +16,7 @@ const {
   sortIdenticalToTop,
 } = useCompare();
 
-const monacoRef = ref<any>(null);
-
 const handleEditorBeforeMount = (monaco: any) => {
-  monacoRef.value = monaco;
   
   monaco.editor.defineTheme('app-dark', {
     base: 'vs-dark',

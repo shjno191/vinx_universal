@@ -1,11 +1,8 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { 
-  projectRootPath, 
-  gitTabRepoPath, 
   triggerOpenDiff, 
-  triggerEditorReload,
-  triggerCloseModals
+  triggerEditorReload
 } from '../store';
 import { useFileSystem } from './useFileSystem';
 

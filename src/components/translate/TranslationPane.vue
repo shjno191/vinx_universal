@@ -18,7 +18,7 @@ const props = defineProps<{
   selectedSheets: Set<string>; 
   fileSheetCounts: Record<string, number>; 
   sheetRowCounts: Record<string, number>;  
-  sheetMetadata: Record<string, { logical: string, physical: string, colCount: number }>;
+  sheetMetadata: Record<string, { logical: string, physical: string, rowCount: number }>;
   fileSearch: string;
   sheetSearch: string;
   isOnlySelectedSheets: boolean;
@@ -64,7 +64,6 @@ const startResizing = (index: number) => {
 // == SHEET LIST VERTICAL RESIZING LOGIC =======================================
 const selectedSheetsHeight = ref(300);
 const isResizingV = ref(false);
-const sheetPanelRef = ref<HTMLElement | null>(null);
 
 const startVResizing = () => {
   isResizingV.value = true;

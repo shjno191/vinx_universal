@@ -1,4 +1,4 @@
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch } from 'vue';
 import { sharedInput, sharedOutput, activeTab } from '../store';
 
 export function useCompare() {

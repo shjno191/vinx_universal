@@ -20,7 +20,6 @@ import GitSelectionModal from './GitSelectionModal.vue';
 // Store
 import { 
   projectRootPath, 
-  triggerOpenDiff, 
   theme as globalTheme, 
   activeTabContextMenu, 
   gitTabRepoPath, 

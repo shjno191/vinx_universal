@@ -1,4 +1,4 @@
-import { type Ref } from 'vue';
+
 
 export interface DictionaryEntry {
   jp: string;

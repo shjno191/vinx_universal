@@ -5,7 +5,6 @@ import { ask } from '@tauri-apps/plugin-dialog';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { 
   globalShortcuts, 
-  showSettingsTrigger, 
   projectRootPath, 
   gitTabRepoPath, 
   advancedTranslatePaths,

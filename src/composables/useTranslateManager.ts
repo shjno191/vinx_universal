@@ -4,8 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { 
   translateInput, 
   translateOutput, 
-  sharedTargetLang, 
-  activeTab 
+  sharedTargetLang
 } from '../store';
 import { buildTranslationRegex, translateText } from '../utils/translation-engine';
 import { parseTechnicalSheet, extractSheetMetadata } from '../utils/sheet-parser';

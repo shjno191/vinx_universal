@@ -10,7 +10,6 @@ const {
   isInputMode,
   extractions,
   displayHtml,
-  isLoading,
   isLogTooLarge,
   clearLog,
   pasteFromClipboard,

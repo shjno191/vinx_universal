@@ -1,18 +1,6 @@
-import { ref, shallowRef, computed } from 'vue';
+import { ref, shallowRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { gitStatus } from '../store';
-
-export interface GitFile {
-  name: string;
-  status: string;
-  staged: boolean;
-}
-
-export interface GitBranch {
-  name: string;
-  isCurrent: boolean;
-  isRemote: boolean;
-}
+import { gitStatus, type GitFile, type GitBranch } from '../store';
 
 export interface GitCommit {
   hash: string;
@@ -75,18 +63,19 @@ export function useGit() {
         const s1 = line[0];
         const s2 = line[1];
         const name = line.substring(3).trim().replace(/^"(.*)"$/, '$1');
+        const fullPath = `${repoPath.value}/${name}`;
         
         if (s1 !== ' ' && s1 !== '?') {
-          staged.push({ name, status: s1, staged: true });
+          staged.push({ path: fullPath, name, status: s1 as GitFile['status'], staged: true });
         }
         if (s2 !== ' ' || s1 === '?') {
-          unstaged.push({ name, status: s1 === '?' ? '??' : s2, staged: false });
+          unstaged.push({ path: fullPath, name, status: (s1 === '?' ? '??' : s2) as GitFile['status'], staged: false });
         }
       });
 
       changedFiles.value = unstaged;
       stagedFiles.value = staged;
-      gitStatus.value = [...staged, ...unstaged].map(f => ({ ...f, path: `${repoPath.value}/${f.name}` }));
+      gitStatus.value = [...staged, ...unstaged];
     } catch (e) {
       console.error('Failed to load status:', e);
     }

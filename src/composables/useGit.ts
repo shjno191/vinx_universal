@@ -1,5 +1,6 @@
 import { ref, shallowRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import { gitStatus, type GitFile, type GitBranch } from '../store';
 
 export interface GitCommit {
@@ -14,7 +15,7 @@ export function useGit() {
   const repoPath = ref('');
   const branches = shallowRef<GitBranch[]>([]);
   const currentBranch = ref('');
-  
+
   const changedFiles = shallowRef<GitFile[]>([]); // unstaged
   const stagedFiles = shallowRef<GitFile[]>([]);  // staged
   const commitMsg = ref('');
@@ -50,11 +51,11 @@ export function useGit() {
 
   const loadStatus = async () => {
     try {
-      const raw = await invoke('git_execute', { 
-        args: ['status', '--porcelain'], 
-        cwd: repoPath.value 
+      const raw = await invoke('git_execute', {
+        args: ['status', '--porcelain'],
+        cwd: repoPath.value
       }) as string;
-      
+
       const lines = raw.split('\n').filter(l => l.trim());
       const unstaged: GitFile[] = [];
       const staged: GitFile[] = [];
@@ -64,7 +65,7 @@ export function useGit() {
         const s2 = line[1];
         const name = line.substring(3).trim().replace(/^"(.*)"$/, '$1');
         const fullPath = `${repoPath.value}/${name}`;
-        
+
         if (s1 !== ' ' && s1 !== '?') {
           staged.push({ path: fullPath, name, status: s1 as GitFile['status'], staged: true });
         }
@@ -83,11 +84,11 @@ export function useGit() {
 
   const loadBranches = async () => {
     try {
-      const raw = await invoke('git_execute', { 
-        args: ['branch', '-a'], 
-        cwd: repoPath.value 
+      const raw = await invoke('git_execute', {
+        args: ['branch', '-a'],
+        cwd: repoPath.value
       }) as string;
-      
+
       const lines = raw.split('\n').filter(l => l.trim());
       const branchList = lines.map(line => {
         const isCurrent = line.startsWith('*');
@@ -104,11 +105,11 @@ export function useGit() {
   const loadHistory = async () => {
     isLoading.value = true;
     try {
-      const raw = await invoke('git_execute', { 
-        args: ['log', '--pretty=format:%H|%h|%s|%an|%ar', '-n', '100'], 
-        cwd: repoPath.value 
+      const raw = await invoke('git_execute', {
+        args: ['log', '--pretty=format:%H|%h|%s|%an|%ar', '-n', '100'],
+        cwd: repoPath.value
       }) as string;
-      
+
       const lines = raw.split('\n').filter(l => l.trim());
       history.value = lines.map(line => {
         const [hash, short, message, author, date] = line.split('|');
@@ -125,9 +126,9 @@ export function useGit() {
   const checkout = async (branch: string) => {
     try {
       isSyncing.value = true;
-      await invoke('git_execute', { 
-        args: ['checkout', branch.replace('remotes/origin/', '')], 
-        cwd: repoPath.value 
+      await invoke('git_execute', {
+        args: ['checkout', branch.replace('remotes/origin/', '')],
+        cwd: repoPath.value
       });
       await refresh();
     } catch (e) {
@@ -161,9 +162,9 @@ export function useGit() {
     if (!commitMsg.value.trim() || !stagedFiles.value.length) return;
     try {
       isLoading.value = true;
-      await invoke('git_execute', { 
-        args: ['commit', '-m', commitMsg.value.trim()], 
-        cwd: repoPath.value 
+      await invoke('git_execute', {
+        args: ['commit', '-m', commitMsg.value.trim()],
+        cwd: repoPath.value
       });
       commitMsg.value = '';
       await refresh();
@@ -188,25 +189,66 @@ export function useGit() {
   };
 
   const getDiff = async (file: GitFile) => {
-    const args = file.staged 
+    const args = file.staged
       ? ['diff', '--cached', '--', file.name]
       : ['diff', 'HEAD', '--', file.name];
     return await invoke('git_execute', { args, cwd: repoPath.value }) as string;
   };
 
   const getCommitDiff = async (hash: string) => {
-    return await invoke('git_execute', { 
-      args: ['show', hash, '--stat', '-p'], 
-      cwd: repoPath.value 
+    return await invoke('git_execute', {
+      args: ['show', hash, '--stat', '-p'],
+      cwd: repoPath.value
     }) as string;
+  };
+
+  const getFileOriginalAndModified = async (file: GitFile, target?: string): Promise<{ original: string, modified: string }> => {
+    try {
+      const repo = repoPath.value;
+      if (!repo || !file.name) return { original: '', modified: '' };
+
+      // Normalize file.name to always use forward slashes for git operations
+      const gitPath = file.name.replace(/\\/g, '/');
+
+      // Original is always HEAD (or empty for new files)
+      const original = await invoke('git_execute', {
+        args: ['show', `HEAD:${gitPath}`],
+        cwd: repo
+      }).catch(() => '') as string;
+
+      let modified = '';
+      if (!target || target === 'LOCAL') {
+        // Try read_file_content first. If it fails (path issues on Windows), fallback to git show working tree.
+        const absolutePath = file.path.replace(/\//g, '\\'); // convert to native Windows backslash
+        modified = await invoke('read_file_content', { path: absolutePath }).catch(async () => {
+          // Fallback: try with original forward-slash path
+          return await invoke('read_file_content', { path: file.path }).catch(() => '') as string;
+        }) as string;
+      } else if (target === 'INDEX') {
+        modified = await invoke('git_execute', {
+          args: ['show', `:0:${gitPath}`],
+          cwd: repo
+        }).catch(() => '') as string;
+      } else {
+        modified = await invoke('git_execute', {
+          args: ['show', `${target}:${gitPath}`],
+          cwd: repo
+        }).catch(() => '') as string;
+      }
+
+      return { original, modified };
+    } catch (e) {
+      console.error('Failed to get diff contents:', e);
+      return { original: '', modified: '' };
+    }
   };
 
   const createBranch = async (name: string) => {
     if (!name.trim()) return;
     try {
-      await invoke('git_execute', { 
-        args: ['checkout', '-b', name.trim()], 
-        cwd: repoPath.value 
+      await invoke('git_execute', {
+        args: ['checkout', '-b', name.trim()],
+        cwd: repoPath.value
       });
       await refresh();
     } catch (e) {
@@ -220,6 +262,39 @@ export function useGit() {
       await refresh();
     } catch (e) {
       throw new Error('Merge failed: ' + e);
+    }
+  };
+
+  const searchRepoFiles = async (query: string): Promise<string[]> => {
+    if (!query.trim() || !repoPath.value) return [];
+    try {
+      const output = await invoke('git_execute', {
+        args: ['ls-files', '--cached', '--others', '--exclude-standard'],
+        cwd: repoPath.value
+      }) as string;
+      const allFiles = output.split('\n').filter(f => f.trim());
+      const q = query.toLowerCase();
+      return allFiles.filter(f => f.toLowerCase().includes(q))
+        .map(f => f.replace(/^"(.*)"$/, '$1'))
+        .slice(0, 50);
+    } catch (e) {
+      console.error('Search repo files failed:', e);
+      return [];
+    }
+  };
+
+  const openRepo = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: true,
+      });
+      if (selected) {
+        repoPath.value = (Array.isArray(selected) ? selected[0] : selected).replace(/\\/g, '/');
+        await refresh();
+      }
+    } catch (e) {
+      console.error('Failed to open repo:', e);
     }
   };
 
@@ -242,7 +317,10 @@ export function useGit() {
     gitOp,
     getDiff,
     getCommitDiff,
+    getFileOriginalAndModified,
     createBranch,
-    mergeBranch
+    mergeBranch,
+    openRepo,
+    searchRepoFiles
   };
 }

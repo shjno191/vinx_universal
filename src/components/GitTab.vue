@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, shallowRef } from 'vue';
-import { activeTab, type GitFile } from '../store';
+import { ref, onMounted, watch, shallowRef, computed } from 'vue';
+import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
+import { activeTab, type GitFile, theme as globalTheme } from '../store';
 import { Icons } from '../utils/icons';
 import { useGit } from '../composables/useGit';
 
@@ -24,8 +25,11 @@ const {
   gitOp,
   getDiff,
   getCommitDiff,
+  getFileOriginalAndModified,
   createBranch,
-  mergeBranch
+  mergeBranch,
+  openRepo,
+  searchRepoFiles
 } = useGit();
 
 const showBranchDropdown = ref(false);
@@ -33,8 +37,58 @@ const rightPanel = ref<'history' | 'diff'>('history');
 const selectedCommit = ref<string | null>(null);
 
 const diffContent = ref('');
+const diffOriginalContent = ref('');
+const diffModifiedContent = ref('');
+const isFileDiff = ref(false);
 const diffSource = ref('');
 const diffLines = shallowRef<string[]>([]);
+const currentDiffFile = ref<GitFile | null>(null);
+const diffCompareTarget = ref('LOCAL');
+const searchFileQuery = ref('');
+const repoSearchQuery = ref('');
+const repoSearchResults = ref<string[]>([]);
+const showMergePanel = ref(false);
+
+watch(repoSearchQuery, async (val) => {
+    repoSearchResults.value = await searchRepoFiles(val);
+});
+
+const handleSelectSearchFile = (relativePath: string) => {
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+    const absolutePath = `${repoPath.value}/${normalizedPath}`;
+    const f: GitFile = {
+        path: absolutePath,
+        name: normalizedPath,
+        status: 'M',
+        staged: false
+    };
+    showFileDiff(f);
+    repoSearchQuery.value = '';
+    repoSearchResults.value = [];
+};
+
+const filteredChangedFiles = computed(() => {
+  const q = searchFileQuery.value.toLowerCase().trim();
+  if (!q) return changedFiles.value;
+  return changedFiles.value.filter(f => f.name.toLowerCase().includes(q));
+});
+
+const filteredStagedFiles = computed(() => {
+  const q = searchFileQuery.value.toLowerCase().trim();
+  if (!q) return stagedFiles.value;
+  return stagedFiles.value.filter(f => f.name.toLowerCase().includes(q));
+});
+
+const reloadFileDiff = async () => {
+  if (!currentDiffFile.value) return;
+  try {
+    const { original, modified } = await getFileOriginalAndModified(currentDiffFile.value, diffCompareTarget.value);
+    diffOriginalContent.value = original;
+    diffModifiedContent.value = modified;
+  } catch (e) {
+    console.error('Reload diff failed:', e);
+  }
+};
 
 watch(diffContent, (val) => {
   diffLines.value = val ? val.split('\n') : [];
@@ -60,10 +114,15 @@ const handleGitOp = async (op: 'pull' | 'push' | 'fetch' | 'stash' | 'pop') => {
 
 const showFileDiff = async (file: GitFile) => {
   rightPanel.value = 'diff';
+  isFileDiff.value = true;
+  diffSource.value = `${file.name} (${file.staged ? 'staged' : 'local'})`;
+  selectedCommit.value = null;
+  currentDiffFile.value = file;
+  diffCompareTarget.value = 'LOCAL';
   try {
-    diffContent.value = await getDiff(file);
-    diffSource.value = `${file.name} (${file.staged ? 'staged' : 'local'})`;
-    selectedCommit.value = null;
+    const { original, modified } = await getFileOriginalAndModified(file, diffCompareTarget.value);
+    diffOriginalContent.value = original;
+    diffModifiedContent.value = modified;
   } catch (e) {
     console.error('Diff failed:', e);
   }
@@ -72,6 +131,7 @@ const showFileDiff = async (file: GitFile) => {
 const showCommitDiff = async (hash: string) => {
   selectedCommit.value = hash;
   rightPanel.value = 'diff';
+  isFileDiff.value = false;
   try {
     diffContent.value = await getCommitDiff(hash);
     diffSource.value = hash.substring(0, 7);
@@ -114,15 +174,15 @@ watch(activeTab, (tab) => {
     <!-- TOOLBAR -->
     <header class="git-toolbar">
       <div class="branch-selector-wrapper">
-        <div class="branch-selector" @click="showBranchDropdown = !showBranchDropdown">
-          <span class="repo-name">{{ repoPath.split('/').pop() || 'No Repo' }}</span>
-          <span class="separator">/</span>
-          <span class="branch-icon" v-html="Icons.Branch"></span>
-          <span class="branch-name">{{ currentBranch || 'master' }}</span>
-          <span class="caret" v-html="Icons.ChevronDown"></span>
+        <div class="branch-selector" @click="!repoPath ? openRepo() : (showBranchDropdown = !showBranchDropdown)">
+          <span class="repo-name" title="Open Repository" @click.stop="openRepo">{{ repoPath ? repoPath.split('/').pop() : 'Open Repo...' }}</span>
+          <span class="separator" v-if="repoPath">/</span>
+          <span class="branch-icon" v-if="repoPath" v-html="Icons.Branch"></span>
+          <span class="branch-name" v-if="repoPath">{{ currentBranch || 'master' }}</span>
+          <span class="caret" v-if="repoPath" v-html="Icons.ChevronDown"></span>
         </div>
         
-        <div v-if="showBranchDropdown" class="branch-dropdown glass-effect">
+        <div v-if="showBranchDropdown && repoPath" class="branch-dropdown glass-effect">
           <div class="dropdown-header">SWITCH BRANCH</div>
           <div class="branch-list">
             <div v-for="b in branches" :key="b.name" 
@@ -142,24 +202,29 @@ watch(activeTab, (tab) => {
       <div class="toolbar-divider"></div>
       
       <div class="git-ops">
-        <button @click="handleGitOp('pull')" :disabled="isSyncing" class="op-btn">
+        <button @click="openRepo" class="op-btn" title="Open Repository">
+          <span v-html="Icons.FolderOpen"></span>
+          OPEN
+        </button>
+        <div class="toolbar-divider mini"></div>
+        <button @click="handleGitOp('pull')" :disabled="!repoPath || isSyncing" class="op-btn">
           <span v-html="Icons.Pull"></span>
           PULL
         </button>
-        <button @click="handleGitOp('push')" :disabled="isSyncing" class="op-btn">
+        <button @click="handleGitOp('push')" :disabled="!repoPath || isSyncing" class="op-btn">
           <span v-html="Icons.Push"></span>
           PUSH
         </button>
-        <button @click="handleGitOp('fetch')" :disabled="isSyncing" class="op-btn">
+        <button @click="handleGitOp('fetch')" :disabled="!repoPath || isSyncing" class="op-btn">
           <span v-html="Icons.Refresh"></span>
           FETCH
         </button>
         <div class="toolbar-divider mini"></div>
-        <button @click="handleGitOp('stash')" :disabled="isSyncing" class="op-btn">
+        <button @click="handleGitOp('stash')" :disabled="!repoPath || isSyncing" class="op-btn">
           <span v-html="Icons.Stash"></span>
           STASH
         </button>
-        <button @click="handleGitOp('pop')" :disabled="isSyncing" class="op-btn">POP</button>
+        <button @click="handleGitOp('pop')" :disabled="!repoPath || isSyncing" class="op-btn">POP</button>
       </div>
 
       <div v-if="isSyncing || isLoading" class="sync-status">
@@ -171,43 +236,51 @@ watch(activeTab, (tab) => {
     <div class="git-body">
       <!-- LEFT PANEL: Changes -->
       <aside class="left-panel">
+        <div class="search-files-box">
+            <span class="search-icon" v-html="Icons.Search"></span>
+            <input v-model="searchFileQuery" placeholder="Search changed files..." class="search-input" />
+        </div>
+
         <div class="panel-section">
           <div class="section-header">
-            <span>CHANGES ({{ changedFiles.length }})</span>
+            <span>CHANGES ({{ filteredChangedFiles.length }})</span>
             <button @click="stage()" class="action-link">Stage All</button>
           </div>
           <div class="file-list">
-            <div v-for="f in changedFiles" :key="f.name" 
+            <div v-for="f in filteredChangedFiles" :key="f.name" 
                  class="file-row" @click="showFileDiff(f)">
               <span class="status-badge" :class="f.status">{{ f.status }}</span>
               <span class="file-path-label">{{ f.name }}</span>
               <button class="stage-btn" @click.stop="stage(f)">+</button>
             </div>
+            <div v-if="filteredChangedFiles.length === 0 && searchFileQuery" class="empty-list-hint">No matches</div>
           </div>
         </div>
 
-        <div class="panel-section">
-          <div class="section-header">
-            <span>STAGED ({{ stagedFiles.length }})</span>
-            <button @click="unstage()" class="action-link">Unstage All</button>
+        <div class="panel-section merge-section">
+          <div class="section-header" @click="showMergePanel = !showMergePanel">
+            <span>MERGE BRANCH ({{ branches.length - 1 }})</span>
+            <span class="collapsible-icon" :class="{ rotated: showMergePanel }" v-html="Icons.ChevronDown"></span>
           </div>
-          <div class="file-list">
-            <div v-for="f in stagedFiles" :key="f.name" 
-                 class="file-row staged" @click="showFileDiff(f)">
-              <span class="status-badge" :class="f.status">{{ f.status }}</span>
-              <span class="file-path-label">{{ f.name }}</span>
-              <button class="stage-btn unstage" @click.stop="unstage(f)">-</button>
+          <div v-if="showMergePanel" class="file-list">
+            <div v-for="b in branches.filter(b => !b.isCurrent)" :key="b.name" 
+                 class="file-row branch-row">
+              <span class="branch-icon-small" v-html="Icons.Branch"></span>
+              <span class="file-path-label">{{ b.name }}</span>
+              <button class="merge-link-btn" @click.stop="handleMergeBranch(b.name)">MERGE</button>
             </div>
           </div>
         </div>
 
-        <div class="commit-box">
-          <textarea v-model="commitMsg" placeholder="Commit message (Ctrl+Enter to commit)" 
-                    @keydown.ctrl.enter="commit"></textarea>
-          <button class="commit-btn" :disabled="!commitMsg.trim() || !stagedFiles.length" 
-                  @click="commit">
-            COMMIT CHANGES
-          </button>
+        <div class="commit-box-container">
+            <div class="commit-box">
+              <textarea v-model="commitMsg" placeholder="Commit message (Ctrl+Enter to commit)" 
+                        @keydown.ctrl.enter="commit"></textarea>
+              <button class="commit-btn" :disabled="!commitMsg.trim() || !stagedFiles.length" 
+                      @click="commit">
+                COMMIT CHANGES
+              </button>
+            </div>
         </div>
       </aside>
 
@@ -243,20 +316,60 @@ watch(activeTab, (tab) => {
 
           <!-- DIFF VIEWER -->
           <div v-if="rightPanel === 'diff'" class="diff-view">
-            <div v-if="!diffContent && !isLoading" class="empty-state">Select a file or commit to see diff.</div>
-            <div class="diff-container">
-              <div v-for="(line, i) in diffLines" :key="i" 
-                   class="diff-line" 
-                   :class="{ 
-                     'diff-add': line.startsWith('+') && !line.startsWith('+++'), 
-                     'diff-del': line.startsWith('-') && !line.startsWith('---'),
-                     'diff-header': line.startsWith('diff --git') || line.startsWith('index') || line.startsWith('---') || line.startsWith('+++'),
-                     'diff-chunk': line.startsWith('@@')
-                   }">
-                <span class="line-no">{{ i + 1 }}</span>
-                <span class="line-text">{{ line }}</span>
-              </div>
+            <div class="diff-repo-search">
+                <span class="search-icon" v-html="Icons.Search"></span>
+                <input v-model="repoSearchQuery" 
+                       placeholder="Find file in repo..." />
+                <div v-if="repoSearchResults.length > 0" class="search-results glass-effect">
+                    <div v-for="res in repoSearchResults" :key="res" 
+                         class="search-result-item" @click="handleSelectSearchFile(res)">
+                        {{ res }}
+                    </div>
+                </div>
             </div>
+
+            <div v-if="isFileDiff" class="monaco-diff-container">
+              <div class="diff-compare-header">
+                <div class="compare-side"><span class="label">Original:</span> {{ currentBranch }} (Current)</div>
+                <div class="compare-side">
+                  <span class="label">Compare with:</span>
+                  <select v-model="diffCompareTarget" class="compare-select" @change="reloadFileDiff">
+                    <option value="LOCAL">Local (Working Tree)</option>
+                    <option value="INDEX">Index (Staged)</option>
+                    <optgroup label="Local Branches">
+                        <option v-for="b in branches.filter(b => !b.isRemote)" :key="b.name" :value="b.name">{{ b.name }}</option>
+                    </optgroup>
+                    <optgroup label="Remote Branches">
+                        <option v-for="b in branches.filter(b => b.isRemote)" :key="b.name" :value="b.name">{{ b.name }}</option>
+                    </optgroup>
+                  </select>
+                </div>
+              </div>
+              <VueMonacoDiffEditor
+                :original="diffOriginalContent"
+                :modified="diffModifiedContent"
+                :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
+                language="javascript"
+                :options="{ readOnly: true, renderSideBySide: true, automaticLayout: true, minimap: { enabled: false } }"
+                class="monaco-instance"
+              />
+            </div>
+            <template v-else>
+              <div v-if="!diffContent && !isLoading" class="empty-state">Select a file or commit to see diff.</div>
+              <div class="diff-container" v-else>
+                <div v-for="(line, i) in diffLines" :key="i" 
+                     class="diff-line" 
+                     :class="{ 
+                       'diff-add': line.startsWith('+') && !line.startsWith('+++'), 
+                       'diff-del': line.startsWith('-') && !line.startsWith('---'),
+                       'diff-header': line.startsWith('diff --git') || line.startsWith('index') || line.startsWith('---') || line.startsWith('+++'),
+                       'diff-chunk': line.startsWith('@@')
+                     }">
+                  <span class="line-no">{{ i + 1 }}</span>
+                  <span class="line-text">{{ line }}</span>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </main>
@@ -305,12 +418,18 @@ watch(activeTab, (tab) => {
 .git-body { flex: 1; display: flex; overflow: hidden; }
 
 /* LEFT PANEL */
-.left-panel { width: 280px; border-right: 1px solid rgba(128,128,128,0.1); display: flex; flex-direction: column; background: rgba(0,0,0,0.05); }
+.left-panel { width: 280px; border-right: 1px solid rgba(128,128,128,0.1); display: flex; flex-direction: column; background: rgba(0,0,0,0.05); padding:10px}
+.search-files-box { padding: 12px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(128,128,128,0.1); }
+.search-icon { opacity: 0.3; display: flex; align-items: center; }
+.search-input { flex: 1; background: transparent; border: none; color: var(--text-color); font-size: 0.72rem; outline: none; }
+.search-input::placeholder { opacity: 0.3; font-style: italic; }
+
 .panel-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; border-bottom: 1px solid rgba(128,128,128,0.1); }
 .section-header { padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem; font-weight: 950; opacity: 0.4; letter-spacing: 0.05em; }
 .action-link { background: transparent; border: none; font-size: 0.6rem; color: var(--accent-color); cursor: pointer; padding: 0; opacity: 0.8; font-weight: 800; }
 .action-link:hover { text-decoration: underline; opacity: 1; }
 .file-list { flex: 1; overflow-y: auto; padding: 0 8px 10px; }
+.empty-list-hint { padding: 20px; text-align: center; opacity: 0.2; font-size: 0.65rem; font-style: italic; }
 .file-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 8px; cursor: pointer; transition: 0.2s; margin-bottom: 2px; }
 .file-row:hover { background: rgba(255,255,255,0.04); }
 .file-row.staged { background: rgba(52, 211, 153, 0.03); }
@@ -324,11 +443,21 @@ watch(activeTab, (tab) => {
 .file-row:hover .stage-btn { opacity: 1; }
 .stage-btn.unstage { color: #f87171; }
 
-.commit-box { padding: 15px; background: rgba(0,0,0,0.1); border-top: 1px solid rgba(128,128,128,0.1); }
-.commit-box textarea { width: 100%; height: 60px; background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; color: var(--text-color); font-size: 0.75rem; padding: 8px; resize: none; margin-bottom: 10px; outline: none; }
+.commit-box-container { padding: 15px; background: rgba(0,0,0,0.1); border-top: 1px solid rgba(128,128,128,0.1); }
+.commit-box { display: flex; flex-direction: column; gap: 10px; }
+.commit-box textarea { width: 100%; height: 70px; background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; color: var(--text-color); font-size: 0.75rem; resize: none; outline: none; }
 .commit-box textarea:focus { border-color: var(--accent-color); }
 .commit-btn { width: 100%; padding: 10px; background: var(--accent-color); color: #fff; border: none; border-radius: 8px; font-size: 0.65rem; font-weight: 950; cursor: pointer; transition: 0.2s; }
 .commit-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* MERGE SECTION */
+.merge-section .section-header { cursor: pointer; user-select: none; }
+.branch-row { gap: 8px; }
+.branch-icon-small { opacity: 0.4; font-size: 0.7rem; color: var(--accent-color); }
+.merge-link-btn { font-size: 0.55rem; padding: 2px 6px; background: rgba(99,102,241,0.1); color: var(--accent-color); border: 1px solid var(--accent-color); border-radius: 4px; font-weight: 900; cursor: pointer; opacity: 0; transition: 0.2s; }
+.branch-row:hover .merge-link-btn { opacity: 1; }
+.collapsible-icon { font-size: 0.6rem; transition: 0.3s; opacity: 0.4; }
+.collapsible-icon.rotated { transform: rotate(-180deg); opacity: 1; }
 
 /* RIGHT PANEL */
 .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -352,7 +481,24 @@ watch(activeTab, (tab) => {
 .dot { font-weight: bold; }
 
 /* DIFF VIEW */
-.diff-view { flex: 1; overflow-y: auto; background: #0c0d11; color: #d1d5db; position: relative; }
+.diff-view { flex: 1; overflow-y: auto; background: #0c0d11; color: #d1d5db; position: relative; display: flex; flex-direction: column; }
+.monaco-diff-container { flex: 1; position: relative; display: flex; flex-direction: column; }
+.monaco-instance { flex: 1; position: relative; }
+.diff-compare-header { display: flex; box-sizing: border-box; height: 36px; background: #1a1b1e; border-bottom: 1px solid rgba(128,128,128,0.1); width: 100%; font-size: 0.7rem; font-weight: 800; color: rgba(255,255,255,0.6); }
+.compare-side { flex: 1; display: flex; align-items: center; padding: 0 15px; border-right: 1px solid rgba(128,128,128,0.1); gap: 10px; }
+.compare-side .label { opacity: 0.4; font-weight: 400; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.6rem; }
+.compare-side:last-child { border-right: none; background: rgba(255,255,255,0.02); }
+.compare-select { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--accent-color); border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; font-weight: 800; outline: none; cursor: pointer; transition: 0.2s; width: 180px; }
+.compare-select:hover, .compare-select:focus { border-color: var(--accent-color); background: rgba(255,255,255,0.08); }
+
+/* REPO SEARCH IN DIFF */
+.diff-repo-search { padding: 10px 15px; border-bottom: 1px solid rgba(128,128,128,0.1); display: flex; align-items: center; gap: 8px; position: relative; background: #1a1b1e; z-index: 100; }
+.diff-repo-search input { flex: 1; background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 8px 12px; color: var(--text-color); font-size: 0.75rem; outline: none; }
+.diff-repo-search input:focus { border-color: var(--accent-color); background: rgba(255,255,255,0.08); }
+.search-results { position: absolute; top: calc(100% - 2px); left: 15px; right: 15px; max-height: 200px; overflow-y: auto; z-index: 50; border: 1px solid var(--accent-color); border-top: none; border-radius: 0 0 10px 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+.search-result-item { padding: 8px 15px; font-size: 0.75rem; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.1); transition: 0.2s; }
+.search-result-item:hover { background: rgba(99, 102, 241, 0.1); color: var(--accent-color); }
+.search-result-item:last-child { border-bottom: none; }
 .diff-container { padding: 15px; font-family: 'Consolas', monospace; font-size: 0.78rem; line-height: 1.5; }
 .diff-line { display: flex; min-height: 1.2rem; }
 .line-no { width: 40px; text-align: right; margin-right: 15px; opacity: 0.2; user-select: none; }

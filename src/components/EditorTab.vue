@@ -207,6 +207,14 @@ watch(triggerCloseModals, () => {
     activeTabContextMenu.value = null; 
 });
 
+const handleExplorerCompare = async (mode: 'branch' | 'local' | 'commit', node: any) => {
+  await openFileByPath(node.path);
+  const tab = tabs.value.find(t => t.path === node.path);
+  if (tab) {
+    handleGitCompare(mode, tab);
+  }
+};
+
 // Layout refresh for Monaco when UI layout changes
 watch([showExplorer, showSplit, sidebarWidth], () => {
   nextTick(() => {
@@ -274,7 +282,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 
     <div class="sidebar-resizer" v-if="showExplorer" @mousedown="handleSidebarResize"></div>
 
-    <ExplorerContextMenu @open="(node) => openFileByPath(node.path)" />
+    <ExplorerContextMenu @open="(node) => openFileByPath(node.path)" @compare="handleExplorerCompare" />
     <TabContextMenu @compare="handleGitCompare" />
     
     <GitSelectionModal 

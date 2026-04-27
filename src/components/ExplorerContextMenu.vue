@@ -6,6 +6,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 const emit = defineEmits<{
   (e: 'open', node: any): void;
+  (e: 'compare', mode: 'branch' | 'local' | 'commit', node: any): void;
 }>();
 
 const closeMenu = () => {
@@ -15,6 +16,27 @@ const closeMenu = () => {
 const handleOpen = () => {
   if (activeContextMenu.value) {
     emit('open', activeContextMenu.value.node);
+    closeMenu();
+  }
+};
+
+const handleCompareLocal = () => {
+  if (activeContextMenu.value) {
+    emit('compare', 'local', activeContextMenu.value.node);
+    closeMenu();
+  }
+};
+
+const handleCompareBranch = () => {
+  if (activeContextMenu.value) {
+    emit('compare', 'branch', activeContextMenu.value.node);
+    closeMenu();
+  }
+};
+
+const handleCompareCommit = () => {
+  if (activeContextMenu.value) {
+    emit('compare', 'commit', activeContextMenu.value.node);
     closeMenu();
   }
 };
@@ -78,6 +100,20 @@ onUnmounted(() => {
       <button class="ctx-item" @click="handleReveal">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         Reveal in Explorer
+      </button>
+
+      <div class="ctx-divider" v-if="!activeContextMenu.node.is_dir"></div>
+      <button class="ctx-item" v-if="!activeContextMenu.node.is_dir" @click="handleCompareLocal">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Compare with Local (HEAD)
+      </button>
+      <button class="ctx-item" v-if="!activeContextMenu.node.is_dir" @click="handleCompareBranch">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+        Compare with Branch...
+      </button>
+      <button class="ctx-item" v-if="!activeContextMenu.node.is_dir" @click="handleCompareCommit">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="1.05" y1="12" x2="7" y2="12"/><line x1="17.01" y1="12" x2="22.96" y2="12"/></svg>
+        Compare with Commit...
       </button>
     </div>
   </teleport>

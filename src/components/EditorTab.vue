@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import * as monaco from 'monaco-editor';
-import { VueMonacoEditor, VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
+import { VueMonacoEditor, VueMonacoDiffEditor, loader } from '@guolao/vue-monaco-editor';
+
+// Thống nhất instance Monaco để các ngôn ngữ/theme đã đăng ký có hiệu lực
+loader.config({ monaco });
+
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -12,6 +16,8 @@ import { useEditorFeatures } from '../composables/useEditorFeatures';
 import { useGit } from '../composables/useGit';
 import { useFileSystem } from '../composables/useFileSystem';
 import { Icons } from '../utils/icons';
+import { boiMonarch } from '../utils/boi-monarch';
+
 
 // Sub-components
 import ExplorerNode from './ExplorerNode.vue';
@@ -85,7 +91,9 @@ const {
 const searchQuery = ref('');
 const activeSidebar = ref<'explorer'>('explorer');
 
+const activeEditorTheme = ref(globalTheme.value === 'dark' ? 'vs-dark' : 'vs-light');
 const editors = { left: null as any, right: null as any };
+
 let isNavigatingCursorHistory = false;
 
 // --- Palette state ---
@@ -169,30 +177,76 @@ const loadVSCodeTheme = async () => {
         const settingsPath = `${projectRootPath.value}/.vscode/settings.json`;
         const content = await readFile(settingsPath);
         const settings = JSON.parse(content);
-        const customColors = settings['editor.tokenColorCustomizations'];
+        const customizations = settings['editor.tokenColorCustomizations'];
         
-        if (customColors) {
+        if (customizations) {
             const rules: any[] = [];
-            if (customColors.functions) {
-                rules.push({ token: 'type.identifier', foreground: customColors.functions });
-                rules.push({ token: 'entity.name.function', foreground: customColors.functions });
-                rules.push({ token: 'function', foreground: customColors.functions });
+            
+            // 1. Basic Colors Mapping (Legacy Support)
+            if (customizations.functions) {
+                rules.push({ token: 'function', foreground: customizations.functions });
+                rules.push({ token: 'entity.name.function', foreground: customizations.functions });
             }
-            if (customColors.keywords) {
-                rules.push({ token: 'keyword', foreground: customColors.keywords });
-                rules.push({ token: 'keyword.control', foreground: customColors.keywords });
+            if (customizations.keywords) {
+                rules.push({ token: 'keyword', foreground: customizations.keywords });
             }
-            if (customColors.variables) {
-                rules.push({ token: 'variable', foreground: customColors.variables });
-                rules.push({ token: 'identifier', foreground: customColors.variables });
+            if (customizations.variables) {
+                rules.push({ token: 'variable', foreground: customizations.variables });
             }
-            if (customColors.strings) {
-                rules.push({ token: 'string', foreground: customColors.strings });
+            if (customizations.strings) {
+                rules.push({ token: 'string', foreground: customizations.strings });
             }
-            if (customColors.comments) {
-                rules.push({ token: 'comment', foreground: customColors.comments });
+            if (customizations.comments) {
+                rules.push({ token: 'comment', foreground: customizations.comments });
             }
 
+            // 2. TextMate Rules Mapping (Advanced Support)
+            if (customizations.textMateRules && Array.isArray(customizations.textMateRules)) {
+                customizations.textMateRules.forEach((rule: any) => {
+                    const scopes = Array.isArray(rule.scope) ? rule.scope : [rule.scope];
+                    const foreground = rule.settings?.foreground;
+                    const fontStyle = rule.settings?.fontStyle;
+                    
+                    if (foreground || fontStyle) {
+                        scopes.forEach((scope: string) => {
+                            if (!scope) return;
+                            
+                            // Map common TM scopes to Monaco tokens
+                            let monacoToken = scope.split('.')[0]; 
+                            
+                            // Advanced mapping for functions to ensure they match Monarch tokens
+                            const functionScopes = [
+                                'entity.name.function', 
+                                'support.function', 
+                                'meta.function-call', 
+                                'variable.function',
+                                'meta.method.declaration',
+                                'meta.function.definition'
+                            ];
+                            
+                            if (functionScopes.some(fs => scope.includes(fs))) {
+                                monacoToken = 'function';
+                            }
+                            
+                            if (scope.includes('entity.name.type')) monacoToken = 'type.identifier';
+                            if (scope.includes('constant.numeric')) monacoToken = 'number';
+                            if (scope.includes('constant.language')) monacoToken = 'keyword';
+                            if (scope.includes('storage.type')) monacoToken = 'keyword';
+
+                            const ruleObj: any = { token: monacoToken };
+                            if (foreground) ruleObj.foreground = foreground;
+                            if (fontStyle) {
+                                if (fontStyle.includes('bold')) ruleObj.fontStyle = 'bold';
+                                if (fontStyle.includes('italic')) ruleObj.fontStyle = (ruleObj.fontStyle || '') + ' italic';
+                                if (fontStyle.includes('underline')) ruleObj.fontStyle = (ruleObj.fontStyle || '') + ' underline';
+                            }
+                            rules.push(ruleObj);
+                        });
+                    }
+                });
+            }
+
+            console.log('[Theme] Generated Rules:', rules);
             monaco.editor.defineTheme('vscode-custom', {
                 base: globalTheme.value === 'dark' ? 'vs-dark' : 'vs',
                 inherit: true,
@@ -200,11 +254,20 @@ const loadVSCodeTheme = async () => {
                 colors: {}
             });
             monaco.editor.setTheme('vscode-custom');
+            activeEditorTheme.value = 'vscode-custom';
+
+        } else {
+            activeEditorTheme.value = globalTheme.value === 'dark' ? 'vs-dark' : 'vs-light';
+            monaco.editor.setTheme(globalTheme.value === 'dark' ? 'vs-dark' : 'vs');
         }
     } catch (e) {
-        // Silently fail if file doesn't exist
+        // Silently fail if file doesn't exist or JSON is invalid
+        activeEditorTheme.value = globalTheme.value === 'dark' ? 'vs-dark' : 'vs-light';
+        monaco.editor.setTheme(globalTheme.value === 'dark' ? 'vs-dark' : 'vs');
     }
 };
+
+
 
 const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   editors[pane] = editor;
@@ -392,12 +455,28 @@ watch([showExplorer, showSplit, sidebarWidth], () => {
 });
 
 watch(projectRootPath, () => { loadVSCodeTheme(); });
-watch(globalTheme, (nt) => { loadVSCodeTheme(); monaco.editor.setTheme(nt === 'dark' ? 'vs-dark' : 'vs'); });
-
-onMounted(() => { 
-    window.addEventListener('keydown', handleKeyDown); 
-    loadVSCodeTheme();
+watch(globalTheme, (nt) => { 
+    loadVSCodeTheme(); 
+    if (activeEditorTheme.value !== 'vscode-custom') {
+        activeEditorTheme.value = nt === 'dark' ? 'vs-dark' : 'vs-light';
+    }
+    monaco.editor.setTheme(nt === 'dark' ? 'vs-dark' : 'vs'); 
 });
+
+onMounted(async () => { 
+    window.addEventListener('keydown', handleKeyDown); 
+
+    // Register BOI Script language if not already registered
+    if (!monaco.languages.getLanguages().some(lang => lang.id === 'boi-script')) {
+        monaco.languages.register({ id: 'boi-script' });
+        monaco.languages.setMonarchTokensProvider('boi-script', boiMonarch);
+    }
+
+    const { refreshSettings } = useSettings();
+    await refreshSettings();
+    await loadVSCodeTheme();
+});
+
 
 onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 </script>
@@ -558,9 +637,10 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               :original="activeTabLeft.diffData.original" 
               :modified="activeTabLeft.diffData.modified"
               :language="getFileLanguage(activeTabLeft.path?.split('.').pop() || '')" 
-              :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'" 
+              :theme="activeEditorTheme" 
               class="monaco-instance" 
             />
+
           </div>
         </template>
         <template v-else>
@@ -568,10 +648,11 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
             <VueMonacoEditor 
               v-model:value="activeTabLeft.content" 
               :language="activeTabLeft.language" 
-              :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
+              :theme="activeEditorTheme"
               class="monaco-instance" 
               @mount="handleEditorMount($event, 'left')" 
             />
+
           </div>
           <div v-if="showSplit" class="editor-pane" :class="{ focused: focusedPane === 'right' }" @mousedown="focusedPane = 'right'">
             <div class="pane-header">
@@ -584,10 +665,11 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
             <VueMonacoEditor 
               v-model:value="activeTabRight.content" 
               :language="activeTabRight.language" 
-              :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
+              :theme="activeEditorTheme"
               class="monaco-instance" 
               @mount="handleEditorMount($event, 'right')" 
             />
+
           </div>
         </template>
       </div>

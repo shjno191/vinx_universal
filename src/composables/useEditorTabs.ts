@@ -1,7 +1,7 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { 
-  triggerOpenDiff, 
+import {
+  triggerOpenDiff,
   triggerEditorReload
 } from '../store';
 import { useFileSystem } from './useFileSystem';
@@ -33,7 +33,7 @@ export function useEditorTabs() {
   // --- Computed ---
   const activeTabLeft = computed(() => tabs.value.find(t => t.id === activeTabIdLeft.value) || tabs.value[0]);
   const activeTabRight = computed(() => tabs.value.find(t => t.id === activeTabIdRight.value) || tabs.value[0]);
-  
+
   const currentActiveId = computed({
     get: () => focusedPane.value === 'left' ? activeTabIdLeft.value : (activeTabIdRight.value || activeTabIdLeft.value),
     set: (val: string) => {
@@ -76,7 +76,7 @@ export function useEditorTabs() {
       const content = await readFile(path);
       const name = path.split(/[/\\]/).pop() || path;
       const ext = path.split('.').pop() || '';
-      
+
       const id = addTab(name, content, getFileLanguage(ext), path);
       return id;
     } catch (e) {
@@ -85,10 +85,10 @@ export function useEditorTabs() {
   };
 
   const getFileLanguage = (ext: string): string => {
-    const m: Record<string, string> = { 
-      ts: 'typescript', js: 'javascript', vue: 'html', rs: 'rust', 
-      py: 'python', json: 'json', md: 'markdown', css: 'css', 
-      html: 'html', sql: 'sql' 
+    const m: Record<string, string> = {
+      ts: 'typescript', js: 'javascript', vue: 'html', rs: 'rust',
+      py: 'python', json: 'json', md: 'markdown', css: 'css',
+      html: 'html', sql: 'sql', s: 'boi-script'
     };
     return m[ext.toLowerCase()] || 'plaintext';
   };
@@ -100,7 +100,7 @@ export function useEditorTabs() {
     try {
       const data = new TextEncoder().encode(curTab.content);
       await invoke('write_file_binary', { path: curTab.path, data: Array.from(data) });
-      
+
       // Visual feedback
       const originalName = curTab.name;
       if (!originalName.includes('(Saved)')) {
@@ -132,7 +132,7 @@ export function useEditorTabs() {
     const { path, name, original, modified, label } = val;
     const tabId = `diff-${path}-${label}`;
     const existing = tabs.value.find(t => t.id === tabId);
-    
+
     if (existing) {
       activeTabIdLeft.value = existing.id;
       focusedPane.value = 'left';

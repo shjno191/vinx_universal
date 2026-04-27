@@ -70,126 +70,194 @@ watch(showSettingsTrigger, (val) => {
           <p class="section-desc">Cấu hình chủ đề và các cài đặt chung cho toàn bộ ứng dụng.</p>
         </div>
 
-        <div class="setting-item">
-          <label>Chủ đề ứng dụng (Theme)</label>
-          <select v-model="settings.theme" class="theme-select" @change="handleSaveAndEmit">
-            <option value="dark">Tối (Dark Mode)</option>
-            <option value="light">Sáng (Light Mode)</option>
-            <option value="95">Cổ điển (Windows 95)</option>
-          </select>
-        </div>
+        <div class="settings-grid">
+          <div class="setting-card glass">
+            <div class="card-header">
+              <span class="card-icon" v-html="Icons.Settings"></span>
+              <span class="card-label">Chủ đề & Hiển thị</span>
+            </div>
+            
+            <div class="card-body">
+              <div class="premium-field">
+                <label>Ứng dụng (App Theme)</label>
+                <select v-model="settings.theme" class="premium-select" @change="handleSaveAndEmit">
+                  <option value="dark">Tối (Dark Mode)</option>
+                  <option value="light">Sáng (Light Mode)</option>
+                  <option value="95">Cổ điển (Windows 95)</option>
+                </select>
+              </div>
 
-        <div class="setting-item">
-          <label>Chủ đề nạp dữ liệu (Loading Theme)</label>
-          <div class="theme-select-group">
-            <select v-model="settings.loading_theme" class="theme-select" @change="saveSettings">
-              <option value="cute">Chú mèo dễ thương (Cute Cat)</option>
-              <option value="premium">Neon hiện đại (Premium Neon)</option>
-              <option value="retro">Cổ điển Win95 (Retro UI)</option>
-              <option value="cyber">Cyberpunk (High Tech)</option>
-              <option value="nature">Thiên nhiên (Nature/Garden)</option>
-              <option value="orbit">Không gian (Space Orbit)</option>
-            </select>
-            <button class="test-loading-btn" @click="() => useTranslateManager().simulateLoading()" title="Click to test loading screen">
-              <span v-html="Icons.Play" class="test-icon"></span>
-              TEST
-            </button>
+              <div class="premium-field">
+                <label>Màn hình chờ (Loading)</label>
+                <div class="theme-select-group">
+                  <select v-model="settings.loading_theme" class="premium-select" @change="saveSettings">
+                    <option value="cute">Chú mèo dễ thương</option>
+                    <option value="premium">Neon hiện đại</option>
+                    <option value="retro">Cổ điển Win95</option>
+                    <option value="cyber">Cyberpunk</option>
+                  </select>
+                  <button class="test-loading-btn-mini" @click="() => useTranslateManager().simulateLoading()">
+                    <span v-html="Icons.Play"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="setting-item">
-          <label>Thư mục cấu hình (Config)</label>
-          <button class="save-all-btn" @click="openSettingsFile">Mở thư mục cài đặt</button>
+          <div class="setting-card glass">
+            <div class="card-header">
+              <span class="card-icon" v-html="Icons.Folder"></span>
+              <span class="card-label">Hệ thống tệp</span>
+            </div>
+            <div class="card-body">
+              <div class="premium-field">
+                <label>Dữ liệu cấu hình</label>
+                <button class="premium-button full" @click="openSettingsFile">Mở thư mục cài đặt</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- TRANSLATE / DICTIONARY -->
       <div v-show="currentCategory === 'translate'" class="settings-section">
         <div class="section-header-modern">
-          <h2 class="section-title">Tab Dictionary & Translate</h2>
-          <p class="section-desc">Cấu hình từ điển định dạng Excel phục vụ tính năng dịch nhanh và quản lý từ vựng.</p>
+          <h2 class="section-title">Dictionary & Translate</h2>
+          <p class="section-desc">Quản lý từ điển Excel và các nguồn dữ liệu dịch thuật.</p>
         </div>
 
-        <div class="setting-item-vertical">
-          <label>Đường dẫn file từ điển chính (.xlsx)</label>
-          <div class="path-picker">
-            <input v-model="settings.dictionary_path" type="text" class="text-input path-input" readonly placeholder="Chưa chọn file từ điển..." />
-            <button class="save-all-btn" @click="pickDictionary">Chọn file</button>
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.Globe"></span>
+            <span class="card-label">Từ điển chính</span>
           </div>
-          <div class="helper-actions">
-             <button class="text-link-btn" @click="downloadTemplate">
-               <span v-html="Icons.Download" style="display:inline-block; vertical-align:middle; margin-right:4px;"></span>
-               Tải file Excel mẫu (.xlsx)
-             </button>
-          </div>
-        </div>
-
-        <div class="setting-item-vertical" style="margin-top: 10px; border-top: 1px solid rgba(128,128,128,0.1); padding-top: 20px;">
-          <div class="section-label-group">
-            <label>Quick Translate Source Folders</label>
-            <p class="field-hint">Danh sách các thư mục chứa file Excel dùng để quét từ điển nâng cao.</p>
-          </div>
-          
-          <div class="path-list-modern">
-            <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="path-list-item glass">
-              <span class="path-text" :title="path">{{ path }}</span>
-              <button class="remove-path-btn" @click="removeAdvancedPath(idx)" title="Remove">
-                <span v-html="Icons.Trash"></span>
-              </button>
+          <div class="card-body">
+            <div class="path-picker-modern">
+              <input v-model="settings.dictionary_path" type="text" class="premium-input-path" readonly placeholder="Chưa cấu hình từ điển..." />
+              <button class="premium-button" @click="pickDictionary">Chọn file</button>
             </div>
-            
-            <button class="add-path-btn-dashed" @click="pickAdvancedPath">
-              <span v-html="Icons.Plus" style="margin-right: 8px;"></span>
-              Thêm thư mục nguồn dữ liệu mới
+            <button class="link-action" @click="downloadTemplate">
+              <span v-html="Icons.Download"></span> Tải Excel mẫu
             </button>
           </div>
         </div>
-      </div>
 
-      <!-- GIT CONTROL -->
-      <div v-show="currentCategory === 'git'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Tab Git Control</h2>
-          <p class="section-desc">Cấu hình đường dẫn Repository để sử dụng các tính năng Git tích hợp.</p>
-        </div>
-        
-        <div class="setting-item-vertical">
-          <label>Đường dẫn Local Repository</label>
-          <div class="path-picker">
-            <input v-model="settings.last_git_repo" type="text" class="text-input path-input" placeholder="Ví dụ: C:/Projects/my-app" @change="saveSettings" />
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.Plus"></span>
+            <span class="card-label">Nguồn quét từ điển (Quick Translate)</span>
           </div>
-          <p class="field-hint">Nhập đường dẫn tuyệt đối đến thư mục chứa <code>.git</code> của dự án.</p>
-        </div>
-      </div>
-
-      <!-- EDITOR TAB -->
-      <div v-show="currentCategory === 'editor'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Tab Editor</h2>
-          <p class="section-desc">Cấu hình các hành vi và trải nghiệm người dùng khi làm việc với trình chỉnh sửa mã.</p>
-        </div>
-
-        <div class="setting-item-vertical">
-          <label>Hành vi chuột & Tab</label>
-          <div class="setting-checkbox-list">
-            <label class="checkbox-container">
-              <input type="checkbox" v-model="settings.editor.middleClickClose" @change="saveSettings" />
-              <span class="checkmark"></span>
-              Nhấn chuột giữa để đóng Tab
-            </label>
-            <label class="checkbox-container">
-              <input type="checkbox" v-model="settings.editor.doubleClickNewTab" @change="saveSettings" />
-              <span class="checkmark"></span>
-              Nhấp đúp vào thanh tab để mở Tab mới
-            </label>
-            <label class="checkbox-container">
-              <input type="checkbox" v-model="settings.editor.mouseNavHistory" @change="saveSettings" />
-              <span class="checkmark"></span>
-              Sử dụng nút Back/Forward của chuột để quay lại Tab cũ
-            </label>
+          <div class="card-body">
+            <div class="path-chips">
+              <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="path-chip">
+                <span class="chip-text">{{ path }}</span>
+                <span class="chip-remove" @click="removeAdvancedPath(idx)" v-html="Icons.X"></span>
+              </div>
+            </div>
+            <button class="premium-button-dashed" @click="pickAdvancedPath">Thêm thư mục nguồn</button>
           </div>
         </div>
       </div>
+
+      <!-- EDITOR & GIT -->
+      <div v-show="currentCategory === 'editor-git'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Editor & Source Control</h2>
+          <p class="section-desc">Tối ưu trải nghiệm soạn thảo và tích hợp quản lý mã nguồn Git.</p>
+        </div>
+
+        <!-- Indentation Level 2.0 -->
+        <div class="setting-card glass no-padding">
+          <div class="card-header-filled">
+             <span class="card-label">INDENTATION CONFIGURATION</span>
+          </div>
+          <div class="indentation-selector">
+            <div class="indent-option" :class="{ active: settings.editor.insertSpaces }" @click="settings.editor.insertSpaces = true; saveSettings()">
+              <div class="option-info">
+                <span class="option-title">Spaces</span>
+                <span class="option-desc">Sử dụng khoảng trắng (Khuyên dùng)</span>
+              </div>
+              <div v-if="settings.editor.insertSpaces" class="active-badge">ACTIVE</div>
+            </div>
+            <div class="indent-option" :class="{ active: !settings.editor.insertSpaces }" @click="settings.editor.insertSpaces = false; saveSettings()">
+              <div class="option-info">
+                <span class="option-title">Tabs</span>
+                <span class="option-desc">Sử dụng ký tự Tab vật lý</span>
+              </div>
+              <div v-if="!settings.editor.insertSpaces" class="active-badge">ACTIVE</div>
+            </div>
+          </div>
+          <div class="indent-footer">
+            <div class="indent-size-group">
+              <span class="size-text">Tab Size:</span>
+              <div class="size-pills">
+                <button v-for="s in [2,4,8]" :key="s" class="size-pill" :class="{ active: settings.editor.indentSize === s }" @click="settings.editor.indentSize = s; saveSettings()">{{ s }}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Git Integration -->
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.GitBranch"></span>
+            <span class="card-label">Git Repository</span>
+          </div>
+          <div class="card-body">
+            <input v-model="settings.last_git_repo" type="text" class="premium-input" placeholder="Đường dẫn đến thư mục chứa .git" @change="saveSettings" />
+          </div>
+        </div>
+
+        <!-- Mouse Behavior Feature Cards -->
+        <div class="behavior-grid">
+           <div class="feature-card glass" :class="{ active: settings.editor.middleClickClose }" @click="settings.editor.middleClickClose = !settings.editor.middleClickClose; saveSettings()">
+              <div class="feature-icon" v-html="Icons.X"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Middle Click Close</span>
+                 <span class="feature-hint">Chuột giữa đóng tab nhanh</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+           
+           <div class="feature-card glass" :class="{ active: settings.editor.doubleClickNewTab }" @click="settings.editor.doubleClickNewTab = !settings.editor.doubleClickNewTab; saveSettings()">
+              <div class="feature-icon" v-html="Icons.Plus"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Double Click New</span>
+                 <span class="feature-hint">Click đúp mở tab trống</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+
+           <div class="feature-card glass" :class="{ active: settings.editor.mouseNavHistory }" @click="settings.editor.mouseNavHistory = !settings.editor.mouseNavHistory; saveSettings()">
+              <div class="feature-icon" v-html="Icons.ArrowLeft"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Mouse Navigation</span>
+                 <span class="feature-hint">Nút hông chuột Back/Forward</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+
+           <div class="feature-card glass" :class="{ active: settings.editor.renderWhitespace }" @click="settings.editor.renderWhitespace = !settings.editor.renderWhitespace; saveSettings()">
+              <div class="feature-icon" v-html="Icons.Eye"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Show Whitespace</span>
+                 <span class="feature-hint">Hiện ký hiệu Tab/Space ẩn</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+        </div>
+
+      </div>
+
+
 
       <!-- SHORTCUTS -->
       <div v-show="currentCategory === 'shortcut'" class="settings-section">
@@ -336,108 +404,121 @@ watch(showSettingsTrigger, (val) => {
 .settings-content { flex: 1; padding: 25px 35px; overflow-y: auto; background: var(--container-bg); }
 .settings-section { display: flex; flex-direction: column; gap: 20px; }
 
-.glass {
-  background: rgba(128, 128, 128, 0.05);
-  border: 1px solid rgba(128, 128, 128, 0.1);
-  border-radius: 12px;
-  padding: 16px;
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 10px; }
+
+.setting-card { 
+  background: rgba(128, 128, 128, 0.05); 
+  border: 1px solid rgba(128, 128, 128, 0.1); 
+  border-radius: 16px; 
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.setting-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+.setting-card.no-padding { padding: 0 !important; }
+
+.card-header { padding: 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.05); }
+.card-header-filled { background: rgba(99, 102, 241, 0.1); padding: 10px 16px; }
+.card-icon { width: 18px; height: 18px; color: var(--accent-color); }
+.card-label { font-size: 0.75rem; font-weight: 900; letter-spacing: 0.05em; color: var(--accent-color); text-transform: uppercase; }
+
+.card-body { padding: 16px; display: flex; flex-direction: column; gap: 15px; }
+
+/* Premium Fields */
+.premium-field { display: flex; flex-direction: column; gap: 8px; }
+.premium-field label { font-size: 0.7rem; font-weight: 800; opacity: 0.4; text-transform: uppercase; }
+
+.premium-select, .premium-input { 
+  background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.2); 
+  border-radius: 10px; padding: 10px 14px; color: var(--text-color); font-size: 0.8rem; font-weight: 600;
+  outline: none; transition: 0.2s;
+  flex: 1; min-width: 0;
+}
+.premium-select:focus, .premium-input:focus { border-color: var(--accent-color); background: rgba(99,102,241,0.05); }
+
+.theme-select-group { display: flex; gap: 10px; align-items: center; width: 100%; flex-wrap: nowrap; }
+
+.premium-button { 
+  background: var(--accent-color); color: #fff; border: none; padding: 8px 16px; border-radius: 8px; 
+  font-weight: 800; font-size: 0.75rem; cursor: pointer; transition: 0.2s;
+}
+.premium-button:hover { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+.premium-button.full { width: 100%; }
+
+.premium-button-dashed { 
+  background: transparent; border: 1.5px dashed rgba(128,128,128,0.3); border-radius: 10px; padding: 12px; 
+  color: var(--accent-color); font-weight: 800; font-size: 0.75rem; cursor: pointer; transition: 0.2s;
+}
+.premium-button-dashed:hover { background: rgba(99,102,241,0.05); border-color: var(--accent-color); }
+
+/* Path Picker */
+.path-picker-modern { display: flex; gap: 8px; }
+.premium-input-path { flex: 1; background: rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1); border-radius: 8px; padding: 0 12px; color: var(--text-color); font-size: 0.75rem; opacity: 0.6; }
+
+/* Indentation UI Level 2.0 */
+.indentation-selector { display: flex; border-bottom: 1px solid rgba(128,128,128,0.05); }
+.indent-option { 
+  flex: 1; padding: 20px; display: flex; justify-content: space-between; align-items: start; 
+  cursor: pointer; transition: 0.2s; border-right: 1px solid rgba(128,128,128,0.05);
+}
+.indent-option:last-child { border-right: none; }
+.indent-option:hover { background: rgba(255,255,255,0.02); }
+.indent-option.active { background: rgba(99, 102, 241, 0.05); position: relative; }
+.indent-option.active::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--accent-color); }
+
+.option-info { display: flex; flex-direction: column; gap: 4px; }
+.option-title { font-size: 0.9rem; font-weight: 900; color: #fff; }
+.option-desc { font-size: 0.7rem; opacity: 0.5; font-weight: 600; }
+.active-badge { 
+  background: var(--accent-color); color: #fff; font-size: 0.6rem; font-weight: 900; 
+  padding: 2px 6px; border-radius: 4px; box-shadow: 0 0 10px rgba(99,102,241,0.4);
 }
 
-.setting-item { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 1px solid rgba(128,128,128,0.08); }
-.setting-item-vertical { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid rgba(128,128,128,0.08); }
-.setting-item label, .setting-item-vertical label { font-weight: 800; font-size: 0.7rem; text-transform: uppercase; opacity: 0.4; letter-spacing: 0.1em; }
-
-.section-header-modern { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid rgba(128, 128, 128, 0.1); }
-.section-title { margin: 0; font-size: 1.25rem; font-weight: 900; color: var(--accent-color); letter-spacing: -0.02em; }
-.section-desc { margin: 4px 0 0; font-size: 0.8rem; opacity: 0.6; font-weight: 500; }
-.field-hint { margin: 4px 0 0; font-size: 0.7rem; opacity: 0.4; font-style: italic; }
-
-.path-list-modern { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.path-list-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(0,0,0,0.05); border-radius: 8px; border: 1px solid rgba(128,128,128,0.1); }
-.path-text { font-size: 0.75rem; font-weight: 600; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
-.remove-path-btn { background: transparent; border: none; color: #ef4444; cursor: pointer; padding: 4px; display: flex; align-items: center; opacity: 0.6; transition: opacity 0.2s; }
-.remove-path-btn:hover { opacity: 1; }
-.add-path-btn-dashed { 
-  background: transparent; border: 1.5px dashed rgba(128,128,128,0.3); border-radius: 8px; 
-  padding: 12px; color: var(--accent-color); font-weight: 700; font-size: 0.75rem; 
-  cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+.indent-footer { padding: 15px 20px; background: rgba(0,0,0,0.1); }
+.indent-size-group { display: flex; align-items: center; gap: 15px; }
+.size-text { font-size: 0.75rem; font-weight: 800; opacity: 0.4; }
+.size-pills { display: flex; gap: 8px; }
+.size-pill { 
+  background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.1); color: var(--text-color);
+  padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 0.75rem; cursor: pointer; transition: 0.2s;
 }
-.add-path-btn-dashed:hover { background: rgba(99,102,241,0.05); border-color: var(--accent-color); }
+.size-pill.active { background: var(--accent-color); color: #fff; border-color: var(--accent-color); }
 
-.theme-select, .text-input { 
-  padding: 8px 12px; 
-  background-color: rgba(0,0,0,0.1); 
-  color: var(--text-color); 
-  border: 1px solid rgba(128, 128, 128, 0.2); 
-  border-radius: 8px; 
-  font-size: 0.8rem; 
-  font-weight: 600;
-  outline: none; 
-  transition: border-color 0.2s;
+/* Feature Cards Grid */
+.behavior-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
+.feature-card { 
+  padding: 16px; display: flex; align-items: center; gap: 14px; 
+  cursor: pointer; border-radius: 12px; transition: 0.2s; border: 1px solid rgba(128,128,128,0.1);
 }
-.theme-select:focus, .text-input:focus { border-color: var(--accent-color); }
+.feature-card:hover { background: rgba(255,255,255,0.03); border-color: rgba(128,128,128,0.2); }
+.feature-card.active { border-color: var(--accent-color); background: rgba(99, 102, 241, 0.03); }
 
-.theme-select-group { display: flex; gap: 10px; align-items: center; }
-.test-loading-btn { 
-  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
-  background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3);
-  color: var(--accent-color); border-radius: 8px; font-weight: 800; font-size: 0.7rem;
-  cursor: pointer; transition: all 0.2s;
-}
-.test-loading-btn:hover { background: var(--accent-color); color: #fff; }
-.test-icon { width: 14px; height: 14px; display: flex; align-items: center; }
+.feature-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; opacity: 0.5; color: var(--accent-color); }
+.feature-card.active .feature-icon { opacity: 1; }
+.feature-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.feature-name { font-size: 0.8rem; font-weight: 800; }
+.feature-hint { font-size: 0.65rem; opacity: 0.4; font-weight: 600; }
 
-.path-picker { display: flex; gap: 8px; }
-.path-input { flex: 1; opacity: 0.7; cursor: default; }
+.feature-toggle { width: 34px; height: 18px; }
+.toggle-track { width: 100%; height: 100%; background: #333; border-radius: 10px; position: relative; transition: 0.3s; }
+.feature-card.active .toggle-track { background: var(--accent-color); }
+.toggle-thumb { width:12px; height: 12px; background: #fff; border-radius: 50%; position: absolute; top: 3px; left: 3px; transition: 0.3s; }
+.feature-card.active .toggle-thumb { left: 19px; }
 
-.save-all-btn { 
-  background: var(--accent-color); 
-  color: white; border: none; 
-  padding: 6px 16px; 
-  border-radius: 8px; 
-  font-weight: 700; 
-  font-size: 0.75rem; 
-  cursor: pointer;
-  transition: transform 0.1s, box-shadow 0.2s;
-}
-.save-all-btn:hover { box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); transform: translateY(-1px); }
+.test-loading-btn-mini { background: rgba(99,102,241,0.1); border: none; color: var(--accent-color); width: 34px; height: 34px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.test-loading-btn-mini:hover { background: var(--accent-color); color: #fff; }
 
-.shortcut-list { display: flex; flex-direction: column; gap: 8px; }
-.shortcut-row { 
-  display: flex; justify-content: space-between; align-items: center; 
-  padding: 10px 14px; background: rgba(0,0,0,0.1); 
-  border-radius: 8px; cursor: pointer; border: 1px solid transparent;
-  transition: all 0.2s;
-}
-.shortcut-row:hover { border-color: var(--accent-color); background: rgba(99, 102, 241, 0.05); }
-.shortcut-row.locked { opacity: 0.5; cursor: default; }
+.path-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.path-chip { background: rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; padding: 4px 10px; display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.chip-text { font-size: 0.7rem; font-weight: 600; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-remove { width: 12px; height: 12px; opacity: 0.4; cursor: pointer; }
+.chip-remove:hover { opacity: 1; color: #ef4444; }
 
-.shortcut-desc { font-size: 0.8rem; font-weight: 600; }
-.shortcut-key { 
-  font-family: 'Consolas', monospace; font-size: 0.75rem; 
-  background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);
-}
-.shortcut-key.recording { color: var(--accent-color); font-weight: 800; animation: pulse 1.5s infinite; }
-
-@keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
-
-.rule-group { background: rgba(0,0,0,0.1); padding: 16px; }
-.rule-title { margin: 0 0 12px 0; font-size: 0.75rem; color: var(--accent-color); font-weight: 900; letter-spacing: 0.05em; }
-.rule-item { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.75rem; }
-.rule-tag { background: rgba(99, 102, 241, 0.15); color: var(--accent-color); padding: 2px 8px; border-radius: 4px; font-weight: 900; min-width: 60px; text-align: center; }
-.rule-item p { margin: 0; opacity: 0.7; font-weight: 600; }
-
-.helper-actions { margin-top: 4px; }
-.text-link-btn { background: none; border: none; color: var(--accent-color); padding: 0; font-size: 0.7rem; font-weight: 700; cursor: pointer; text-decoration: underline; opacity: 0.7; }
-.text-link-btn:hover { opacity: 1; }
-
-.provider-block { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; opacity: 0.4; pointer-events: none; transition: opacity 0.3s; }
-.provider-block.active { opacity: 1; pointer-events: all; }
-.provider-label { font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; gap: 8px; }
-.provider-dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
-.provider-dot.gemini { background: #4285f4; }
+.link-action { background: none; border: none; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 0; margin-top: 5px; opacity: 0.6; }
+.link-action:hover { opacity: 1; text-decoration: underline; }
 
 .hidden-input { position: absolute; opacity: 0; pointer-events: none; }
+
+
 
 /* Win95 Variations */
 .theme-95 .settings-layout, .theme-95 .settings-sidebar, .theme-95 .category-btn, .theme-95 .settings-content, .theme-95 .glass, .theme-95 .rule-group, .theme-95 .shortcut-row {

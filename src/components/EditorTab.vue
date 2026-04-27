@@ -116,6 +116,21 @@ watch(paletteQuery, async (val) => {
     paletteSelectedIndex.value = 0;
 });
 
+// Watch for editor settings changes (indentation, etc.)
+watch(() => editorSettings.value, (newSettings) => {
+    Object.values(editors).forEach(editor => {
+        if (editor) {
+            editor.updateOptions({
+                tabSize: newSettings.indentSize,
+                insertSpaces: newSettings.insertSpaces,
+                renderWhitespace: newSettings.renderWhitespace ? 'all' : 'selection'
+            });
+        }
+    });
+}, { deep: true });
+
+
+
 const isHiddenGroupExpanded = ref(false);
 
 const visibleChildren = computed(() => {
@@ -149,6 +164,18 @@ const handleUnhide = (path: string) => {
 // --- Computed ----------------------------------------------------------------
 const currentBranchName = computed(() => gitBranches.value.find(b => b.isCurrent)?.name || '');
 const activeFilePath = computed(() => activeTabLeft.value?.path || '');
+
+const editorOptions = computed(() => ({
+    tabSize: editorSettings.value.indentSize,
+    insertSpaces: editorSettings.value.insertSpaces,
+    renderWhitespace: editorSettings.value.renderWhitespace ? 'all' : 'selection',
+    automaticLayout: true,
+    scrollBeyondLastLine: false,
+    fontSize: 13,
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+    minimap: { enabled: true }
+}));
+
 
 // --- Methods -----------------------------------------------------------------
 const openProject = async () => {
@@ -638,8 +665,10 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               :modified="activeTabLeft.diffData.modified"
               :language="getFileLanguage(activeTabLeft.path?.split('.').pop() || '')" 
               :theme="activeEditorTheme" 
+              :options="editorOptions"
               class="monaco-instance" 
             />
+
 
           </div>
         </template>
@@ -649,9 +678,11 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               v-model:value="activeTabLeft.content" 
               :language="activeTabLeft.language" 
               :theme="activeEditorTheme"
+              :options="editorOptions"
               class="monaco-instance" 
               @mount="handleEditorMount($event, 'left')" 
             />
+
 
           </div>
           <div v-if="showSplit" class="editor-pane" :class="{ focused: focusedPane === 'right' }" @mousedown="focusedPane = 'right'">
@@ -666,9 +697,11 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               v-model:value="activeTabRight.content" 
               :language="activeTabRight.language" 
               :theme="activeEditorTheme"
+              :options="editorOptions"
               class="monaco-instance" 
               @mount="handleEditorMount($event, 'right')" 
             />
+
 
           </div>
         </template>

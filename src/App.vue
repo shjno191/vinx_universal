@@ -237,10 +237,12 @@ html, body {
 }
 
 .settings-modal {
-  width: 800px; max-width: 95%; max-height: 90vh;
+  width: 60vw; height: 70vh;
   display: flex; flex-direction: column; border-radius: 16px; overflow: hidden;
   box-shadow: 0 20px 50px rgba(0,0,0,0.5);
 }
+
+
 
 .modal-header {
   padding: 12px 20px; background: var(--accent-color); color: #fff;

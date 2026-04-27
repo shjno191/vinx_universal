@@ -17,13 +17,21 @@ export interface EditorSettings {
     middleClickClose: boolean;
     doubleClickNewTab: boolean;
     mouseNavHistory: boolean;
+    indentSize: number;
+    insertSpaces: boolean;
+    renderWhitespace: boolean;
 }
 
 export const editorSettings = ref<EditorSettings>({
     middleClickClose: true,
     doubleClickNewTab: true,
-    mouseNavHistory: true
+    mouseNavHistory: true,
+    indentSize: 4,
+    insertSpaces: true,
+    renderWhitespace: false
 });
+
+
 
 export interface CursorPosition {
     tabId: string;

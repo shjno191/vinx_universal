@@ -33,7 +33,12 @@ export interface Settings {
     middleClickClose: boolean;
     doubleClickNewTab: boolean;
     mouseNavHistory: boolean;
+    indentSize: number;
+    insertSpaces: boolean;
+    renderWhitespace: boolean;
   };
+
+
   hidden_explorer_paths: string[];
   last_project_root: string;
 
@@ -72,8 +77,13 @@ export const settings = ref<Settings>({
   editor: {
     middleClickClose: true,
     doubleClickNewTab: true,
-    mouseNavHistory: true
+    mouseNavHistory: true,
+    indentSize: 4,
+    insertSpaces: true,
+    renderWhitespace: false
   },
+
+
   hidden_explorer_paths: [],
   last_project_root: '',
 
@@ -106,13 +116,13 @@ export function useSettings() {
   const categories = [
     { id: 'general', name: 'Giao diện & Hệ thống', icon: 'Settings' },
     { id: 'translate', name: 'Dictionary & Translate', icon: 'Globe' },
-    { id: 'git', name: 'Git Control Tab', icon: 'GitBranch' },
-    { id: 'editor', name: 'Editor Tab', icon: 'Edit3' },
+    { id: 'editor-git', name: 'Editor & Source Control', icon: 'Edit3' },
     { id: 'shortcut', name: 'Phím tắt bàn phím', icon: 'Keyboard' },
     { id: 'ai', name: 'AI Service (Flowchart)', icon: 'Cpu' },
     { id: 'chill', name: 'Smoking Tab', icon: 'Coffee' },
     { id: 'convert', name: 'Convert UI Tab', icon: 'RefreshCw' },
   ];
+
 
   const refreshSettings = async () => {
     try {

@@ -167,10 +167,11 @@ fn build_node(path: &Path, depth: u32, max_depth: u32) -> Result<FileNode, Strin
                 let entry_name = entry_path.file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
-                // Filter out hidden folders and build artifacts
-                if entry_name.starts_with('.') || entry_name == "node_modules" || entry_name == "target" || entry_name == "dist" {
+                // Filter out Git internals and common build artifacts
+                if entry_name == ".git" || entry_name == "node_modules" || entry_name == "target" || entry_name == "dist" {
                     continue;
                 }
+
                 
                 if let Ok(child) = build_node(&entry_path, depth + 1, max_depth) {
                     children.push(child);

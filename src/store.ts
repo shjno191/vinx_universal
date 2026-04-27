@@ -113,6 +113,11 @@ export interface ContextMenuState {
     node: any;
 }
 export const activeContextMenu = ref<ContextMenuState | null>(null);
+export const hiddenExplorerPaths = ref<string[]>([]);
+export const selectedExplorerPaths = ref<Set<string>>(new Set());
+export const lastSelectedPath = ref<string>('');
+
+
 
 
 // Editor: compare file with git   

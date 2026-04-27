@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue';
-import { activeContextMenu } from '../store';
+import { activeContextMenu, hiddenExplorerPaths, selectedExplorerPaths } from '../store';
+
+
 import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
@@ -59,6 +61,29 @@ const handleReveal = async () => {
   }
 };
 
+const handleHide = () => {
+  if (activeContextMenu.value) {
+    const node = activeContextMenu.value.node;
+    
+    // Nếu node đang chuột phải nằm trong danh sách đang chọn, thì ẩn hết
+    if (selectedExplorerPaths.value.has(node.path)) {
+      selectedExplorerPaths.value.forEach(p => {
+        if (!hiddenExplorerPaths.value.includes(p)) {
+          hiddenExplorerPaths.value.push(p);
+        }
+      });
+    } else {
+      // Nếu không thì chỉ ẩn 1 mình nó
+      if (!hiddenExplorerPaths.value.includes(node.path)) {
+        hiddenExplorerPaths.value.push(node.path);
+      }
+    }
+    closeMenu();
+  }
+};
+
+
+
 // Global click listeners to close menu
 const onGlobalClick = (e: MouseEvent) => {
   if (activeContextMenu.value) {
@@ -101,6 +126,11 @@ onUnmounted(() => {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         Reveal in Explorer
       </button>
+      <button class="ctx-item danger-hover" @click="handleHide">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        Hide in Explorer
+      </button>
+
 
       <div class="ctx-divider" v-if="!activeContextMenu.node.is_dir"></div>
       <button class="ctx-item" v-if="!activeContextMenu.node.is_dir" @click="handleCompareLocal">
@@ -149,6 +179,8 @@ onUnmounted(() => {
 }
 
 .ctx-item:hover { background: rgba(255,255,255,0.1); }
+.ctx-item.danger-hover:hover { background: rgba(248, 113, 113, 0.1); color: #f87171; }
+
 
 .ctx-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 3px 0; }
 

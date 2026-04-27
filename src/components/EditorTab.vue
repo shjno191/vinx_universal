@@ -10,6 +10,7 @@ import { useEditorTabs, type Tab } from '../composables/useEditorTabs';
 import { useExplorer } from '../composables/useExplorer';
 import { useEditorFeatures } from '../composables/useEditorFeatures';
 import { useGit } from '../composables/useGit';
+import { useFileSystem } from '../composables/useFileSystem';
 import { Icons } from '../utils/icons';
 
 // Sub-components
@@ -29,9 +30,18 @@ import {
   triggerCloseModals, 
   cursorHistory, 
   cursorHistoryIndex, 
-  editorSettings 
+  editorSettings,
+  hiddenExplorerPaths,
+  selectedExplorerPaths,
+  lastSelectedPath
 } from '../store';
+
+import { useSettings } from '../composables/useSettings';
+
 const { searchRepoFiles } = useGit();
+const { readFile } = useFileSystem();
+const { saveSettings } = useSettings();
+
 
 // --- Initialization ----------------------------------------------------------
 const {
@@ -98,6 +108,36 @@ watch(paletteQuery, async (val) => {
     paletteSelectedIndex.value = 0;
 });
 
+const isHiddenGroupExpanded = ref(false);
+
+const visibleChildren = computed(() => {
+  if (!projectRoot.value || !projectRoot.value.children) return [];
+  return projectRoot.value.children.filter(child => !hiddenExplorerPaths.value.includes(child.path));
+});
+
+const hiddenNodes = computed(() => {
+  if (!projectRoot.value) return [];
+  const list: any[] = [];
+  const findHidden = (node: any) => {
+    if (hiddenExplorerPaths.value.includes(node.path)) {
+      list.push(node);
+      return; // Stop recursion for hidden items
+    }
+    if (node.children) {
+      node.children.forEach(findHidden);
+    }
+  };
+  if (projectRoot.value.children) {
+    projectRoot.value.children.forEach(findHidden);
+  }
+  return list;
+});
+
+const handleUnhide = (path: string) => {
+  hiddenExplorerPaths.value = hiddenExplorerPaths.value.filter(p => p !== path);
+};
+
+
 // --- Computed ----------------------------------------------------------------
 const currentBranchName = computed(() => gitBranches.value.find(b => b.isCurrent)?.name || '');
 const activeFilePath = computed(() => activeTabLeft.value?.path || '');
@@ -112,6 +152,7 @@ const openProject = async () => {
       const toplevel = await invoke<string>('git_execute', { args: ['rev-parse', '--show-toplevel'], cwd: selected });
       gitTabRepoPath.value = toplevel?.trim() || '';
     } catch (_) { gitTabRepoPath.value = ''; }
+    loadVSCodeTheme();
   }
 };
 
@@ -120,6 +161,49 @@ const openFile = async () => {
   if (!selected) return;
   const paths = Array.isArray(selected) ? selected : [selected];
   for (const p of paths) await openFileByPath(p);
+};
+
+const loadVSCodeTheme = async () => {
+    if (!projectRootPath.value) return;
+    try {
+        const settingsPath = `${projectRootPath.value}/.vscode/settings.json`;
+        const content = await readFile(settingsPath);
+        const settings = JSON.parse(content);
+        const customColors = settings['editor.tokenColorCustomizations'];
+        
+        if (customColors) {
+            const rules: any[] = [];
+            if (customColors.functions) {
+                rules.push({ token: 'type.identifier', foreground: customColors.functions });
+                rules.push({ token: 'entity.name.function', foreground: customColors.functions });
+                rules.push({ token: 'function', foreground: customColors.functions });
+            }
+            if (customColors.keywords) {
+                rules.push({ token: 'keyword', foreground: customColors.keywords });
+                rules.push({ token: 'keyword.control', foreground: customColors.keywords });
+            }
+            if (customColors.variables) {
+                rules.push({ token: 'variable', foreground: customColors.variables });
+                rules.push({ token: 'identifier', foreground: customColors.variables });
+            }
+            if (customColors.strings) {
+                rules.push({ token: 'string', foreground: customColors.strings });
+            }
+            if (customColors.comments) {
+                rules.push({ token: 'comment', foreground: customColors.comments });
+            }
+
+            monaco.editor.defineTheme('vscode-custom', {
+                base: globalTheme.value === 'dark' ? 'vs-dark' : 'vs',
+                inherit: true,
+                rules: rules,
+                colors: {}
+            });
+            monaco.editor.setTheme('vscode-custom');
+        }
+    } catch (e) {
+        // Silently fail if file doesn't exist
+    }
 };
 
 const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
@@ -256,6 +340,49 @@ const handleExplorerCompare = async (mode: 'branch' | 'local' | 'commit', node: 
   }
 };
 
+const handleExplorerSelect = (node: any, e: MouseEvent) => {
+  if (e.shiftKey && lastSelectedPath.value) {
+    // Range selection
+    const allNodes: any[] = [];
+    const flatten = (n: any) => {
+      if (hiddenExplorerPaths.value.includes(n.path)) return;
+      allNodes.push(n);
+      if (n.is_dir && expandedPaths.value.has(n.path) && n.children) {
+        n.children.forEach(flatten);
+      }
+    };
+    if (projectRoot.value) flatten(projectRoot.value);
+
+    const idx1 = allNodes.findIndex(n => n.path === lastSelectedPath.value);
+    const idx2 = allNodes.findIndex(n => n.path === node.path);
+    if (idx1 !== -1 && idx2 !== -1) {
+      const start = Math.min(idx1, idx2);
+      const end = Math.max(idx1, idx2);
+      for (let i = start; i <= end; i++) {
+        selectedExplorerPaths.value.add(allNodes[i].path);
+      }
+    }
+  } else if (e.ctrlKey || e.metaKey) {
+    // Multi-select toggle
+    if (selectedExplorerPaths.value.has(node.path)) {
+      selectedExplorerPaths.value.delete(node.path);
+    } else {
+      selectedExplorerPaths.value.add(node.path);
+    }
+    lastSelectedPath.value = node.path;
+  } else {
+    // Single select
+    selectedExplorerPaths.value.clear();
+    selectedExplorerPaths.value.add(node.path);
+    lastSelectedPath.value = node.path;
+  }
+};
+
+// Auto-save hidden paths to system settings
+watch(hiddenExplorerPaths, () => {
+    saveSettings();
+}, { deep: true });
+
 // Layout refresh for Monaco when UI layout changes
 watch([showExplorer, showSplit, sidebarWidth], () => {
   nextTick(() => {
@@ -264,8 +391,14 @@ watch([showExplorer, showSplit, sidebarWidth], () => {
   });
 });
 
+watch(projectRootPath, () => { loadVSCodeTheme(); });
+watch(globalTheme, (nt) => { loadVSCodeTheme(); monaco.editor.setTheme(nt === 'dark' ? 'vs-dark' : 'vs'); });
 
-onMounted(() => { window.addEventListener('keydown', handleKeyDown); });
+onMounted(() => { 
+    window.addEventListener('keydown', handleKeyDown); 
+    loadVSCodeTheme();
+});
+
 onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 </script>
 
@@ -297,17 +430,36 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 
         <template v-if="projectRoot && (expandedPaths.has(projectRoot.path) || searchQuery)">
           <ExplorerNode
-            v-for="child in projectRoot.children"
+            v-for="child in visibleChildren"
             :key="child.path"
             :node="child"
             :expanded-paths="expandedPaths"
             :depth="1"
             :search-query="searchQuery"
-            :active-path="activeFilePath"
+            :active-path="activeTabLeft?.path || activeTabRight?.path"
             @open="(node) => node.is_dir ? toggleFolder(node) : openFileByPath(node.path)"
             @toggle="toggleFolder"
+            @select="handleExplorerSelect"
           />
+
         </template>
+
+        <!-- HIDDEN GROUP -->
+        <div v-if="projectRoot && hiddenNodes.length > 0" class="hidden-group">
+          <div class="hidden-header" @click="isHiddenGroupExpanded = !isHiddenGroupExpanded">
+            <span class="explorer-folder-arrow" v-html="isHiddenGroupExpanded ? Icons.ChevronDown : Icons.ChevronRight"></span>
+            <span class="hidden-label">HIDDEN ({{ hiddenNodes.length }})</span>
+          </div>
+          <div v-if="isHiddenGroupExpanded" class="hidden-content">
+            <div v-for="node in hiddenNodes" :key="node.path" class="hidden-item">
+              <span class="node-icon" :class="node.is_dir ? 'icon-folder' : 'icon-file'" v-html="node.is_dir ? Icons.Folder : Icons.File"></span>
+              <span class="hidden-name" @click="node.is_dir ? toggleFolder(node) : openFileByPath(node.path)">{{ node.name }}</span>
+              <button class="unhide-btn" title="Unhide" @click.stop="handleUnhide(node.path)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
         
         <div v-if="!projectRoot" class="explorer-empty">
           <p>No project folder open</p>
@@ -459,6 +611,21 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 .explorer-icon-btn:hover { opacity: 1; background: rgba(128,128,128,0.1); }
 .danger-hover:hover { color: #f43f5e; }
 .explorer-body { flex: 1; overflow-y: auto; padding-top: 10px; }
+
+/* HIDDEN GROUP STYLES */
+.hidden-group { border-top: 1px solid rgba(128,128,128,0.05); margin-top: 10px; }
+.hidden-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; opacity: 0.35; transition: 0.2s; font-size: 0.65rem; font-weight: 950; }
+.hidden-header:hover { opacity: 0.8; background: rgba(255,255,255,0.03); }
+.hidden-label { letter-spacing: 0.08em; }
+.hidden-content { display: flex; flex-direction: column; padding-bottom: 20px; }
+.hidden-item { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 15px 0 34px; font-size: 0.75rem; opacity: 0.5; transition: 0.2s; cursor: pointer; }
+.hidden-item:hover { opacity: 1; background: rgba(255,255,255,0.05); }
+.hidden-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unhide-btn { background: transparent; border: none; padding: 4px; color: var(--accent-color); cursor: pointer; opacity: 0; transition: 0.2s; display: flex; }
+.hidden-item:hover .unhide-btn { opacity: 1; }
+.icon-folder { color: #fbbf24; }
+.icon-file { color: #60a5fa; }
+
 .explorer-root-label { display: flex; align-items: center; gap: 6px; padding: 4px 12px; cursor: pointer; font-size: 0.72rem; font-weight: 800; transition: background 0.2s; }
 .explorer-root-label:hover { background: rgba(128,128,128,0.05); }
 .explorer-folder-arrow { display: flex; align-items: center; width: 12px; opacity: 0.4; }

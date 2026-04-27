@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Icons } from '../utils/icons';
-import { activeContextMenu } from '../store';
+import { activeContextMenu, selectedExplorerPaths } from '../store';
+
 
 interface FileNode {
   name: string;
@@ -22,15 +23,23 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'open', node: FileNode): void;
   (e: 'toggle', node: FileNode): void;
+  (e: 'select', node: FileNode, event: MouseEvent): void;
 }>();
+
 
 const isExpanded = () => props.expandedPaths.has(props.node.path);
 const isActive = computed(() => !props.node.is_dir && props.activePath === props.node.path);
+const isSelected = computed(() => selectedExplorerPaths.value.has(props.node.path));
 
-const handleClick = () => {
+
+const handleClick = (e: MouseEvent) => {
+  emit('select', props.node, e);
+  if (e.ctrlKey || e.metaKey || e.shiftKey) return; // Don't open if multi-selecting
+  
   if (props.node.is_dir) emit('toggle', props.node);
   else emit('open', props.node);
 };
+
 
 const handleRightClick = (e: MouseEvent) => {
   e.preventDefault();
@@ -71,11 +80,13 @@ const getIcon = () => {
         'is-dir': node.is_dir, 
         'is-file': !node.is_dir,
         'has-query': searchQuery && node.name.toLowerCase().includes(searchQuery.toLowerCase()),
-        'is-active': isActive
+        'is-active': isActive,
+        'is-selected': isSelected
       }"
       :style="{ paddingLeft: (depth * 14 + 10) + 'px' }"
-      @click="handleClick"
+      @click="handleClick($event)"
       @contextmenu="handleRightClick"
+
       :title="node.path"
     >
       <span v-if="node.is_dir" class="folder-arrow" v-html="isExpanded() ? Icons.ChevronDown : Icons.ChevronRight" :title="isExpanded() ? 'Collapse' : 'Expand'"></span>
@@ -95,7 +106,9 @@ const getIcon = () => {
         :active-path="activePath"
         @open="emit('open', $event)"
         @toggle="emit('toggle', $event)"
+        @select="(n, ev) => emit('select', n, ev)"
       />
+
     </div>
   </div>
 </template>
@@ -128,6 +141,12 @@ const getIcon = () => {
 }
 
 .explorer-item.is-active .icon-file { color: var(--accent-color); opacity: 1; }
+
+.explorer-item.is-selected {
+  background: rgba(var(--accent-rgb, 99, 102, 241), 0.25);
+  box-shadow: inset 2px 0 0 var(--accent-color);
+}
+
 
 .explorer-item.has-query {
   color: var(--accent-color);

@@ -3,17 +3,19 @@ import { ref, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import * as XLSX from 'xlsx';
-import { 
-  globalShortcuts, 
-  editorSettings, 
-  theme, 
-  aiSettings, 
-  chillSettings, 
+import {
+  globalShortcuts,
+  editorSettings,
+  theme,
+  aiSettings,
+  chillSettings,
   loadingTheme,
   triggerSettingsRefresh,
   globalDictionaryPath,
-  advancedTranslatePaths
+  advancedTranslatePaths,
+  hiddenExplorerPaths
 } from '../store';
+
 
 export interface Settings {
   theme: string;
@@ -32,7 +34,9 @@ export interface Settings {
     doubleClickNewTab: boolean;
     mouseNavHistory: boolean;
   };
+  hidden_explorer_paths: string[];
   last_project_root: string;
+
   last_git_repo: string;
   chill: {
     shortcutSmoke: string;
@@ -70,7 +74,9 @@ export const settings = ref<Settings>({
     doubleClickNewTab: true,
     mouseNavHistory: true
   },
+  hidden_explorer_paths: [],
   last_project_root: '',
+
   last_git_repo: '',
   chill: {
     shortcutSmoke: 'ctrl+space',
@@ -122,7 +128,9 @@ export function useSettings() {
         chillSettings.value = settings.value.chill;
         globalDictionaryPath.value = settings.value.dictionary_path || '';
         advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
+        hiddenExplorerPaths.value = settings.value.hidden_explorer_paths || [];
       }
+
     } catch (e) {
       console.error('[useSettings] Failed to get settings:', e);
     }
@@ -138,7 +146,9 @@ export function useSettings() {
       aiSettings.value = settings.value.ai as any;
       chillSettings.value = settings.value.chill;
       advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
+      settings.value.hidden_explorer_paths = [...hiddenExplorerPaths.value];
       triggerSettingsRefresh.value++;
+
     } catch (e) {
       console.error('[useSettings] Failed to save settings:', e);
     }
@@ -217,13 +227,13 @@ export function useSettings() {
         const ws = XLSX.utils.aoa_to_sheet(data);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Dictionary');
-        
+
         const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
         const uint8 = new Uint8Array(wbout);
-        
-        await invoke('write_file_binary', { 
-          path: chosenPath, 
-          data: Array.from(uint8) 
+
+        await invoke('write_file_binary', {
+          path: chosenPath,
+          data: Array.from(uint8)
         });
       }
     } catch (e) {
@@ -248,7 +258,7 @@ export function useSettings() {
     if (!isRecording.value) return;
     e.preventDefault();
     e.stopPropagation();
-    
+
     const k = e.key.toLowerCase();
     if (k === 'escape') {
       isRecording.value = null;
@@ -257,10 +267,10 @@ export function useSettings() {
 
     const modifiers = ['control', 'shift', 'alt', 'meta'];
     if (modifiers.includes(k)) return;
-    
+
     const forbidden = ['capslock', 'tab', 'enter', 'backspace'];
     if (forbidden.includes(k)) return;
-    
+
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
       if (!isRecording.value.includes('tab')) return;
     }
@@ -270,10 +280,10 @@ export function useSettings() {
     if (e.shiftKey) parts.push('shift');
     if (e.altKey) parts.push('alt');
     if (e.metaKey) parts.push('meta');
-    
+
     parts.push(k);
     const newShortcut = parts.join('+');
-    
+
     if (settings.value.shortcuts) {
       (settings.value.shortcuts as any)[isRecording.value] = newShortcut;
       saveSettings();

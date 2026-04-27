@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEditorTabs, type Tab } from '../composables/useEditorTabs';
 import { useExplorer } from '../composables/useExplorer';
 import { useEditorFeatures } from '../composables/useEditorFeatures';
+import { useGit } from '../composables/useGit';
 import { Icons } from '../utils/icons';
 
 // Sub-components
@@ -30,6 +31,7 @@ import {
   cursorHistoryIndex, 
   editorSettings 
 } from '../store';
+const { searchRepoFiles } = useGit();
 
 // --- Initialization ----------------------------------------------------------
 const {
@@ -75,6 +77,26 @@ const activeSidebar = ref<'explorer'>('explorer');
 
 const editors = { left: null as any, right: null as any };
 let isNavigatingCursorHistory = false;
+
+// --- Palette state ---
+const showFilePalette = ref(false);
+const paletteQuery = ref('');
+const paletteResults = ref<string[]>([]);
+const paletteSelectedIndex = ref(0);
+const paletteInput = ref<HTMLInputElement | null>(null);
+
+watch(showFilePalette, (val) => {
+    if (val) {
+        nextTick(() => {
+            paletteInput.value?.focus();
+        });
+    }
+});
+
+watch(paletteQuery, async (val) => {
+    paletteResults.value = await searchRepoFiles(val);
+    paletteSelectedIndex.value = 0;
+});
 
 // --- Computed ----------------------------------------------------------------
 const currentBranchName = computed(() => gitBranches.value.find(b => b.isCurrent)?.name || '');
@@ -194,9 +216,28 @@ const handleKeyDown = (e: KeyboardEvent) => {
   if (e.ctrlKey || e.metaKey) {
     if (e.key.toLowerCase() === 'o') { e.preventDefault(); e.shiftKey ? openProject() : openFile(); }
     if (e.key.toLowerCase() === 's') { e.preventDefault(); handleSave(); }
+    if (e.key.toLowerCase() === 'p') { e.preventDefault(); showFilePalette.value = true; paletteQuery.value = ''; }
     if (e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); activeSidebar.value = 'explorer'; showExplorer.value = true; }
   }
 };
+
+const handlePaletteKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        paletteSelectedIndex.value = (paletteSelectedIndex.value + 1) % paletteResults.value.length;
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        paletteSelectedIndex.value = (paletteSelectedIndex.value - 1 + paletteResults.value.length) % paletteResults.value.length;
+    } else if (e.key === 'Enter') {
+        if (paletteResults.value[paletteSelectedIndex.value]) {
+            openFileByPath(projectRootPath.value + '/' + paletteResults.value[paletteSelectedIndex.value]);
+            showFilePalette.value = false;
+        }
+    } else if (e.key === 'Escape') {
+        showFilePalette.value = false;
+    }
+};
+
 
 const showTabContextMenu = (e: MouseEvent, tab: Tab) => {
   if (tab.isDiff) return;
@@ -302,7 +343,44 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
       :on-close="() => showBranchSwitcher = false" 
     />
 
+    <!-- Command Palette -->
+    <Teleport to="body">
+        <transition name="fade">
+            <div v-if="showFilePalette" class="palette-backdrop" @click.self="showFilePalette = false">
+                <div class="palette-container glass-effect">
+                    <div class="palette-input-wrapper">
+                        <span class="palette-icon" v-html="Icons.Search"></span>
+                        <input 
+                            ref="paletteInput"
+                            v-model="paletteQuery" 
+                            class="palette-input" 
+                            placeholder="Search files..." 
+                            autofocus
+                            @keydown="handlePaletteKeyDown"
+                        />
+                    </div>
+                    <div v-if="paletteResults.length > 0" class="palette-results">
+                        <div 
+                            v-for="(res, idx) in paletteResults" 
+                            :key="res" 
+                            class="palette-item"
+                            :class="{ active: idx === paletteSelectedIndex }"
+                            @click="openFileByPath(projectRootPath + '/' + res); showFilePalette = false"
+                        >
+                            <span class="file-icon" v-html="Icons.File"></span>
+                            <div class="file-info">
+                                <div class="file-name">{{ res.split('/').pop() }}</div>
+                                <div class="file-path">{{ res }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </Teleport>
+
     <div class="editor-main-area">
+
       <div class="editor-tabs-bar" @dblclick="addTab()">
         <div class="tabs-scroll-area">
           <div v-for="tab in tabs" :key="tab.id" class="editor-tab" :class="{ active: tab.id === currentActiveId, 'is-diff': tab.isDiff }" 
@@ -392,17 +470,17 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 .footer-icon { color: var(--accent-color); }
 .footer-branch { font-size: 0.65rem; font-weight: 800; opacity: 0.8; }
 .editor-main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.editor-tabs-bar { height: 35px; background: rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; padding-right: 10px; border-bottom: var(--border-style); }
-.tabs-scroll-area { flex: 1; display: flex; overflow-x: auto; scrollbar-width: none; height: 100%; }
+.editor-tabs-bar { min-height: 35px; height: auto; background: rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: flex-start; padding-right: 10px; border-bottom: var(--border-style); }
+.tabs-scroll-area { flex: 1; display: flex; flex-wrap: wrap; overflow-x: visible; height: auto; }
 .tabs-scroll-area::-webkit-scrollbar { display: none; }
-.editor-tab { display: flex; align-items: center; gap: 10px; padding: 0 15px; min-width: 100px; max-width: 200px; border-right: var(--border-style); background: rgba(0,0,0,0.05); cursor: pointer; transition: 0.2s; position: relative; }
-.editor-tab.active { background: var(--container-bg); border-top: 2px solid var(--accent-color); }
-.tab-name { font-size: 0.72rem; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.7; }
+.editor-tab { display: flex; align-items: center; gap: 10px; padding: 0 15px; height: 35px; border-right: var(--border-style); border-bottom: var(--border-style); background: rgba(0,0,0,0.05); cursor: pointer; transition: 0.2s; position: relative; flex-shrink: 0; }
+.editor-tab.active { background: var(--container-bg); border-top: 2px solid var(--accent-color); height: 34px; }
+.tab-name { font-size: 0.72rem; font-weight: 650; white-space: nowrap; opacity: 0.7; }
 .active .tab-name { opacity: 1; }
 .tab-close { font-size: 1.1rem; opacity: 0; transition: 0.2s; }
 .editor-tab:hover .tab-close { opacity: 0.5; }
 .tab-close:hover { opacity: 1; color: #f43f5e; }
-.tab-bar-actions { display: flex; gap: 8px; margin-left: 10px; }
+.tab-bar-actions { display: flex; gap: 8px; margin-left: 10px; padding-top: 5px; }
 .action-btn { background: transparent; border: none; color: var(--text-color); opacity: 0.4; padding: 4px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; }
 .action-btn:hover { opacity: 1; }
 .action-btn.active { color: var(--accent-color); opacity: 1; }
@@ -414,4 +492,17 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 .tab-select { background: transparent; border: none; color: var(--text-color); font-size: 0.65rem; font-weight: 800; outline: none; }
 .monaco-instance { width: 100%; height: 100%; }
 .diff-editor-pane { flex: 1; width: 100%; height: 100%; }
+
+/* Command Palette */
+.palette-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; padding-top: 10vh; z-index: 10000; }
+.palette-container { width: 600px; max-width: 90%; background: #1a1b1e; border: 1px solid var(--accent-color); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; height: fit-content; max-height: 400px; }
+.palette-input-wrapper { padding: 15px; border-bottom: 1px solid rgba(128,128,128,0.1); display: flex; align-items: center; gap: 12px; }
+.palette-input { flex: 1; background: transparent; border: none; color: var(--text-color); font-size: 0.9rem; outline: none; }
+.palette-results { overflow-y: auto; }
+.palette-item { padding: 10px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.05); transition: 0.2s; }
+.palette-item:hover, .palette-item.active { background: rgba(99, 102, 241, 0.15); }
+.file-info { display: flex; flex-direction: column; gap: 2px; }
+.file-name { font-size: 0.85rem; font-weight: 700; color: var(--text-color); }
+.file-path { font-size: 0.65rem; opacity: 0.4; }
+.palette-icon { opacity: 0.5; display: flex; }
 </style>

@@ -1,7 +1,7 @@
-import { ref, shallowRef } from 'vue';
+import { ref, shallowRef, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { gitStatus, type GitFile, type GitBranch } from '../store';
+import { gitStatus, type GitFile, type GitBranch, gitTabRepoPath, gitBranches } from '../store';
 
 export interface GitCommit {
   hash: string;
@@ -12,7 +12,6 @@ export interface GitCommit {
 }
 
 export function useGit() {
-  const repoPath = ref('');
   const branches = shallowRef<GitBranch[]>([]);
   const currentBranch = ref('');
 
@@ -25,20 +24,16 @@ export function useGit() {
   const isLoading = ref(false);
 
   const init = async () => {
-    try {
-      const raw = await invoke('get_settings') as string;
-      const s = JSON.parse(raw || "{}");
-      if (s.project_root) {
-        repoPath.value = s.project_root.replace(/\\/g, '/');
-        await refresh();
-      }
-    } catch (e) {
-      console.error('Git init failed:', e);
+    if (gitTabRepoPath.value) {
+      await refresh();
     }
   };
 
+
+
+
   const refresh = async () => {
-    if (!repoPath.value || isSyncing.value) return;
+    if (!gitTabRepoPath.value || isSyncing.value) return;
     isSyncing.value = true;
     try {
       await Promise.all([loadStatus(), loadBranches(), loadHistory()]);
@@ -53,7 +48,7 @@ export function useGit() {
     try {
       const raw = await invoke('git_execute', {
         args: ['status', '--porcelain'],
-        cwd: repoPath.value
+        cwd: gitTabRepoPath.value
       }) as string;
 
       const lines = raw.split('\n').filter(l => l.trim());
@@ -64,7 +59,7 @@ export function useGit() {
         const s1 = line[0];
         const s2 = line[1];
         const name = line.substring(3).trim().replace(/^"(.*)"$/, '$1');
-        const fullPath = `${repoPath.value}/${name}`;
+        const fullPath = `${gitTabRepoPath.value}/${name}`;
 
         if (s1 !== ' ' && s1 !== '?') {
           staged.push({ path: fullPath, name, status: s1 as GitFile['status'], staged: true });
@@ -86,7 +81,7 @@ export function useGit() {
     try {
       const raw = await invoke('git_execute', {
         args: ['branch', '-a'],
-        cwd: repoPath.value
+        cwd: gitTabRepoPath.value
       }) as string;
 
       const lines = raw.split('\n').filter(l => l.trim());
@@ -97,6 +92,7 @@ export function useGit() {
         return { name, isCurrent, isRemote: name.includes('remotes/') };
       });
       branches.value = branchList;
+      gitBranches.value = branchList as any;
     } catch (e) {
       console.error('Failed to load branches:', e);
     }
@@ -107,7 +103,7 @@ export function useGit() {
     try {
       const raw = await invoke('git_execute', {
         args: ['log', '--pretty=format:%H|%h|%s|%an|%ar', '-n', '100'],
-        cwd: repoPath.value
+        cwd: gitTabRepoPath.value
       }) as string;
 
       const lines = raw.split('\n').filter(l => l.trim());
@@ -128,7 +124,7 @@ export function useGit() {
       isSyncing.value = true;
       await invoke('git_execute', {
         args: ['checkout', branch.replace('remotes/origin/', '')],
-        cwd: repoPath.value
+        cwd: gitTabRepoPath.value
       });
       await refresh();
     } catch (e) {
@@ -141,7 +137,7 @@ export function useGit() {
   const stage = async (file?: GitFile) => {
     try {
       const args = file ? ['add', file.name] : ['add', '-A'];
-      await invoke('git_execute', { args, cwd: repoPath.value });
+      await invoke('git_execute', { args, cwd: gitTabRepoPath.value });
       await loadStatus();
     } catch (e) {
       throw new Error('Stage failed: ' + e);
@@ -151,7 +147,7 @@ export function useGit() {
   const unstage = async (file?: GitFile) => {
     try {
       const args = file ? ['reset', 'HEAD', '--', file.name] : ['reset', 'HEAD'];
-      await invoke('git_execute', { args, cwd: repoPath.value });
+      await invoke('git_execute', { args, cwd: gitTabRepoPath.value });
       await loadStatus();
     } catch (e) {
       throw new Error('Unstage failed: ' + e);
@@ -164,7 +160,7 @@ export function useGit() {
       isLoading.value = true;
       await invoke('git_execute', {
         args: ['commit', '-m', commitMsg.value.trim()],
-        cwd: repoPath.value
+        cwd: gitTabRepoPath.value
       });
       commitMsg.value = '';
       await refresh();
@@ -179,7 +175,7 @@ export function useGit() {
     isSyncing.value = true;
     try {
       const args = op === 'pop' ? ['stash', 'pop'] : [op];
-      await invoke('git_execute', { args, cwd: repoPath.value });
+      await invoke('git_execute', { args, cwd: gitTabRepoPath.value });
       await refresh();
     } catch (e) {
       throw new Error(`Git ${op} failed: ` + e);
@@ -192,19 +188,23 @@ export function useGit() {
     const args = file.staged
       ? ['diff', '--cached', '--', file.name]
       : ['diff', 'HEAD', '--', file.name];
-    return await invoke('git_execute', { args, cwd: repoPath.value }) as string;
+    return await invoke('git_execute', { args, cwd: gitTabRepoPath.value }) as string;
   };
 
   const getCommitDiff = async (hash: string) => {
-    return await invoke('git_execute', {
-      args: ['show', hash, '--stat', '-p'],
-      cwd: repoPath.value
+    // Use --stat only to prevent loading massive diffs that cause OOM.
+    // Full patch output can be millions of characters for large commits.
+    const statOutput = await invoke('git_execute', {
+      args: ['show', hash, '--stat', '--format=commit %H%nAuthor: %an%nDate: %ad%n%n%s%n%n%b'],
+      cwd: gitTabRepoPath.value
     }) as string;
+    return statOutput;
   };
+
 
   const getFileOriginalAndModified = async (file: GitFile, target?: string): Promise<{ original: string, modified: string }> => {
     try {
-      const repo = repoPath.value;
+      const repo = gitTabRepoPath.value;
       if (!repo || !file.name) return { original: '', modified: '' };
 
       // Normalize file.name to always use forward slashes for git operations
@@ -248,7 +248,7 @@ export function useGit() {
     try {
       await invoke('git_execute', {
         args: ['checkout', '-b', name.trim()],
-        cwd: repoPath.value
+        cwd: gitTabRepoPath.value
       });
       await refresh();
     } catch (e) {
@@ -258,7 +258,7 @@ export function useGit() {
 
   const mergeBranch = async (branch: string) => {
     try {
-      await invoke('git_execute', { args: ['merge', branch], cwd: repoPath.value });
+      await invoke('git_execute', { args: ['merge', branch], cwd: gitTabRepoPath.value });
       await refresh();
     } catch (e) {
       throw new Error('Merge failed: ' + e);
@@ -266,11 +266,11 @@ export function useGit() {
   };
 
   const searchRepoFiles = async (query: string): Promise<string[]> => {
-    if (!query.trim() || !repoPath.value) return [];
+    if (!query.trim() || !gitTabRepoPath.value) return [];
     try {
       const output = await invoke('git_execute', {
         args: ['ls-files', '--cached', '--others', '--exclude-standard'],
-        cwd: repoPath.value
+        cwd: gitTabRepoPath.value
       }) as string;
       const allFiles = output.split('\n').filter(f => f.trim());
       const q = query.toLowerCase();
@@ -290,7 +290,7 @@ export function useGit() {
         directory: true,
       });
       if (selected) {
-        repoPath.value = (Array.isArray(selected) ? selected[0] : selected).replace(/\\/g, '/');
+        gitTabRepoPath.value = (Array.isArray(selected) ? selected[0] : selected).replace(/\\/g, '/');
         await refresh();
       }
     } catch (e) {
@@ -298,8 +298,17 @@ export function useGit() {
     }
   };
 
+  // Auto-refresh when repo path changes (e.g. from Editor or opening new repo)
+  watch(gitTabRepoPath, (newVal) => {
+    if (newVal) {
+      refresh();
+    }
+  });
+
+
+
   return {
-    repoPath,
+    repoPath: gitTabRepoPath,
     branches,
     currentBranch,
     changedFiles,

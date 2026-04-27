@@ -4,6 +4,8 @@ import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { activeTab, type GitFile, theme as globalTheme } from '../store';
 import { Icons } from '../utils/icons';
 import { useGit } from '../composables/useGit';
+import { useTranslateManager } from '../composables/useTranslateManager';
+
 
 // == Logic ===================================================
 const {
@@ -32,7 +34,10 @@ const {
   searchRepoFiles
 } = useGit();
 
+const { startLoading, stopLoading } = useTranslateManager();
+
 const showBranchDropdown = ref(false);
+
 const rightPanel = ref<'history' | 'diff'>('history');
 const selectedCommit = ref<string | null>(null);
 
@@ -42,6 +47,9 @@ const diffModifiedContent = ref('');
 const isFileDiff = ref(false);
 const diffSource = ref('');
 const diffLines = shallowRef<string[]>([]);
+const isTruncated = ref(false);
+const MAX_DIFF_LINES = 2000;
+
 const currentDiffFile = ref<GitFile | null>(null);
 const diffCompareTarget = ref('LOCAL');
 const searchFileQuery = ref('');
@@ -81,18 +89,31 @@ const filteredStagedFiles = computed(() => {
 
 const reloadFileDiff = async () => {
   if (!currentDiffFile.value) return;
+  startLoading(`Reloading diff: ${currentDiffFile.value.name}...`);
   try {
     const { original, modified } = await getFileOriginalAndModified(currentDiffFile.value, diffCompareTarget.value);
     diffOriginalContent.value = original;
     diffModifiedContent.value = modified;
   } catch (e) {
     console.error('Reload diff failed:', e);
+  } finally {
+    stopLoading();
   }
 };
 
+
+
 watch(diffContent, (val) => {
-  diffLines.value = val ? val.split('\n') : [];
+  if (!val) {
+    diffLines.value = [];
+    isTruncated.value = false;
+    return;
+  }
+  const allLines = val.split('\n');
+  isTruncated.value = allLines.length > MAX_DIFF_LINES;
+  diffLines.value = allLines.slice(0, MAX_DIFF_LINES);
 });
+
 
 
 const handleCheckout = async (branch: string) => {
@@ -113,32 +134,43 @@ const handleGitOp = async (op: 'pull' | 'push' | 'fetch' | 'stash' | 'pop') => {
 };
 
 const showFileDiff = async (file: GitFile) => {
-  rightPanel.value = 'diff';
-  isFileDiff.value = true;
-  diffSource.value = `${file.name} (${file.staged ? 'staged' : 'local'})`;
-  selectedCommit.value = null;
-  currentDiffFile.value = file;
-  diffCompareTarget.value = 'LOCAL';
+  startLoading(`Loading diff: ${file.name}...`);
   try {
+    rightPanel.value = 'diff';
+    isFileDiff.value = true;
+    diffSource.value = `${file.name} (${file.staged ? 'staged' : 'local'})`;
+    selectedCommit.value = null;
+    currentDiffFile.value = file;
+    diffCompareTarget.value = 'LOCAL';
+    
     const { original, modified } = await getFileOriginalAndModified(file, diffCompareTarget.value);
     diffOriginalContent.value = original;
     diffModifiedContent.value = modified;
   } catch (e) {
     console.error('Diff failed:', e);
+  } finally {
+    stopLoading();
   }
 };
 
+
 const showCommitDiff = async (hash: string) => {
-  selectedCommit.value = hash;
-  rightPanel.value = 'diff';
-  isFileDiff.value = false;
+  if (selectedCommit.value === hash) return;
+  startLoading(`Fetching commit diff [${hash.substring(0, 7)}]...`);
   try {
+    selectedCommit.value = hash;
+    rightPanel.value = 'diff';
+    isFileDiff.value = false;
     diffContent.value = await getCommitDiff(hash);
     diffSource.value = hash.substring(0, 7);
   } catch (e) {
     console.error('Show commit failed:', e);
+  } finally {
+    stopLoading();
   }
 };
+
+
 
 const newBranchName = ref('');
 const handleCreateBranch = async () => {
@@ -165,8 +197,9 @@ onMounted(() => {
 });
 
 watch(activeTab, (tab) => {
-  if (tab === 'Git') refresh();
+  if (tab === 'Git' && !isSyncing.value) refresh();
 });
+
 </script>
 
 <template>
@@ -357,6 +390,9 @@ watch(activeTab, (tab) => {
             <template v-else>
               <div v-if="!diffContent && !isLoading" class="empty-state">Select a file or commit to see diff.</div>
               <div class="diff-container" v-else>
+                <div v-if="isTruncated" class="diff-truncated-warning">
+                  ⚠️ Showing first {{ MAX_DIFF_LINES }} lines. Use a Git client to view the full diff.
+                </div>
                 <div v-for="(line, i) in diffLines" :key="i" 
                      class="diff-line" 
                      :class="{ 
@@ -369,6 +405,7 @@ watch(activeTab, (tab) => {
                   <span class="line-text">{{ line }}</span>
                 </div>
               </div>
+
             </template>
           </div>
         </div>
@@ -509,7 +546,14 @@ watch(activeTab, (tab) => {
 .diff-header { color: #60a5fa; font-weight: bold; }
 .diff-chunk { color: #818cf8; opacity: 0.8; }
 
+.diff-truncated-warning {
+  padding: 10px 14px; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 8px; color: #fbbf24; font-size: 0.75rem; font-weight: 800;
+  margin-bottom: 12px; letter-spacing: 0.03em;
+}
+
 .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; opacity: 0.3; font-style: italic; font-size: 0.8rem; height: 100%; }
+
 
 .glass-effect { backdrop-filter: blur(20px); background: rgba(20, 21, 26, 0.9); }
 </style>

@@ -1,9 +1,9 @@
 import { ref, shallowRef, watch, nextTick } from 'vue';
 import * as XLSX from 'xlsx';
 import { invoke } from '@tauri-apps/api/core';
-import { 
-  translateInput, 
-  translateOutput, 
+import {
+  translateInput,
+  translateOutput,
   sharedTargetLang
 } from '../store';
 import { buildTranslationRegex, translateText } from '../utils/translation-engine';
@@ -31,7 +31,7 @@ const advancedConfigs = ref<Record<string, AdvancedConfig>>({});
 
 const selectedFolder = ref<string>('');
 const excelFilesInFolder = shallowRef<string[]>([]);
-const selectedFiles = ref<Set<string>>(new Set()); 
+const selectedFiles = ref<Set<string>>(new Set());
 const fileSheetsData = shallowRef<Map<string, string[]>>(new Map());
 const selectedSheets = ref<Set<string>>(new Set());
 
@@ -57,15 +57,24 @@ export function useTranslateManager() {
     loadingCount++;
     globalLoading.value.message = msg;
     globalLoading.value.progress = 0;
-    
+
     if (loadingCount === 1) {
-      if (loadingTimer) clearTimeout(loadingTimer);
-      globalLoading.value.active = false;
       loadingTimer = setTimeout(() => {
         globalLoading.value.active = true;
       }, 100);
+
+      // Safety timeout: auto-stop loading after 20s if something hangs
+      setTimeout(() => {
+        if (globalLoading.value.active) {
+          console.warn('[TranslateManager] Safety timeout reached, force stopping loading.');
+          // Force reset counter to ensure it stops
+          loadingCount = 0;
+          stopLoading();
+        }
+      }, 20000);
     }
   };
+
 
   const stopLoading = () => {
     loadingCount = Math.max(0, loadingCount - 1);
@@ -113,10 +122,10 @@ export function useTranslateManager() {
       }
       const cleanPath = path.trim();
       if (!cleanPath) return null;
-      
+
       isLoading.value = true;
       console.log(`[TranslateManager] Loading dictionary: ${cleanPath}`);
-      
+
       startLoading('Parsing dictionary entries...');
       // Give UI a chance to show the modal before the main thread gets busy reading binary
       await nextTick();
@@ -130,7 +139,7 @@ export function useTranslateManager() {
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-      
+
       if (jsonData.length > 0) {
         const rawRows = jsonData.slice(1)
           .map(row => ({
@@ -139,12 +148,12 @@ export function useTranslateManager() {
             vi: (row[2] || '').toString().trim()
           }))
           .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
-        
+
         // Deduplicate based on JP and EN columns (2 first columns)
         const totalRows = rawRows.length;
         const finalRows: any[] = [];
         const uniqueMap = new Map();
-        
+
         for (const [idx, row] of rawRows.entries()) {
           const key = `${row.jp}|${row.en}`;
           if (!uniqueMap.has(key)) {
@@ -157,13 +166,13 @@ export function useTranslateManager() {
           }
         }
         const removedCount = rawRows.length - finalRows.length;
-        
+
         console.log(`[TranslateManager] Loaded ${rawRows.length} total, filtered ${removedCount} duplicates. Final: ${finalRows.length} entries.`);
-        
+
         dictionaryData.value = finalRows;
         rebuildBaseDictionaryCache();
         updateCachedWords();
-        
+
         return { total: rawRows.length, removed: removedCount, final: finalRows.length };
       } else {
         console.warn('[TranslateManager] Dictionary file is empty');
@@ -183,22 +192,22 @@ export function useTranslateManager() {
     try {
       if (!path) return;
       console.log(`[TranslateManager] Saving dictionary to: ${path}`);
-      
+
       const data = [
         ['Japanese (JP)', 'English (EN)', 'Vietnamese (VI)'],
         ...entries.map(e => [e.jp, e.en, e.vi])
       ];
-      
+
       const ws = XLSX.utils.aoa_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Dictionary');
-      
+
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const uint8 = new Uint8Array(wbout);
-      
-      await invoke('write_file_binary', { 
-        path, 
-        data: Array.from(uint8) 
+
+      await invoke('write_file_binary', {
+        path,
+        data: Array.from(uint8)
       });
       console.log('[TranslateManager] Dictionary saved successfully');
     } catch (error) {
@@ -214,10 +223,10 @@ export function useTranslateManager() {
       fileSheetsData.value = new Map();
       return;
     }
-    
+
     console.log(`[TranslateManager] Syncing files from ${folders.length} folders:`, folders);
     startLoading('Scanning Excel folders...');
-    
+
     // Give UI a chance to show the modal
     await nextTick();
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -234,12 +243,12 @@ export function useTranslateManager() {
           console.warn(`[TranslateManager] Skip folder ${folder}:`, dirErr);
         }
       }
-      
+
       // Remove duplicates
       const uniqueFiles = [...new Set(allFiles)];
       excelFilesInFolder.value = uniqueFiles;
       console.log(`[TranslateManager] Total unique files found: ${uniqueFiles.length}`);
-      
+
       const totalItems = excelFilesInFolder.value.length;
       let processed = 0;
       const newSheetCounts: Record<string, number> = {};
@@ -256,7 +265,7 @@ export function useTranslateManager() {
 
           const b64 = await readBinary(f);
           const workbook = XLSX.read(b64, { type: 'array' });
-          
+
           newSheetCounts[f] = workbook.SheetNames.length;
           newFileSheets.set(f, workbook.SheetNames);
 
@@ -266,7 +275,7 @@ export function useTranslateManager() {
             newMetadata[key] = meta;
             newRowCounts[key] = meta.rowCount;
           });
-          
+
           globalLoading.value.progress = Math.round((processed / totalItems) * 100);
           // Yield to UI thread
           await new Promise(resolve => setTimeout(resolve, 0));
@@ -294,20 +303,20 @@ export function useTranslateManager() {
       try {
         const b64 = await readBinary(filePath);
         const workbook = XLSX.read(b64, { type: 'array' });
-        
+
         const newFileSheets = new Map(fileSheetsData.value);
         newFileSheets.set(filePath, workbook.SheetNames);
         fileSheetsData.value = newFileSheets;
 
         const newMetadata = { ...sheetMetadata.value };
         const newRowCounts = { ...sheetRowCounts.value };
-        
+
         workbook.SheetNames.forEach(name => {
           const metadata = extractSheetMetadata(workbook.Sheets[name]);
           newMetadata[`${filePath}::${name}`] = metadata;
           newRowCounts[`${filePath}::${name}`] = metadata.rowCount;
         });
-        
+
         sheetMetadata.value = newMetadata;
         sheetRowCounts.value = newRowCounts;
       } catch (e) {
@@ -365,7 +374,7 @@ export function useTranslateManager() {
 
     dictionaryData.value.forEach(d => {
       const tVal = (d[targetKey] || '').toString().trim();
-      
+
       // We want to map EVERYTHING ELSE to tVal
       ['jp', 'en', 'vi'].forEach(l => {
         const sVal = (d[l as 'jp' | 'en' | 'vi'] || '').toString().trim();
@@ -375,7 +384,7 @@ export function useTranslateManager() {
           sourceSet.add(sVal);
         }
       });
-      
+
       // Also ensure target itself is in targetSet for highlighting
       if (tVal) targetSet.add(tVal);
     });
@@ -395,7 +404,7 @@ export function useTranslateManager() {
       if (!logical || !physical) return;
       let source = '';
       let target = '';
-      
+
       if (sharedTargetLang.value === 'jp') {
         source = physical;
         target = logical;
@@ -446,7 +455,7 @@ export function useTranslateManager() {
     targetWordsList.value = Array.from(targetSet).sort((a, b) => b.length - a.length);
     cachedLookup.value = lookup;
     translationRegex.value = buildTranslationRegex(lookup);
-    
+
     performQuickTranslate();
   };
 
@@ -459,17 +468,17 @@ export function useTranslateManager() {
     globalLoading.value.active = true;
     globalLoading.value.message = 'Simulating Data Processing...';
     globalLoading.value.progress = 0;
-    
+
     const steps = 100;
     const interval = durationMs / steps;
-    
+
     for (let i = 0; i <= steps; i++) {
-        globalLoading.value.progress = i;
-        await new Promise(resolve => setTimeout(resolve, interval));
+      globalLoading.value.progress = i;
+      await new Promise(resolve => setTimeout(resolve, interval));
     }
-    
+
     setTimeout(() => {
-        globalLoading.value.active = false;
+      globalLoading.value.active = false;
     }, 500);
   };
 
@@ -498,8 +507,11 @@ export function useTranslateManager() {
     cachedLookup,
     sourceWordsList,
     targetWordsList,
+    startLoading,
+    stopLoading,
     loadDictionary,
     loadFilesFromMultipleFolders,
+
     loadFilesFromFolder,
     selectExcelFile,
     toggleExcelFile,

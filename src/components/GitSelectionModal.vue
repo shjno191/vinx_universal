@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { gitBranches, gitTabRepoPath, projectRootPath } from '../store';
+import { Icons } from '../utils/icons';
+
 
 const props = defineProps<{
     mode: 'branch' | 'commit';
@@ -18,6 +20,10 @@ const commits = ref<{ hash: string; shortHash: string; message: string; date: st
 const filteredBranches = computed(() => {
     return gitBranches.value.filter(b => b.name.toLowerCase().includes(filter.value.toLowerCase()));
 });
+
+const localBranches = computed(() => filteredBranches.value.filter(b => !b.isRemote));
+const remoteBranches = computed(() => filteredBranches.value.filter(b => b.isRemote));
+
 
 const filteredCommits = computed(() => {
     return commits.value.filter(c => 
@@ -74,17 +80,29 @@ onMounted(() => {
                 
                 <div class="list-container">
                     <template v-if="mode === 'branch'">
+                        <div v-if="localBranches.length" class="group-header">LOCAL BRANCHES</div>
                         <div 
-                            v-for="branch in filteredBranches" 
+                            v-for="branch in localBranches" 
                             :key="branch.name" 
                             class="item"
                             @click="onSelect(branch.name)"
                         >
-                            <span class="item-icon">?</span>
+                            <span class="item-icon" v-html="Icons.Branch"></span>
                             <span class="item-text">{{ branch.name }}</span>
-                            <span v-if="branch.isRemote" class="badge">remote</span>
+                        </div>
+
+                        <div v-if="remoteBranches.length" class="group-header">REMOTE ORIGIN</div>
+                        <div 
+                            v-for="branch in remoteBranches" 
+                            :key="branch.name" 
+                            class="item"
+                            @click="onSelect(branch.name)"
+                        >
+                            <span class="item-icon" v-html="Icons.Branch"></span>
+                            <span class="item-text">{{ branch.name }}</span>
                         </div>
                     </template>
+
                     
                     <template v-else>
                         <div 
@@ -167,6 +185,15 @@ onMounted(() => {
     display: flex;
     flex-direction: column;
 }
+
+.group-header {
+    font-size: 0.65rem;
+    font-weight: 800;
+    opacity: 0.4;
+    padding: 12px 12px 4px 12px;
+    letter-spacing: 0.05em;
+}
+
 
 .item {
     padding: 8px 12px;

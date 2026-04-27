@@ -1,4 +1,4 @@
-import { ref, shallowRef } from 'vue';
+import { ref, shallowRef, watch } from 'vue';
 
 export const theme = ref<'light' | 'dark' | '95'>('dark');
 
@@ -165,4 +165,25 @@ export const globalDictionaryPath = ref('');
 export const advancedTranslatePaths = ref<string[]>([]);
 
 export const loadingTheme = ref<'cute' | 'premium' | 'retro' | 'cyber' | 'nature' | 'orbit'>('cute');
+
+// --- Sync Logic -------------------------------------------------------------
+// Ensure Editor and Git tab always use the same repository path
+watch(projectRootPath, (newVal) => {
+    if (newVal) {
+        const normalized = newVal.replace(/\\/g, '/');
+        if (gitTabRepoPath.value !== normalized) {
+            gitTabRepoPath.value = normalized;
+        }
+    }
+});
+
+watch(gitTabRepoPath, (newVal) => {
+    if (newVal) {
+        const normalized = newVal.replace(/\\/g, '/');
+        if (projectRootPath.value !== normalized) {
+            projectRootPath.value = normalized;
+        }
+    }
+});
+
 

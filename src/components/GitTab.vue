@@ -22,10 +22,8 @@ const {
   refresh,
   checkout,
   stage,
-  unstage,
   commit,
   gitOp,
-  getDiff,
   getCommitDiff,
   getFileOriginalAndModified,
   createBranch,
@@ -81,11 +79,6 @@ const filteredChangedFiles = computed(() => {
   return changedFiles.value.filter(f => f.name.toLowerCase().includes(q));
 });
 
-const filteredStagedFiles = computed(() => {
-  const q = searchFileQuery.value.toLowerCase().trim();
-  if (!q) return stagedFiles.value;
-  return stagedFiles.value.filter(f => f.name.toLowerCase().includes(q));
-});
 
 const reloadFileDiff = async () => {
   if (!currentDiffFile.value) return;

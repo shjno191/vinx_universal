@@ -151,7 +151,7 @@ watch(showSettingsTrigger, (val) => {
             <div class="path-chips">
               <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="path-chip">
                 <span class="chip-text">{{ path }}</span>
-                <span class="chip-remove" @click="removeAdvancedPath(idx)" v-html="Icons.X"></span>
+                <span class="chip-remove" @click="removeAdvancedPath(idx)" v-html="Icons.Close"></span>
               </div>
             </div>
             <button class="premium-button-dashed" @click="pickAdvancedPath">Thêm thư mục nguồn</button>
@@ -200,7 +200,7 @@ watch(showSettingsTrigger, (val) => {
         <!-- Git Integration -->
         <div class="setting-card glass">
           <div class="card-header">
-            <span class="card-icon" v-html="Icons.GitBranch"></span>
+            <span class="card-icon" v-html="Icons.Branch"></span>
             <span class="card-label">Git Repository</span>
           </div>
           <div class="card-body">
@@ -211,7 +211,7 @@ watch(showSettingsTrigger, (val) => {
         <!-- Mouse Behavior Feature Cards -->
         <div class="behavior-grid">
            <div class="feature-card glass" :class="{ active: settings.editor.middleClickClose }" @click="settings.editor.middleClickClose = !settings.editor.middleClickClose; saveSettings()">
-              <div class="feature-icon" v-html="Icons.X"></div>
+              <div class="feature-icon" v-html="Icons.Close"></div>
               <div class="feature-info">
                  <span class="feature-name">Middle Click Close</span>
                  <span class="feature-hint">Chuột giữa đóng tab nhanh</span>

@@ -163,7 +163,6 @@ const handleUnhide = (path: string) => {
 
 // --- Computed ----------------------------------------------------------------
 const currentBranchName = computed(() => gitBranches.value.find(b => b.isCurrent)?.name || '');
-const activeFilePath = computed(() => activeTabLeft.value?.path || '');
 
 const editorOptions = computed(() => ({
     tabSize: editorSettings.value.indentSize,

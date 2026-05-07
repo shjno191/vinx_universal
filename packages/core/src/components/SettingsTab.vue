@@ -1,0 +1,528 @@
+<script setup lang="ts">
+import { onMounted, watch } from 'vue';
+import { useSettings, useGlobalLoading, Icons, showSettingsTrigger, theme } from '@vinx/sdk';
+
+const emit = defineEmits(['theme-changed']);
+
+const {
+  currentCategory,
+  settings,
+  categories,
+  isRecording,
+  shortcutInputRef,
+  refreshSettings,
+  saveSettings,
+  openSettingsFile,
+  pickDictionary,
+  pickAdvancedPath,
+  removeAdvancedPath,
+  downloadTemplate,
+  startRecording,
+  formatShortcut,
+  handleShortcutKey
+} = useSettings();
+const { simulateLoading } = useGlobalLoading();
+
+onMounted(() => {
+  refreshSettings();
+});
+
+const handleSaveAndEmit = async () => {
+  await saveSettings();
+  emit('theme-changed', theme.value);
+};
+
+defineExpose({
+  refreshSettings,
+  openSettingsFile,
+  downloadTemplate
+});
+
+watch(showSettingsTrigger, (val) => {
+  if (val && val.category) {
+    currentCategory.value = val.category as any;
+  }
+});
+</script>
+
+<template>
+  <div class="settings-layout">
+    <aside class="settings-sidebar">
+      <button 
+        v-for="cat in categories" 
+        :key="cat.id" 
+        class="category-btn" 
+        :class="{ active: currentCategory === cat.id }" 
+        @click="currentCategory = cat.id as any"
+      >
+        <span class="category-icon-wrapper" v-html="Icons[cat.icon as keyof typeof Icons]"></span>
+        {{ cat.name }}
+      </button>
+    </aside>
+
+    <main v-if="settings && settings.editor" class="settings-content">
+      <!-- GENERAL / APPEARANCE -->
+      <div v-show="currentCategory === 'general'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Giao diện & Hệ thống</h2>
+          <p class="section-desc">Cấu hình chủ đề và các cài đặt chung cho toàn bộ ứng dụng.</p>
+        </div>
+
+        <div class="settings-grid">
+          <div class="setting-card glass">
+            <div class="card-header">
+              <span class="card-icon" v-html="Icons.Settings"></span>
+              <span class="card-label">Chủ đề & Hiển thị</span>
+            </div>
+            
+            <div class="card-body">
+              <div class="premium-field">
+                <label>Ứng dụng (App Theme)</label>
+                <select v-model="settings.theme" class="premium-select" @change="handleSaveAndEmit">
+                  <option value="dark">Tối (Dark Mode)</option>
+                  <option value="light">Sáng (Light Mode)</option>
+                  <option value="95">Cổ điển (Windows 95)</option>
+                </select>
+              </div>
+
+              <div class="premium-field">
+                <label>Màn hình chờ (Loading)</label>
+                <div class="theme-select-group">
+                  <select v-model="settings.loading_theme" class="premium-select" @change="saveSettings">
+                    <option value="cute">Chú mèo dễ thương</option>
+                    <option value="premium">Neon hiện đại</option>
+                    <option value="retro">Cổ điển Win95</option>
+                    <option value="cyber">Cyberpunk</option>
+                  </select>
+                  <button class="test-loading-btn-mini" @click="simulateLoading">
+                    <span v-html="Icons.Play"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-card glass">
+            <div class="card-header">
+              <span class="card-icon" v-html="Icons.Folder"></span>
+              <span class="card-label">Hệ thống tệp</span>
+            </div>
+            <div class="card-body">
+              <div class="premium-field">
+                <label>Dữ liệu cấu hình</label>
+                <button class="premium-button full" @click="openSettingsFile">Mở thư mục cài đặt</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRANSLATE / DICTIONARY -->
+      <div v-show="currentCategory === 'translate'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Dictionary & Translate</h2>
+          <p class="section-desc">Quản lý từ điển Excel và các nguồn dữ liệu dịch thuật.</p>
+        </div>
+
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.Globe"></span>
+            <span class="card-label">Từ điển chính</span>
+          </div>
+          <div class="card-body">
+            <div class="path-picker-modern">
+              <input v-model="settings.dictionary_path" type="text" class="premium-input-path" readonly placeholder="Chưa cấu hình từ điển..." />
+              <button class="premium-button" @click="pickDictionary">Chọn file</button>
+            </div>
+            <button class="link-action" @click="downloadTemplate">
+              <span v-html="Icons.Download"></span> Tải Excel mẫu
+            </button>
+          </div>
+        </div>
+
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.Plus"></span>
+            <span class="card-label">Nguồn quét từ điển (Quick Translate)</span>
+          </div>
+          <div class="card-body">
+            <div class="path-chips">
+              <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="path-chip">
+                <span class="chip-text">{{ path }}</span>
+                <span class="chip-remove" @click="removeAdvancedPath(idx)" v-html="Icons.Close"></span>
+              </div>
+            </div>
+            <button class="premium-button-dashed" @click="pickAdvancedPath">Thêm thư mục nguồn</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- EDITOR & GIT -->
+      <div v-show="currentCategory === 'editor-git'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Editor & Source Control</h2>
+          <p class="section-desc">Tối ưu trải nghiệm soạn thảo và tích hợp quản lý mã nguồn Git.</p>
+        </div>
+
+        <!-- Indentation Level 2.0 -->
+        <div class="setting-card glass no-padding">
+          <div class="card-header-filled">
+             <span class="card-label">INDENTATION CONFIGURATION</span>
+          </div>
+          <div class="indentation-selector">
+            <div class="indent-option" :class="{ active: settings.editor.insertSpaces }" @click="settings.editor.insertSpaces = true; saveSettings()">
+              <div class="option-info">
+                <span class="option-title">Spaces</span>
+                <span class="option-desc">Sử dụng khoảng trắng (Khuyên dùng)</span>
+              </div>
+              <div v-if="settings.editor.insertSpaces" class="active-badge">ACTIVE</div>
+            </div>
+            <div class="indent-option" :class="{ active: !settings.editor.insertSpaces }" @click="settings.editor.insertSpaces = false; saveSettings()">
+              <div class="option-info">
+                <span class="option-title">Tabs</span>
+                <span class="option-desc">Sử dụng ký tự Tab vật lý</span>
+              </div>
+              <div v-if="!settings.editor.insertSpaces" class="active-badge">ACTIVE</div>
+            </div>
+          </div>
+          <div class="indent-footer">
+            <div class="indent-size-group">
+              <span class="size-text">Tab Size:</span>
+              <div class="size-pills">
+                <button v-for="s in [2,4,8]" :key="s" class="size-pill" :class="{ active: settings.editor.indentSize === s }" @click="settings.editor.indentSize = s; saveSettings()">{{ s }}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Git Integration -->
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.Branch"></span>
+            <span class="card-label">Git Repository</span>
+          </div>
+          <div class="card-body">
+            <input v-model="settings.last_git_repo" type="text" class="premium-input" placeholder="Đường dẫn đến thư mục chứa .git" @change="saveSettings" />
+          </div>
+        </div>
+
+        <!-- Mouse Behavior Feature Cards -->
+        <div class="behavior-grid">
+           <div class="feature-card glass" :class="{ active: settings.editor.middleClickClose }" @click="settings.editor.middleClickClose = !settings.editor.middleClickClose; saveSettings()">
+              <div class="feature-icon" v-html="Icons.Close"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Middle Click Close</span>
+                 <span class="feature-hint">Chuột giữa đóng tab nhanh</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+           
+           <div class="feature-card glass" :class="{ active: settings.editor.doubleClickNewTab }" @click="settings.editor.doubleClickNewTab = !settings.editor.doubleClickNewTab; saveSettings()">
+              <div class="feature-icon" v-html="Icons.Plus"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Double Click New</span>
+                 <span class="feature-hint">Click đúp mở tab trống</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+
+           <div class="feature-card glass" :class="{ active: settings.editor.mouseNavHistory }" @click="settings.editor.mouseNavHistory = !settings.editor.mouseNavHistory; saveSettings()">
+              <div class="feature-icon" v-html="Icons.ArrowLeft"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Mouse Navigation</span>
+                 <span class="feature-hint">Nút hông chuột Back/Forward</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+
+           <div class="feature-card glass" :class="{ active: settings.editor.renderWhitespace }" @click="settings.editor.renderWhitespace = !settings.editor.renderWhitespace; saveSettings()">
+              <div class="feature-icon" v-html="Icons.Eye"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Show Whitespace</span>
+                 <span class="feature-hint">Hiện ký hiệu Tab/Space ẩn</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+        </div>
+
+      </div>
+
+
+
+      <!-- SHORTCUTS -->
+      <div v-show="currentCategory === 'shortcut'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Phím tắt hệ thống</h2>
+          <p class="section-desc">Cấu hình các tổ hợp phím để thao tác nhanh mà không cần dùng chuột.</p>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Phím tắt Editor (Nhấp để thay đổi)</label>
+          <div class="shortcut-list">
+            <div class="shortcut-row" @click="startRecording('open_file')">
+              <span class="shortcut-desc">Mở file (Open File)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_file' }">
+                {{ isRecording === 'open_file' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file) }}
+              </span>
+              <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row locked">
+              <span class="shortcut-desc">Tìm kiếm văn bản toàn cục</span>
+              <span class="shortcut-key">CTRL + SHIFT + F</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Phím tắt Điều hướng Tab (Global)</label>
+          <div class="shortcut-list">
+            <div class="shortcut-row" @click="startRecording('prev_tab')">
+              <span class="shortcut-desc">Chuyển về Tab phía trước</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
+                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab) }}
+              </span>
+              <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('next_tab')">
+              <span class="shortcut-desc">Chuyển sang Tab tiếp theo</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
+                {{ isRecording === 'next_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab) }}
+              </span>
+              <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI SERVICES -->
+      <div v-show="currentCategory === 'ai'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">AI Content Services</h2>
+          <p class="section-desc">Cấu hình API Key cho các mô hình AI, phục vụ tính năng vẽ Flowchart và hỗ trợ viết code.</p>
+        </div>
+
+        <div class="setting-item">
+          <label>Nhà cung cấp mặc định (Provider)</label>
+          <select v-model="settings.ai.provider" class="theme-select" @change="saveSettings">
+            <option value="gemini">Gemini (Google) - Nên dùng</option>
+            <option value="openai">ChatGPT (OpenAI)</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="ollama">Ollama (Chạy Offline cục bộ)</option>
+          </select>
+        </div>
+
+        <div class="provider-block glass" :class="{ active: settings.ai.provider === 'gemini' }">
+          <div class="provider-label"><span class="provider-dot gemini"></span> Google Gemini API</div>
+          <input v-model="settings.ai.geminiKey" type="password" class="text-input" placeholder="Nhập API Key (AIza...)" @change="saveSettings"/>
+          <select v-model="settings.ai.geminiModel" class="theme-select" @change="saveSettings">
+            <option value="gemini-1.5-flash">gemini-1.5-flash (Nhanh)</option>
+            <option value="gemini-1.5-pro">gemini-1.5-pro (Mạnh nhất)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- SMOKING / CHILL -->
+      <div v-show="currentCategory === 'chill'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Smoking & Relax</h2>
+          <p class="section-desc">Cài đặt cho widget giải lao khi làm việc căng thẳng.</p>
+        </div>
+
+        <div class="setting-item-vertical">
+          <label>Trạng thái Widget</label>
+          <label class="checkbox-container">
+            <input type="checkbox" v-model="settings.chill.enableWidget" @change="saveSettings" />
+            <span class="checkmark"></span>
+            Hiển thị điếu thuốc ở góc màn hình
+          </label>
+        </div>
+      </div>
+
+      <!-- CONVERT UI -->
+      <div v-show="currentCategory === 'convert'" class="settings-section">
+        <div class="section-header-modern">
+          <h2 class="section-title">Tab Convert UI Rules</h2>
+          <p class="section-desc">Các quy tắc định dạng được áp dụng khi thực hiện chuyển đổi JSP sang cấu trúc PDA/Common.</p>
+        </div>
+
+        <div class="rules-container">
+          <div class="rule-group glass">
+            <h4 class="rule-title">Định dạng tập tin: PDA JSP</h4>
+            <div class="rule-list">
+              <div class="rule-item"><span class="rule-tag">CSS</span><p>Tự động thay bằng <code>common_pda.css</code>.</p></div>
+              <div class="rule-item"><span class="rule-tag">LAYOUT</span><p>Bọc trang trong thẻ <code>div.pda_list</code>.</p></div>
+              <div class="rule-item"><span class="rule-tag">STYLE</span><p>Tách CSS ra khỏi mã JSP và đưa lên phần đầu.</p></div>
+              <div class="rule-item"><span class="rule-tag">INDENT</span><p>Sử dụng 4 khoảng trắng cho thụt dòng.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.settings-layout { display: flex; flex: 1; height: 100%; background-color: var(--container-bg); color: var(--text-color); overflow: hidden; }
+.settings-sidebar { 
+  width: 180px; 
+  border-right: 1px solid rgba(128, 128, 128, 0.1); 
+  display: flex; 
+  flex-direction: column; 
+  padding: 15px 0; 
+  background: rgba(128, 128, 128, 0.04); 
+}
+.category-btn { 
+  display: flex; 
+  align-items: center; 
+  gap: 12px; 
+  padding: 10px 20px; 
+  border: none; 
+  background: transparent; 
+  color: var(--text-color); 
+  cursor: pointer; 
+  text-align: left; 
+  font-size: 0.8rem; 
+  font-weight: 700; 
+  opacity: 0.6; 
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.category-btn:hover { background-color: rgba(128, 128, 128, 0.08); opacity: 1; }
+.category-btn.active { background-color: var(--accent-color); color: #fff; opacity: 1; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2); }
+
+.category-icon-wrapper { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
+
+.settings-content { flex: 1; padding: 25px 35px; overflow-y: auto; background: var(--container-bg); }
+.settings-section { display: flex; flex-direction: column; gap: 20px; }
+
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 10px; }
+
+.setting-card { 
+  background: rgba(128, 128, 128, 0.05); 
+  border: 1px solid rgba(128, 128, 128, 0.1); 
+  border-radius: 16px; 
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.setting-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+.setting-card.no-padding { padding: 0 !important; }
+
+.card-header { padding: 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.05); }
+.card-header-filled { background: rgba(99, 102, 241, 0.1); padding: 10px 16px; }
+.card-icon { width: 18px; height: 18px; color: var(--accent-color); }
+.card-label { font-size: 0.75rem; font-weight: 900; letter-spacing: 0.05em; color: var(--accent-color); text-transform: uppercase; }
+
+.card-body { padding: 16px; display: flex; flex-direction: column; gap: 15px; }
+
+/* Premium Fields */
+.premium-field { display: flex; flex-direction: column; gap: 8px; }
+.premium-field label { font-size: 0.7rem; font-weight: 800; opacity: 0.4; text-transform: uppercase; }
+
+.premium-select, .premium-input { 
+  background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.2); 
+  border-radius: 10px; padding: 10px 14px; color: var(--text-color); font-size: 0.8rem; font-weight: 600;
+  outline: none; transition: 0.2s;
+  flex: 1; min-width: 0;
+}
+.premium-select:focus, .premium-input:focus { border-color: var(--accent-color); background: rgba(99,102,241,0.05); }
+
+.theme-select-group { display: flex; gap: 10px; align-items: center; width: 100%; flex-wrap: nowrap; }
+
+.premium-button { 
+  background: var(--accent-color); color: #fff; border: none; padding: 8px 16px; border-radius: 8px; 
+  font-weight: 800; font-size: 0.75rem; cursor: pointer; transition: 0.2s;
+}
+.premium-button:hover { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+.premium-button.full { width: 100%; }
+
+.premium-button-dashed { 
+  background: transparent; border: 1.5px dashed rgba(128,128,128,0.3); border-radius: 10px; padding: 12px; 
+  color: var(--accent-color); font-weight: 800; font-size: 0.75rem; cursor: pointer; transition: 0.2s;
+}
+.premium-button-dashed:hover { background: rgba(99,102,241,0.05); border-color: var(--accent-color); }
+
+/* Path Picker */
+.path-picker-modern { display: flex; gap: 8px; }
+.premium-input-path { flex: 1; background: rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1); border-radius: 8px; padding: 0 12px; color: var(--text-color); font-size: 0.75rem; opacity: 0.6; }
+
+/* Indentation UI Level 2.0 */
+.indentation-selector { display: flex; border-bottom: 1px solid rgba(128,128,128,0.05); }
+.indent-option { 
+  flex: 1; padding: 20px; display: flex; justify-content: space-between; align-items: start; 
+  cursor: pointer; transition: 0.2s; border-right: 1px solid rgba(128,128,128,0.05);
+}
+.indent-option:last-child { border-right: none; }
+.indent-option:hover { background: rgba(255,255,255,0.02); }
+.indent-option.active { background: rgba(99, 102, 241, 0.05); position: relative; }
+.indent-option.active::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--accent-color); }
+
+.option-info { display: flex; flex-direction: column; gap: 4px; }
+.option-title { font-size: 0.9rem; font-weight: 900; color: #fff; }
+.option-desc { font-size: 0.7rem; opacity: 0.5; font-weight: 600; }
+.active-badge { 
+  background: var(--accent-color); color: #fff; font-size: 0.6rem; font-weight: 900; 
+  padding: 2px 6px; border-radius: 4px; box-shadow: 0 0 10px rgba(99,102,241,0.4);
+}
+
+.indent-footer { padding: 15px 20px; background: rgba(0,0,0,0.1); }
+.indent-size-group { display: flex; align-items: center; gap: 15px; }
+.size-text { font-size: 0.75rem; font-weight: 800; opacity: 0.4; }
+.size-pills { display: flex; gap: 8px; }
+.size-pill { 
+  background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.1); color: var(--text-color);
+  padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 0.75rem; cursor: pointer; transition: 0.2s;
+}
+.size-pill.active { background: var(--accent-color); color: #fff; border-color: var(--accent-color); }
+
+/* Feature Cards Grid */
+.behavior-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
+.feature-card { 
+  padding: 16px; display: flex; align-items: center; gap: 14px; 
+  cursor: pointer; border-radius: 12px; transition: 0.2s; border: 1px solid rgba(128,128,128,0.1);
+}
+.feature-card:hover { background: rgba(255,255,255,0.03); border-color: rgba(128,128,128,0.2); }
+.feature-card.active { border-color: var(--accent-color); background: rgba(99, 102, 241, 0.03); }
+
+.feature-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; opacity: 0.5; color: var(--accent-color); }
+.feature-card.active .feature-icon { opacity: 1; }
+.feature-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.feature-name { font-size: 0.8rem; font-weight: 800; }
+.feature-hint { font-size: 0.65rem; opacity: 0.4; font-weight: 600; }
+
+.feature-toggle { width: 34px; height: 18px; }
+.toggle-track { width: 100%; height: 100%; background: #333; border-radius: 10px; position: relative; transition: 0.3s; }
+.feature-card.active .toggle-track { background: var(--accent-color); }
+.toggle-thumb { width:12px; height: 12px; background: #fff; border-radius: 50%; position: absolute; top: 3px; left: 3px; transition: 0.3s; }
+.feature-card.active .toggle-thumb { left: 19px; }
+
+.test-loading-btn-mini { background: rgba(99,102,241,0.1); border: none; color: var(--accent-color); width: 34px; height: 34px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.test-loading-btn-mini:hover { background: var(--accent-color); color: #fff; }
+
+.path-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.path-chip { background: rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; padding: 4px 10px; display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.chip-text { font-size: 0.7rem; font-weight: 600; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-remove { width: 12px; height: 12px; opacity: 0.4; cursor: pointer; }
+.chip-remove:hover { opacity: 1; color: #ef4444; }
+
+.link-action { background: none; border: none; color: var(--accent-color); font-size: 0.75rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 0; margin-top: 5px; opacity: 0.6; }
+.link-action:hover { opacity: 1; text-decoration: underline; }
+
+.hidden-input { position: absolute; opacity: 0; pointer-events: none; }
+
+
+
+/* Win95 Variations */
+.theme-95 .settings-layout, .theme-95 .settings-sidebar, .theme-95 .category-btn, .theme-95 .settings-content, .theme-95 .glass, .theme-95 .rule-group, .theme-95 .shortcut-row {
+  background: #c0c0c0 !important; border-radius: 0 !important; border: 2px solid !important; border-color: #fff #808080 #808080 #fff !important; backdrop-filter: none !important; color: #000 !important;
+}
+.theme-95 .category-btn.active { background: #000080 !important; color: #fff !important; border: none !important; }
+.theme-95 .save-all-btn { border: 2px solid !important; border-color: #fff #808080 #808080 #fff !important; background: #c0c0c0 !important; color: #000 !important; border-radius: 0; }
+.theme-95 .theme-select, .theme-95 .text-input { border: 2px solid !important; border-color: #808080 #fff #fff #808080 !important; border-radius: 0; background: #fff !important; color: #000 !important; }
+</style>

@@ -1,0 +1,190 @@
+<script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue';
+import { activeContextMenu, hiddenExplorerPaths, selectedExplorerPaths } from '@vinx/sdk';
+
+
+import { invoke } from '@tauri-apps/api/core';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+
+const emit = defineEmits<{
+  (e: 'open', node: any): void;
+  (e: 'compare', mode: 'branch' | 'local' | 'commit', node: any): void;
+}>();
+
+const closeMenu = () => {
+  activeContextMenu.value = null;
+};
+
+const handleOpen = () => {
+  if (activeContextMenu.value) {
+    emit('open', activeContextMenu.value.node);
+    closeMenu();
+  }
+};
+
+const handleCompareLocal = () => {
+  if (activeContextMenu.value) {
+    emit('compare', 'local', activeContextMenu.value.node);
+    closeMenu();
+  }
+};
+
+const handleCompareBranch = () => {
+  if (activeContextMenu.value) {
+    emit('compare', 'branch', activeContextMenu.value.node);
+    closeMenu();
+  }
+};
+
+const handleCompareCommit = () => {
+  if (activeContextMenu.value) {
+    emit('compare', 'commit', activeContextMenu.value.node);
+    closeMenu();
+  }
+};
+
+const handleCopyPath = async () => {
+  if (activeContextMenu.value) {
+    try {
+      await writeText(activeContextMenu.value.node.path);
+    } catch (e) { console.error(e); }
+    closeMenu();
+  }
+};
+
+const handleReveal = async () => {
+  if (activeContextMenu.value) {
+    try {
+      await invoke('open_file_path', { path: activeContextMenu.value.node.path });
+    } catch (e) { console.error(e); }
+    closeMenu();
+  }
+};
+
+const handleHide = () => {
+  if (activeContextMenu.value) {
+    const node = activeContextMenu.value.node;
+    
+    // Nếu node đang chuột phải nằm trong danh sách đang chọn, thì ẩn hết
+    if (selectedExplorerPaths.value.has(node.path)) {
+      selectedExplorerPaths.value.forEach((p: string) => {
+        if (!hiddenExplorerPaths.value.includes(p)) {
+          hiddenExplorerPaths.value.push(p);
+        }
+      });
+    } else {
+      // Nếu không thì chỉ ẩn 1 mình nó
+      if (!hiddenExplorerPaths.value.includes(node.path)) {
+        hiddenExplorerPaths.value.push(node.path);
+      }
+    }
+    closeMenu();
+  }
+};
+
+
+
+// Global click listeners to close menu
+const onGlobalClick = (e: MouseEvent) => {
+  if (activeContextMenu.value) {
+    // Check if clicked outside
+    const el = document.querySelector('.context-menu');
+    if (el && !el.contains(e.target as Node)) {
+      closeMenu();
+    }
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('mousedown', onGlobalClick);
+  window.addEventListener('contextmenu', onGlobalClick);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('mousedown', onGlobalClick);
+  window.removeEventListener('contextmenu', onGlobalClick);
+});
+</script>
+
+<template>
+  <teleport to="body">
+    <div
+      v-if="activeContextMenu"
+      class="context-menu"
+      :style="{ top: activeContextMenu.y + 'px', left: activeContextMenu.x + 'px' }"
+    >
+      <button class="ctx-item" @click="handleOpen">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        {{ activeContextMenu.node.is_dir ? 'Expand / Collapse' : 'Open File' }}
+      </button>
+      <button class="ctx-item" @click="handleCopyPath">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy Path
+      </button>
+      <div class="ctx-divider"></div>
+      <button class="ctx-item" @click="handleReveal">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Reveal in Explorer
+      </button>
+      <button class="ctx-item danger-hover" @click="handleHide">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        Hide in Explorer
+      </button>
+
+
+      <div class="ctx-divider" v-if="!activeContextMenu.node.is_dir"></div>
+      <button class="ctx-item" v-if="!activeContextMenu.node.is_dir" @click="handleCompareLocal">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Compare with Local (HEAD)
+      </button>
+      <button class="ctx-item" v-if="!activeContextMenu.node.is_dir" @click="handleCompareBranch">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+        Compare with Branch...
+      </button>
+      <button class="ctx-item" v-if="!activeContextMenu.node.is_dir" @click="handleCompareCommit">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="1.05" y1="12" x2="7" y2="12"/><line x1="17.01" y1="12" x2="22.96" y2="12"/></svg>
+        Compare with Commit...
+      </button>
+    </div>
+  </teleport>
+</template>
+
+<style scoped>
+.context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: #1e1e2e;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  backdrop-filter: blur(10px);
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.85);
+  font-size: 0.8rem;
+  padding: 7px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.ctx-item:hover { background: rgba(255,255,255,0.1); }
+.ctx-item.danger-hover:hover { background: rgba(248, 113, 113, 0.1); color: #f87171; }
+
+
+.ctx-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 3px 0; }
+
+:root.theme-light .context-menu { background: #fff; border-color: rgba(0,0,0,0.15); }
+:root.theme-light .ctx-item { color: #1e1e2e; }
+:root.theme-light .ctx-item:hover { background: rgba(0,0,0,0.07); }
+</style>

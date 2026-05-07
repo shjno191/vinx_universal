@@ -1,0 +1,19 @@
+{
+  "name": "@vinx/plugin-translate",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5",
+    "dompurify": "^3.4.1",
+    "@vinx/sdk": "*"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.3",
+    "vue": "^3.5.13"
+  }
+}

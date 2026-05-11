@@ -89,34 +89,95 @@ export function useTranslateManager() {
     
     // Check if it contains Japanese characters (Hiragana, Katakana, Kanji)
     const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+    const hasLatin = /[a-zA-Z]/.test(text);
     
     if (hasJapanese) {
-      // Input contains Japanese -> Target should be English
-      if (sharedTargetLang.value !== 'en') {
-        console.log('[TranslateManager] Auto-detected Japanese input, setting target to English');
+      // Input contains Japanese -> If current target is JP, it's definitely wrong, switch to EN
+      if (sharedTargetLang.value === 'jp') {
+        console.log('[TranslateManager] Auto-detected Japanese input, switching from JP target to EN');
         sharedTargetLang.value = 'en';
       }
-    } else {
-      // Check if it contains English/Latin characters
-      const hasLatin = /[a-zA-Z]/.test(text);
-      if (hasLatin) {
-        // Input is likely English -> Target should be Japanese
-        if (sharedTargetLang.value !== 'jp') {
-          console.log('[TranslateManager] Auto-detected English input, setting target to Japanese');
-          sharedTargetLang.value = 'jp';
+    } else if (hasLatin) {
+      // Input contains English -> If current target is EN, it's definitely wrong, switch to JP
+      if (sharedTargetLang.value === 'en') {
+        console.log('[TranslateManager] Auto-detected English input, switching from EN target to JP');
+        sharedTargetLang.value = 'jp';
+      }
+    }
+  };
+
+  const autoSelectSheetFromInput = async (text: string) => {
+    if (!text || text.trim().length < 3 || selectedSheets.value.size > 0) return;
+    
+    // Extract unique keywords from input (lines and words)
+    const rawTokens = text.split(/[\n\s,]+/).map(t => t.trim()).filter(t => t.length >= 3);
+    const keywords = [...new Set(rawTokens)].slice(0, 30); // Use top 30 unique tokens
+    if (keywords.length === 0) return;
+    
+    let bestSheetKey = '';
+    let maxScore = 0;
+    
+    for (const file of excelFilesInFolder.value) {
+      const cached = await loadCache(file);
+      const mappings = cached?.sheetMappings;
+      if (!mappings) continue;
+      
+      for (const sheetName in mappings) {
+        const mapping = mappings[sheetName];
+        let currentScore = 0;
+        
+        // Count how many keywords are present in this sheet's mapping
+        for (const query of keywords) {
+          const searchTerm = query.toLowerCase();
+          for (const [logical, physical] of Object.entries(mapping)) {
+            if (logical.toLowerCase() === searchTerm || 
+                (physical && String(physical).toLowerCase() === searchTerm)) {
+              currentScore++;
+              break; // This keyword matches this sheet, move to next keyword
+            }
+          }
+        }
+        
+        if (currentScore > maxScore) {
+          maxScore = currentScore;
+          bestSheetKey = `${file}::${sheetName}`;
         }
       }
     }
+    
+    if (bestSheetKey && maxScore > 0) {
+      const [file, sheetName] = bestSheetKey.split('::');
+      console.log(`[TranslateManager] Auto-selecting best sheet (Score: ${maxScore}): ${bestSheetKey}`);
+      
+      selectedSheets.value.add(bestSheetKey);
+      await loadSingleSheet(file, sheetName);
+      rebuildBaseDictionaryCache();
+      updateCachedWords();
+      return true;
+    }
+    
+    return false;
   };
 
   let translateDebounceTimer: any = null;
   const triggerDebouncedTranslate = () => {
     if (translateDebounceTimer) clearTimeout(translateDebounceTimer);
-    translateDebounceTimer = setTimeout(() => {
+    translateDebounceTimer = setTimeout(async () => {
+      const oldLang = sharedTargetLang.value;
       detectLanguageAndSetTarget(translateInput.value);
+      
+      // Try to auto-select sheet if none selected
+      const autoSelected = await autoSelectSheetFromInput(translateInput.value);
+
+      // If language changed OR auto-selected, we need to rebuild cache
+      if (sharedTargetLang.value !== oldLang || autoSelected) {
+        rebuildBaseDictionaryCache();
+        updateCachedWords();
+      }
+
       debouncedInput.value = translateInput.value;
       performQuickTranslate();
-    }, 350);
+    }, 450); // Slightly longer debounce for auto-select logic
   };
 
   // Watch for input changes to trigger translation
@@ -502,16 +563,13 @@ export function useTranslateManager() {
       let target = '';
 
       if (sharedTargetLang.value === 'jp') {
-        source = logical; // Translate from English
-        target = physical; // To Japanese
+        source = physical; // Translate from English (Physical)
+        target = logical;  // To Japanese (Logical)
       } else if (sharedTargetLang.value === 'en') {
-        source = physical; // Translate from Japanese
-        target = logical; // To English
+        source = logical;  // Translate from Japanese (Logical)
+        target = physical; // To English (Physical)
       } else if (sharedTargetLang.value === 'vi') {
-        source = physical; // Translate from Japanese
-        target = logical; // To English (as key) then we'd need VI mapping
-        // Actually, for VI we need a separate mapping from JP/EN to VI
-        // But for highlighting, let's just allow JP/EN to be highlighted
+        // For Vietnamese, we allow both directions to be highlighted
         sourceSet.add(logical);
         sourceSet.add(physical);
         sourceMap.set(logical, info);

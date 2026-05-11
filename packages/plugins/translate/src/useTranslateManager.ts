@@ -80,17 +80,43 @@ export function useTranslateManager() {
 
   // --- Internal Helpers ---
 
+  const detectLanguageAndSetTarget = (text: string) => {
+    if (!text || text.trim().length === 0) return;
+    
+    // Check if it contains Japanese characters (Hiragana, Katakana, Kanji)
+    const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+    
+    if (hasJapanese) {
+      // Input contains Japanese -> Target should be English
+      if (sharedTargetLang.value !== 'en') {
+        console.log('[TranslateManager] Auto-detected Japanese input, setting target to English');
+        sharedTargetLang.value = 'en';
+      }
+    } else {
+      // Check if it contains English/Latin characters
+      const hasLatin = /[a-zA-Z]/.test(text);
+      if (hasLatin) {
+        // Input is likely English -> Target should be Japanese
+        if (sharedTargetLang.value !== 'jp') {
+          console.log('[TranslateManager] Auto-detected English input, setting target to Japanese');
+          sharedTargetLang.value = 'jp';
+        }
+      }
+    }
+  };
+
   let translateDebounceTimer: any = null;
   const triggerDebouncedTranslate = () => {
     if (translateDebounceTimer) clearTimeout(translateDebounceTimer);
     translateDebounceTimer = setTimeout(() => {
+      detectLanguageAndSetTarget(translateInput.value);
       debouncedInput.value = translateInput.value;
       performQuickTranslate();
     }, 350);
   };
 
   // Watch for input changes to trigger translation
-  watch(translateInput, triggerDebouncedTranslate);
+  watch(translateInput, triggerDebouncedTranslate, { immediate: true });
 
   // --- Core Methods ---
 

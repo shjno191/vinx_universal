@@ -10,6 +10,7 @@ import {
 } from '@vinx/sdk';
 import { buildTranslationRegex, translateText } from './translation-engine';
 import { parseTechnicalSheet, extractSheetMetadata } from './sheet-parser';
+import { useCacheManager } from './utils/cache-manager';
 
 export interface WordSourceInfo {
   type: 'base' | 'tech' | 'composed';
@@ -51,6 +52,7 @@ const { globalLoading: loadingState } = useGlobalLoading();
 
 export function useTranslateManager() {
   const { readBinary } = useFileSystem();
+  const { loadCache, saveCache } = useCacheManager();
   const { showLoading, hideLoading, updateProgress } = useGlobalLoading();
 
   const startLoading = (msg: string) => {
@@ -122,7 +124,7 @@ export function useTranslateManager() {
 
   // --- Core Methods ---
 
-  const loadDictionary = async (path: string) => {
+  const loadDictionary = async (path: string, forceRefresh = false) => {
     try {
       if (typeof path !== 'string') {
         console.error('[TranslateManager] Dictionary path is not a string:', path);
@@ -132,21 +134,32 @@ export function useTranslateManager() {
       if (!cleanPath) return null;
 
       isLoading.value = true;
-      console.log(`[TranslateManager] Loading dictionary: ${cleanPath}`);
+      console.log(`[TranslateManager] Loading dictionary: ${cleanPath} (force: ${forceRefresh})`);
 
       startLoading('Parsing dictionary entries...');
-      // Give UI a chance to show the modal before the main thread gets busy reading binary
       await nextTick();
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      const b64 = await readBinary(cleanPath);
-      if (!b64 || b64.length === 0) {
-        throw new Error('Dictionary file is empty or could not be read');
+      let jsonData: any[][] = [];
+
+      // Try cache first
+      const cachedData = forceRefresh ? null : await loadCache(cleanPath);
+      if (cachedData && Array.isArray(cachedData.rows)) {
+        console.log(`[TranslateManager] Loaded dictionary from cache: ${cleanPath}`);
+        jsonData = cachedData.rows;
+      } else {
+        const b64 = await readBinary(cleanPath);
+        if (!b64 || b64.length === 0) {
+          throw new Error('Dictionary file is empty or could not be read');
+        }
+        const workbook = XLSX.read(b64, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+        // Save to cache
+        await saveCache(cleanPath, { rows: jsonData });
       }
-      const workbook = XLSX.read(b64, { type: 'array' });
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
       if (jsonData.length > 0) {
         const rawRows = jsonData.slice(1)
@@ -218,13 +231,16 @@ export function useTranslateManager() {
         data: Array.from(uint8)
       });
       console.log('[TranslateManager] Dictionary saved successfully');
+      
+      // Also update the JSON cache to keep it in sync
+      await saveCache(path, { rows: data });
     } catch (error) {
       console.error('[TranslateManager] Failed to save dictionary:', error);
       throw error;
     }
   };
 
-  const loadFilesFromMultipleFolders = async (folders: string[]) => {
+  const loadFilesFromMultipleFolders = async (folders: string[], forceRefresh = false) => {
     if (!folders || folders.length === 0) {
       excelFilesInFolder.value = [];
       fileSheetCounts.value = {};
@@ -232,10 +248,9 @@ export function useTranslateManager() {
       return;
     }
 
-    console.log(`[TranslateManager] Syncing files from ${folders.length} folders:`, folders);
+    console.log(`[TranslateManager] Syncing files from ${folders.length} folders (force: ${forceRefresh}):`, folders);
     startLoading('Scanning Excel folders...');
 
-    // Give UI a chance to show the modal
     await nextTick();
     await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -244,7 +259,6 @@ export function useTranslateManager() {
       for (const folder of folders) {
         try {
           const files = await invoke('list_files_in_dir', { path: folder, extension: 'xlsx' }) as string[];
-          console.log(`[TranslateManager] Folder ${folder} has ${files.length} files`);
           const normalized = files.map(f => String(f).replace(/\\/g, '/'));
           allFiles.push(...normalized);
         } catch (dirErr) {
@@ -252,10 +266,8 @@ export function useTranslateManager() {
         }
       }
 
-      // Remove duplicates
       const uniqueFiles = [...new Set(allFiles)];
       excelFilesInFolder.value = uniqueFiles;
-      console.log(`[TranslateManager] Total unique files found: ${uniqueFiles.length}`);
 
       const totalItems = excelFilesInFolder.value.length;
       let processed = 0;
@@ -270,23 +282,43 @@ export function useTranslateManager() {
           const progressMsg = `Analyzing file: ${processed}/${totalItems} (${f.split(/[/\\]/).pop()})`;
           showLoading(progressMsg);
           updateProgress(Math.round(((processed - 0.5) / totalItems) * 100));
-          await new Promise(resolve => setTimeout(resolve, 0));
 
-          const b64 = await readBinary(f);
-          const workbook = XLSX.read(b64, { type: 'array' });
+          // Try cache first
+          const cached = forceRefresh ? null : await loadCache(f);
+          if (cached && cached.sheetNames && cached.sheetMetadata) {
+            console.log(`[TranslateManager] Loaded file info from cache: ${f}`);
+            newSheetCounts[f] = cached.sheetNames.length;
+            newFileSheets.set(f, cached.sheetNames);
+            Object.keys(cached.sheetMetadata).forEach(sheetName => {
+              const key = `${f}::${sheetName}`;
+              newMetadata[key] = cached.sheetMetadata[sheetName];
+              newRowCounts[key] = cached.sheetMetadata[sheetName].rowCount;
+            });
+          } else {
+            const b64 = await readBinary(f);
+            const workbook = XLSX.read(b64, { type: 'array' });
 
-          newSheetCounts[f] = workbook.SheetNames.length;
-          newFileSheets.set(f, workbook.SheetNames);
+            newSheetCounts[f] = workbook.SheetNames.length;
+            newFileSheets.set(f, workbook.SheetNames);
 
-          workbook.SheetNames.forEach(name => {
-            const meta = extractSheetMetadata(workbook.Sheets[name]);
-            const key = `${f}::${name}`;
-            newMetadata[key] = meta;
-            newRowCounts[key] = meta.rowCount;
-          });
+            const fileMetadata: Record<string, any> = {};
+            workbook.SheetNames.forEach(name => {
+              const meta = extractSheetMetadata(workbook.Sheets[name]);
+              const key = `${f}::${name}`;
+              newMetadata[key] = meta;
+              newRowCounts[key] = meta.rowCount;
+              fileMetadata[name] = meta;
+            });
+
+            // Save to cache (initial scan only saves metadata)
+            await saveCache(f, {
+              sheetNames: workbook.SheetNames,
+              sheetMetadata: fileMetadata,
+              sheetMappings: {} // Will be populated on demand
+            });
+          }
 
           updateProgress(Math.round((processed / totalItems) * 100));
-          // Yield to UI thread
           await new Promise(resolve => setTimeout(resolve, 0));
         } catch (err) {
           console.error(`[TranslateManager] Failed to scan contents for ${f}:`, err);
@@ -310,6 +342,26 @@ export function useTranslateManager() {
   const selectExcelFile = async (filePath: string) => {
     if (!fileSheetsData.value.has(filePath)) {
       try {
+        // Try cache first
+        const cached = await loadCache(filePath);
+        if (cached && cached.sheetNames && cached.sheetMetadata) {
+          console.log(`[TranslateManager] Loaded sheet info from cache for selected file: ${filePath}`);
+          const newFileSheets = new Map(fileSheetsData.value);
+          newFileSheets.set(filePath, cached.sheetNames);
+          fileSheetsData.value = newFileSheets;
+
+          const newMetadata = { ...sheetMetadata.value };
+          const newRowCounts = { ...sheetRowCounts.value };
+          Object.keys(cached.sheetMetadata).forEach(sheetName => {
+            const key = `${filePath}::${sheetName}`;
+            newMetadata[key] = cached.sheetMetadata[sheetName];
+            newRowCounts[key] = cached.sheetMetadata[sheetName].rowCount;
+          });
+          sheetMetadata.value = newMetadata;
+          sheetRowCounts.value = newRowCounts;
+          return;
+        }
+
         const b64 = await readBinary(filePath);
         const workbook = XLSX.read(b64, { type: 'array' });
 
@@ -320,14 +372,24 @@ export function useTranslateManager() {
         const newMetadata = { ...sheetMetadata.value };
         const newRowCounts = { ...sheetRowCounts.value };
 
+        const fileMetadata: Record<string, any> = {};
         workbook.SheetNames.forEach(name => {
           const metadata = extractSheetMetadata(workbook.Sheets[name]);
-          newMetadata[`${filePath}::${name}`] = metadata;
-          newRowCounts[`${filePath}::${name}`] = metadata.rowCount;
+          const key = `${filePath}::${name}`;
+          newMetadata[key] = metadata;
+          newRowCounts[key] = metadata.rowCount;
+          fileMetadata[name] = metadata;
         });
 
         sheetMetadata.value = newMetadata;
         sheetRowCounts.value = newRowCounts;
+
+        // Save to cache
+        await saveCache(filePath, {
+          sheetNames: workbook.SheetNames,
+          sheetMetadata: fileMetadata,
+          sheetMappings: {}
+        });
       } catch (e) {
         console.error('[TranslateManager] Failed to read sheets:', e);
       }
@@ -358,6 +420,19 @@ export function useTranslateManager() {
 
     try {
       startLoading(`Loading sheet: ${sheetName}...`);
+
+      // Try cache first
+      const cached = await loadCache(filePath);
+      if (cached && cached.sheetMappings && cached.sheetMappings[sheetName]) {
+        console.log(`[TranslateManager] Loaded sheet mapping from cache: ${sheetKey}`);
+        const mapping = new Map(Object.entries(cached.sheetMappings[sheetName]));
+        const newMap = new Map(advancedDictData.value);
+        newMap.set(sheetKey, mapping as Map<string, string>);
+        advancedDictData.value = newMap;
+        return;
+      }
+
+      // Fallback to Excel
       const b64 = await readBinary(filePath);
       const workbook = XLSX.read(b64, { type: 'array' });
       const worksheet = workbook.Sheets[sheetName];
@@ -369,7 +444,16 @@ export function useTranslateManager() {
         const newMap = new Map(advancedDictData.value);
         newMap.set(sheetKey, mapping);
         advancedDictData.value = newMap;
+
+        // Update cache with this sheet's data
+        if (cached) {
+          if (!cached.sheetMappings) cached.sheetMappings = {};
+          cached.sheetMappings[sheetName] = Object.fromEntries(mapping);
+          await saveCache(filePath, cached);
+        }
       }
+    } catch (err) {
+      console.error(`[TranslateManager] Error loading sheet ${sheetName}:`, err);
     } finally {
       stopLoading();
     }
@@ -418,12 +502,16 @@ export function useTranslateManager() {
       let target = '';
 
       if (sharedTargetLang.value === 'jp') {
-        source = physical;
-        target = logical;
+        source = logical; // Translate from English
+        target = physical; // To Japanese
       } else if (sharedTargetLang.value === 'en') {
-        source = logical;
-        target = physical;
+        source = physical; // Translate from Japanese
+        target = logical; // To English
       } else if (sharedTargetLang.value === 'vi') {
+        source = physical; // Translate from Japanese
+        target = logical; // To English (as key) then we'd need VI mapping
+        // Actually, for VI we need a separate mapping from JP/EN to VI
+        // But for highlighting, let's just allow JP/EN to be highlighted
         sourceSet.add(logical);
         sourceSet.add(physical);
         sourceMap.set(logical, info);

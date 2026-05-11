@@ -14,6 +14,16 @@ pub struct FileNode {
     pub extension: String,
 }
 
+#[tauri::command]
+fn get_app_config_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let path = app.path().config_dir()
+        .map_err(|e: tauri::Error| e.to_string())?
+        .join("vinx_universal");
+    if !path.exists() {
+        fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(path.to_string_lossy().to_string())
+}
 
 
 #[tauri::command]
@@ -251,6 +261,11 @@ fn test_tcp_connection(host: String, port: u16) -> Result<String, String> {
 
 
 
+#[tauri::command]
+fn save_file_content(path: String, content: String) -> Result<(), String> {
+    fs::write(path, content).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -266,6 +281,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            get_app_config_dir,
+            save_file_content,
             open_settings_file,
             read_file_content,
             read_file_binary,

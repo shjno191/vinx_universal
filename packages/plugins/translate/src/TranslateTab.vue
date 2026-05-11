@@ -70,10 +70,10 @@ const highlightStyles = computed(() => {
     '--hl-base-color': translateSettings.value.baseHighlightColor,
     '--hl-tech-color': translateSettings.value.techHighlightColor,
     '--hl-composed-color': translateSettings.value.composedHighlightColor,
-    '--hl-base-bg': `${translateSettings.value.baseHighlightColor}33`, // 20% alpha
+    '--hl-base-bg': `${translateSettings.value.baseHighlightColor}33`,
     '--hl-tech-bg': `${translateSettings.value.techHighlightColor}33`,
     '--hl-composed-bg': `${translateSettings.value.composedHighlightColor}33`,
-    '--hl-base-bg-hover': `${translateSettings.value.baseHighlightColor}66`, // 40% alpha
+    '--hl-base-bg-hover': `${translateSettings.value.baseHighlightColor}66`,
     '--hl-tech-bg-hover': `${translateSettings.value.techHighlightColor}66`,
     '--hl-composed-bg-hover': `${translateSettings.value.composedHighlightColor}66`,
   };
@@ -276,7 +276,7 @@ onMounted(async () => {
 });
 
 const handleRefresh = async () => {
-  const res = await loadDictionary(globalDictionaryPath.value);
+  const res = await loadDictionary(globalDictionaryPath.value, true);
   if (res) {
     if (res.removed > 0) {
       // Actively clean the file when the user presses Refresh
@@ -472,7 +472,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         v-model:sheetSearch="sheetSearchQuery"
         v-model:isOnlySelectedSheets="isOnlySelectedSheets"
         @selectFolder="pickQuickTranslateFolder"
-        @refreshFiles="() => loadFilesFromMultipleFolders(advancedTranslatePaths)"
+        @refreshFiles="() => loadFilesFromMultipleFolders(advancedTranslatePaths, true)"
         @clearSheets="() => { selectedSheets.clear(); updateCachedWords(); }"
         @toggleFile="toggleExcelFile"
         @toggleSheet="(fullKey) => { 
@@ -660,15 +660,23 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 }
 .is-win95 .toast-text { color: #000; }
 /* Source-specific highlights */
+:deep(.hl-target.hl-source-base),
 :deep(.hl-source-base) {
   background-color: var(--hl-base-bg, rgba(59, 130, 246, 0.2));
   border-bottom: 2px solid var(--hl-base-color, #3b82f6);
   color: inherit;
 }
 
+:deep(.hl-target.hl-source-tech),
 :deep(.hl-source-tech) {
   background-color: var(--hl-tech-bg, rgba(234, 179, 8, 0.2));
   border-bottom: 2px solid var(--hl-tech-color, #eab308);
+  color: inherit;
+}
+
+:deep(.hl-source-composed) {
+  background-color: var(--hl-composed-bg, rgba(16, 185, 129, 0.2));
+  border-bottom: 2px solid var(--hl-composed-color, #10b981);
   color: inherit;
 }
 
@@ -680,15 +688,6 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
   background-color: var(--hl-tech-bg-hover, rgba(234, 179, 8, 0.4));
 }
 
-:deep(.hl-target.hl-source-base) {
-  background-color: var(--hl-base-bg, rgba(16, 185, 129, 0.1));
-  border-bottom: 2px solid var(--hl-base-color, #10b981);
-}
-
-:deep(.hl-target.hl-source-tech) {
-  background-color: var(--hl-tech-bg, rgba(249, 115, 22, 0.1));
-  border-bottom: 2px solid var(--hl-tech-color, #f97316);
-}
 
 .is-win95 .hl-source-base { background: #000080; color: #fff; border: none; }
 .is-win95 .hl-source-tech { background: #808000; color: #fff; border: none; }

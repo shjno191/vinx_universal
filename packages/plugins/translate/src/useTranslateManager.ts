@@ -549,22 +549,44 @@ export function useTranslateManager() {
       }
     });
 
-    // 2. Process Base Dictionary last (if not in ONLY mode)
-    if (!isOnlySelectedSheets.value) {
-      const baseInfo: WordSourceInfo = { type: 'base', source: 'Base Dictionary' };
-      baseLookupPart.value.forEach((target, source) => {
-        if (!lookup.has(source)) {
-          lookup.set(source, target);
-          sourceSet.add(source);
-          targetSet.add(target);
-          
-          sourceMap.set(source, baseInfo);
-          if (!sourceMap.has(target)) sourceMap.set(target, baseInfo);
+    // 2. Process Base Dictionary (always check for 'composed' even if in ONLY mode)
+    const baseInfo: WordSourceInfo = { type: 'base', source: 'Base Dictionary' };
+    
+    baseLookupPart.value.forEach((target, source) => {
+      const exists = lookup.has(source);
+      if (exists) {
+        // It's in both tech and base -> mark as composed
+        const existing = sourceMap.get(source);
+        if (existing && existing.type === 'tech') {
+          sourceMap.set(source, { ...existing, type: 'composed' });
+          // Also update target if it exists
+          const existingTarget = sourceMap.get(lookup.get(source)!);
+          if (existingTarget && existingTarget.type === 'tech') {
+            sourceMap.set(lookup.get(source)!, { ...existingTarget, type: 'composed' });
+          }
         }
-      });
+      } else if (!isOnlySelectedSheets.value) {
+        // Only in base and not in ONLY mode
+        lookup.set(source, target);
+        sourceSet.add(source);
+        targetSet.add(target);
+        
+        if (!sourceMap.has(source)) sourceMap.set(source, baseInfo);
+        if (!sourceMap.has(target)) sourceMap.set(target, baseInfo);
+      }
+    });
+
+    if (!isOnlySelectedSheets.value) {
       baseTargetWords.value.forEach(word => {
         targetSet.add(word);
-        if (!sourceMap.has(word)) sourceMap.set(word, baseInfo);
+        if (!sourceMap.has(word)) {
+          sourceMap.set(word, baseInfo);
+        } else {
+          const existing = sourceMap.get(word);
+          if (existing && existing.type === 'tech') {
+            sourceMap.set(word, { ...existing, type: 'composed' });
+          }
+        }
       });
     }
 
@@ -579,6 +601,91 @@ export function useTranslateManager() {
 
   const performQuickTranslate = () => {
     translateOutput.value = translateText(translateInput.value, translationRegex.value, cachedLookup.value);
+  };
+
+  const contentSearchMatches = ref<Map<string, string[]>>(new Map());
+
+  const searchAllSheetsForText = async (query: string) => {
+    if (!query || query.trim().length < 2) {
+      contentSearchMatches.value = new Map();
+      return;
+    }
+    
+    const searchTerm = query.trim().toLowerCase();
+    const matchesMap = new Map<string, string[]>();
+    
+    startLoading(`Searching content for "${query}"...`);
+    
+    try {
+      const files = excelFilesInFolder.value;
+      const total = files.length;
+      
+      for (let i = 0; i < total; i++) {
+        const file = files[i];
+        updateProgress(Math.round((i / total) * 100));
+        
+        // Try cache first
+        const cached = await loadCache(file);
+        let mappings = cached?.sheetMappings || {};
+        
+        // 1. Search in cached mappings
+        for (const sheetName in mappings) {
+          const mapping = mappings[sheetName];
+          const matchedCols: string[] = [];
+          for (const [logical, physical] of Object.entries(mapping)) {
+            const lMatch = logical.toLowerCase().includes(searchTerm);
+            const pMatch = physical && String(physical).toLowerCase().includes(searchTerm);
+            if (lMatch || pMatch) {
+              matchedCols.push(lMatch ? logical : String(physical));
+            }
+          }
+          if (matchedCols.length > 0) {
+            matchesMap.set(`${file}::${sheetName}`, matchedCols);
+          }
+        }
+        
+        // 2. If no mappings in cache, we MUST read the file
+        if (Object.keys(mappings).length === 0) {
+           try {
+             const b64 = await readBinary(file);
+             const workbook = XLSX.read(b64, { type: 'array' });
+             const newMappings: Record<string, any> = {};
+             
+             for (const sheetName of workbook.SheetNames) {
+               const worksheet = workbook.Sheets[sheetName];
+               const mapping = parseTechnicalSheet(worksheet);
+               if (mapping && mapping.size > 0) {
+                 const plainMapping = Object.fromEntries(mapping);
+                 newMappings[sheetName] = plainMapping;
+                 
+                 const matchedCols: string[] = [];
+                 for (const [logical, physical] of mapping) {
+                    const lMatch = logical.toLowerCase().includes(searchTerm);
+                    const pMatch = physical && String(physical).toLowerCase().includes(searchTerm);
+                    if (lMatch || pMatch) {
+                      matchedCols.push(lMatch ? logical : String(physical));
+                    }
+                 }
+                 if (matchedCols.length > 0) {
+                   matchesMap.set(`${file}::${sheetName}`, matchedCols);
+                 }
+               }
+             }
+             // Save to persistent cache
+             if (cached) {
+               await saveCache(file, { ...cached, sheetMappings: newMappings });
+             }
+           } catch (err) {
+             console.warn(`[TranslateManager] Deep search failed for ${file}:`, err);
+           }
+        }
+      }
+    } catch (err) {
+      console.error('[TranslateManager] Deep search error:', err);
+    } finally {
+      contentSearchMatches.value = matchesMap;
+      stopLoading();
+    }
   };
 
   const simulateLoading = async (durationMs: number = 5000) => {
@@ -621,6 +728,7 @@ export function useTranslateManager() {
     globalLoading: loadingState,
     fileSearchQuery,
     sheetSearchQuery,
+    contentSearchMatches,
     debouncedInput,
     translationRegex,
     cachedLookup,
@@ -640,6 +748,7 @@ export function useTranslateManager() {
     performQuickTranslate,
     rebuildBaseDictionaryCache,
     saveDictionaryFile,
+    searchAllSheetsForText,
     simulateLoading
   };
 }

@@ -47,6 +47,7 @@ const {
   sheetMetadata,
   fileSearchQuery,
   sheetSearchQuery,
+  contentSearchMatches,
   debouncedInput,
   sourceWordsList,
   targetWordsList,
@@ -58,7 +59,8 @@ const {
   updateCachedWords,
   performQuickTranslate,
   rebuildBaseDictionaryCache,
-  saveDictionaryFile
+  saveDictionaryFile,
+  searchAllSheetsForText
 } = useTranslateManager();
 
 // Computed styles for dynamic highlight colors
@@ -331,7 +333,7 @@ const renderHighlighted = (text: string, mode: 'source' | 'target') => {
     // Fallback: Try trimmed match if not found
     const info = sourceInfo || wordSourceMap.value.get(match.trim());
     
-    const sourceClass = info?.type === 'tech' ? 'hl-source-tech' : 'hl-source-base';
+    const sourceClass = info?.type === 'tech' ? 'hl-source-tech' : (info?.type === 'composed' ? 'hl-source-composed' : 'hl-source-base');
     const sourceTitle = info ? `${info.type.toUpperCase()}: ${info.source || 'Unknown'}` : '';
     const attrMatch = match.replace(/"/g, '&quot;');
     
@@ -470,11 +472,13 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         :sheetMetadata="sheetMetadata"
         v-model:fileSearch="fileSearchQuery"
         v-model:sheetSearch="sheetSearchQuery"
+        :contentSearchMatches="contentSearchMatches"
         v-model:isOnlySelectedSheets="isOnlySelectedSheets"
         @selectFolder="pickQuickTranslateFolder"
         @refreshFiles="() => loadFilesFromMultipleFolders(advancedTranslatePaths, true)"
         @clearSheets="() => { selectedSheets.clear(); updateCachedWords(); }"
         @toggleFile="toggleExcelFile"
+        @deepSearch="searchAllSheetsForText"
         @toggleSheet="(fullKey) => { 
           if (selectedSheets.has(fullKey)) { 
             selectedSheets.delete(fullKey); 

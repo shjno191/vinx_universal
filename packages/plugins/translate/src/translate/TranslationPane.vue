@@ -20,6 +20,7 @@ const props = defineProps<{
   sheetMetadata: Record<string, { logical: string, physical: string, rowCount: number }>;
   fileSearch: string;
   sheetSearch: string;
+  contentSearchMatches: Map<string, string[]>;
   isOnlySelectedSheets: boolean;
 }>();
 
@@ -41,6 +42,7 @@ const emit = defineEmits<{
   (e: 'toggleAllSheets'): void;
   (e: 'update:fileSearch', val: string): void;
   (e: 'update:sheetSearch', val: string): void;
+  (e: 'deepSearch', query: string): void;
   (e: 'update:isOnlySelectedSheets', val: boolean): void;
   (e: 'refreshFiles'): void;
   (e: 'clearSheets'): void;
@@ -181,8 +183,9 @@ const filteredSheets = computed(() => {
     const isLogicalMatch = metadata?.logical?.toLowerCase().includes(query);
     const isPhysicalMatch = metadata?.physical?.toLowerCase().includes(query);
     const isFileMatch = s.file.toLowerCase().includes(query);
+    const isContentMatch = props.contentSearchMatches?.has(fullKey);
     
-    return isNameMatch || isLogicalMatch || isPhysicalMatch || isFileMatch;
+    return isNameMatch || isLogicalMatch || isPhysicalMatch || isFileMatch || isContentMatch;
   });
 });
 
@@ -402,7 +405,13 @@ const groupedSelectedSheets = computed(() => {
               <div class="side-search-box" v-if="aggregatedSheets.length > 0">
                 <input :value="sheetSearch" 
                        @input="emit('update:sheetSearch', ($event.target as HTMLInputElement).value)" 
+                       @keydown.enter="emit('deepSearch', sheetSearch)"
                        placeholder="Filter sheets..." />
+                <button class="deep-search-btn" 
+                        @click="emit('deepSearch', sheetSearch)"
+                        title="Search inside sheet content (Deep Search)">
+                  <span v-html="Icons.Search"></span>
+                </button>
               </div>
               <div class="sheet-list-scroll full">
                 <div v-if="aggregatedSheets.length === 0" class="empty-hint">No sheets available</div>
@@ -417,11 +426,16 @@ const groupedSelectedSheets = computed(() => {
                       <span class="sheet-name-label">{{ s.name }}</span>
                       <span class="file-source-tag" v-if="selectedFiles.size !== 1">{{ s.file.split(/[/\\]/).pop() }}</span>
                     </div>
-                    <div class="sheet-meta-sub" v-if="sheetMetadata[s.file + '::' + s.name]">
-                      <span class="table-logical" v-if="sheetMetadata[s.file + '::' + s.name].logical && sheetMetadata[s.file + '::' + s.name].logical !== s.name">
+                    <div class="sheet-meta-sub" v-if="sheetMetadata[s.file + '::' + s.name] || contentSearchMatches.has(s.file + '::' + s.name)">
+                      <span class="table-logical" v-if="sheetMetadata[s.file + '::' + s.name]?.logical && sheetMetadata[s.file + '::' + s.name].logical !== s.name">
                         {{ sheetMetadata[s.file + '::' + s.name].logical }}
                       </span>
                       <span class="item-stats" v-if="sheetRowCounts[s.file + '::' + s.name]">({{ sheetRowCounts[s.file + '::' + s.name] }} rows)</span>
+                    </div>
+                    <div class="matched-columns" v-if="contentSearchMatches.has(s.file + '::' + s.name)">
+                      <span class="match-tag" v-for="col in contentSearchMatches.get(s.file + '::' + s.name)" :key="col">
+                        {{ col }}
+                      </span>
                     </div>
                   </div>
                 </label>
@@ -657,4 +671,28 @@ textarea {
 
 .side-search-box { margin: 4px 10px 8px 10px; position: sticky; top: 0; z-index: 10; background: var(--input-bg); border-radius: 8px; border: 1px solid rgba(128,128,128,0.15); padding: 2px 8px; display: flex; align-items: center; }
 .side-search-box input { width: 100%; background: transparent; border: none; outline: none; color: var(--text-color); font-size: 0.65rem; font-weight: 700; height: 20px; }
+.deep-search-btn { 
+  background: transparent; 
+  border: none; 
+  padding: 0 4px; 
+  cursor: pointer; 
+  opacity: 0.3; 
+  color: var(--text-color); 
+  display: flex; 
+  align-items: center; 
+  transition: all 0.2s;
+}
+.deep-search-btn:hover { opacity: 1; color: var(--accent-color); transform: scale(1.1); }
+.deep-search-btn :deep(svg) { width: 12px; height: 12px; }
+
+.matched-columns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.match-tag { 
+  font-size: 0.55rem; 
+  background: rgba(16, 185, 129, 0.1); 
+  color: #10b981; 
+  padding: 1px 6px; 
+  border-radius: 4px; 
+  font-weight: 700; 
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
 </style>

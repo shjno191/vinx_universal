@@ -11,10 +11,9 @@ import {
 import { buildTranslationRegex, translateText } from './translation-engine';
 import { parseTechnicalSheet, extractSheetMetadata } from './sheet-parser';
 
-export interface AdvancedConfig {
-  sheet: string;
-  priority: number;
-  enabled: boolean;
+export interface WordSourceInfo {
+  type: 'base' | 'tech' | 'composed';
+  source?: string; // e.g., filename or sheet name
 }
 
 // --- Global Shared State (Singleton) ---
@@ -42,6 +41,8 @@ const sheetMetadata = shallowRef<Record<string, { logical: string, physical: str
 
 const fileSearchQuery = ref('');
 const sheetSearchQuery = ref('');
+
+const wordSourceMap = shallowRef<Map<string, WordSourceInfo>>(new Map());
 
 let loadingCount = 0;
 let loadingTimer: any = null;
@@ -72,6 +73,7 @@ export function useTranslateManager() {
   const translationRegex = shallowRef<RegExp | null>(null);
   const sourceWordsList = shallowRef<string[]>([]);
   const targetWordsList = shallowRef<string[]>([]);
+  const wordSourceMapLocal = wordSourceMap; // Just a reference for convenience
 
   // Base Dictionary Memoization - Using shallowRef for heavy sets/maps
   const baseSourceWords = shallowRef<Set<string>>(new Set());
@@ -405,9 +407,12 @@ export function useTranslateManager() {
     const sourceSet = new Set<string>();
     const targetSet = new Set<string>();
     const lookup = new Map<string, string>();
+    const sourceMap = new Map<string, WordSourceInfo>();
 
     // Helper to add word mapping with direction awareness
-    const addToLookup = (logical: string, physical: string) => {
+    const addToLookup = (l: string, p: string, info: WordSourceInfo) => {
+      const logical = l?.toString().trim();
+      const physical = p?.toString().trim();
       if (!logical || !physical) return;
       let source = '';
       let target = '';
@@ -421,6 +426,8 @@ export function useTranslateManager() {
       } else if (sharedTargetLang.value === 'vi') {
         sourceSet.add(logical);
         sourceSet.add(physical);
+        sourceMap.set(logical, info);
+        sourceMap.set(physical, info);
         return;
       }
 
@@ -428,39 +435,55 @@ export function useTranslateManager() {
         lookup.set(source, target);
         sourceSet.add(source);
         targetSet.add(target);
+        
+        // Map both source and target for highlighting purposes
+        sourceMap.set(source, info);
+        sourceMap.set(target, info);
       }
     };
 
     // 1. Process Selected Sheets first (Insertion order = "First selected wins")
     selectedSheets.value.forEach(fullKey => {
+      const parts = fullKey.split('::');
+      const sheetName = parts[parts.length - 1];
+      const info: WordSourceInfo = { type: 'tech', source: sheetName };
+
       // 1.1 Add Table/Sheet Name from Metadata
       const meta = sheetMetadata.value[fullKey];
       if (meta) {
-        addToLookup(meta.logical, meta.physical);
+        addToLookup(meta.logical, meta.physical, info);
       }
 
       // 1.2 Add Columns mappings
       const mapping = advancedDictData.value.get(fullKey);
       if (mapping) {
-        mapping.forEach((physical, logical) => addToLookup(logical, physical));
+        mapping.forEach((physical, logical) => addToLookup(logical, physical, info));
       }
     });
 
     // 2. Process Base Dictionary last (if not in ONLY mode)
     if (!isOnlySelectedSheets.value) {
+      const baseInfo: WordSourceInfo = { type: 'base', source: 'Base Dictionary' };
       baseLookupPart.value.forEach((target, source) => {
         if (!lookup.has(source)) {
           lookup.set(source, target);
           sourceSet.add(source);
           targetSet.add(target);
+          
+          sourceMap.set(source, baseInfo);
+          if (!sourceMap.has(target)) sourceMap.set(target, baseInfo);
         }
       });
-      baseTargetWords.value.forEach(word => targetSet.add(word));
+      baseTargetWords.value.forEach(word => {
+        targetSet.add(word);
+        if (!sourceMap.has(word)) sourceMap.set(word, baseInfo);
+      });
     }
 
     sourceWordsList.value = Array.from(sourceSet).sort((a, b) => b.length - a.length);
     targetWordsList.value = Array.from(targetSet).sort((a, b) => b.length - a.length);
     cachedLookup.value = lookup;
+    wordSourceMap.value = sourceMap;
     translationRegex.value = buildTranslationRegex(lookup);
 
     performQuickTranslate();
@@ -513,6 +536,7 @@ export function useTranslateManager() {
     debouncedInput,
     translationRegex,
     cachedLookup,
+    wordSourceMap,
     sourceWordsList,
     targetWordsList,
     startLoading,

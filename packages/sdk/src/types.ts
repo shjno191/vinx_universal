@@ -111,3 +111,9 @@ export interface TabContextMenuState {
     y: number;
     tab: any;
 }
+
+export interface TranslateSettings {
+    baseHighlightColor: string;
+    techHighlightColor: string;
+    composedHighlightColor: string;
+}

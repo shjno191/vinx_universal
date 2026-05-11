@@ -65,14 +65,14 @@ watch(showSettingsTrigger, (val) => {
       <div v-show="currentCategory === 'general'" class="settings-section">
         <div class="section-header-modern">
           <h2 class="section-title">Giao diện & Hệ thống</h2>
-          <p class="section-desc">Cấu hình chủ đề và các cài đặt chung cho toàn bộ ứng dụng.</p>
+          <p class="section-desc">Cấu hình chủ đ? v? các c?i đặt chung cho to?n b? ứng dụng.</p>
         </div>
 
         <div class="settings-grid">
           <div class="setting-card glass">
             <div class="card-header">
               <span class="card-icon" v-html="Icons.Settings"></span>
-              <span class="card-label">Chủ đề & Hiển thị</span>
+              <span class="card-label">Chủ đ? & Hiển th?</span>
             </div>
             
             <div class="card-body">
@@ -105,12 +105,12 @@ watch(showSettingsTrigger, (val) => {
           <div class="setting-card glass">
             <div class="card-header">
               <span class="card-icon" v-html="Icons.Folder"></span>
-              <span class="card-label">Hệ thống tệp</span>
+              <span class="card-label">H? thống tệp</span>
             </div>
             <div class="card-body">
               <div class="premium-field">
                 <label>Dữ liệu cấu hình</label>
-                <button class="premium-button full" @click="openSettingsFile">Mở thư mục cài đặt</button>
+                <button class="premium-button full" @click="openSettingsFile">M? thư mục c?i đặt</button>
               </div>
             </div>
           </div>
@@ -121,7 +121,7 @@ watch(showSettingsTrigger, (val) => {
       <div v-show="currentCategory === 'translate'" class="settings-section">
         <div class="section-header-modern">
           <h2 class="section-title">Dictionary & Translate</h2>
-          <p class="section-desc">Quản lý từ điển Excel và các nguồn dữ liệu dịch thuật.</p>
+          <p class="section-desc">Quản lý từ điển Excel v? các nguồn dữ liệu dịch thuật.</p>
         </div>
 
         <div class="setting-card glass">
@@ -155,13 +155,45 @@ watch(showSettingsTrigger, (val) => {
             <button class="premium-button-dashed" @click="pickAdvancedPath">Thêm thư mục nguồn</button>
           </div>
         </div>
+
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.Edit3"></span>
+            <span class="card-label">M?u sắc Highlight</span>
+          </div>
+          <div class="card-body">
+            <div class="color-pickers-grid">
+              <div class="premium-field">
+                <label>Base Dictionary</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.translate.baseHighlightColor" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.translate.baseHighlightColor" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+              <div class="premium-field">
+                <label>Technical Dictionary</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.translate.techHighlightColor" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.translate.techHighlightColor" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+              <div class="premium-field">
+                <label>Composed / Mixed</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.translate.composedHighlightColor" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.translate.composedHighlightColor" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- EDITOR & GIT -->
       <div v-show="currentCategory === 'editor-git'" class="settings-section">
         <div class="section-header-modern">
           <h2 class="section-title">Editor & Source Control</h2>
-          <p class="section-desc">Tối ưu trải nghiệm soạn thảo và tích hợp quản lý mã nguồn Git.</p>
+          <p class="section-desc">Tối ưu trải nghiệm soạn thảo v? tích hợp quản lý mã nguồn Git.</p>
         </div>
 
         <!-- Indentation Level 2.0 -->
@@ -223,7 +255,7 @@ watch(showSettingsTrigger, (val) => {
               <div class="feature-icon" v-html="Icons.Plus"></div>
               <div class="feature-info">
                  <span class="feature-name">Double Click New</span>
-                 <span class="feature-hint">Click đúp mở tab trống</span>
+                 <span class="feature-hint">Click đúp m? tab trống</span>
               </div>
               <div class="feature-toggle">
                  <div class="toggle-track"><div class="toggle-thumb"></div></div>
@@ -260,22 +292,22 @@ watch(showSettingsTrigger, (val) => {
       <!-- SHORTCUTS -->
       <div v-show="currentCategory === 'shortcut'" class="settings-section">
         <div class="section-header-modern">
-          <h2 class="section-title">Phím tắt hệ thống</h2>
-          <p class="section-desc">Cấu hình các tổ hợp phím để thao tác nhanh mà không cần dùng chuột.</p>
+          <h2 class="section-title">Phím tắt h? thống</h2>
+          <p class="section-desc">Cấu hình các t? hợp phím đ? thao tác nhanh m? không cần dùng chuột.</p>
         </div>
 
         <div class="setting-item-vertical">
-          <label>Phím tắt Editor (Nhấp để thay đổi)</label>
+          <label>Phím tắt Editor (Nhấp đ? thay đổi)</label>
           <div class="shortcut-list">
             <div class="shortcut-row" @click="startRecording('open_file')">
-              <span class="shortcut-desc">Mở file (Open File)</span>
+              <span class="shortcut-desc">M? file (Open File)</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_file' }">
-                {{ isRecording === 'open_file' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file) }}
+                {{ isRecording === 'open_file' ? 'HÃY NHẤN T? HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file) }}
               </span>
               <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
             <div class="shortcut-row locked">
-              <span class="shortcut-desc">Tìm kiếm văn bản toàn cục</span>
+              <span class="shortcut-desc">Tìm kiếm văn bản to?n cục</span>
               <span class="shortcut-key">CTRL + SHIFT + F</span>
             </div>
           </div>
@@ -285,16 +317,16 @@ watch(showSettingsTrigger, (val) => {
           <label>Phím tắt Điều hướng Tab (Global)</label>
           <div class="shortcut-list">
             <div class="shortcut-row" @click="startRecording('prev_tab')">
-              <span class="shortcut-desc">Chuyển về Tab phía trước</span>
+              <span class="shortcut-desc">Chuyển v? Tab phía trước</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
-                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab) }}
+                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN T? HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab) }}
               </span>
               <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
             <div class="shortcut-row" @click="startRecording('next_tab')">
               <span class="shortcut-desc">Chuyển sang Tab tiếp theo</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
-                {{ isRecording === 'next_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab) }}
+                {{ isRecording === 'next_tab' ? 'HÃY NHẤN T? HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab) }}
               </span>
               <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
@@ -306,16 +338,16 @@ watch(showSettingsTrigger, (val) => {
       <div v-show="currentCategory === 'ai'" class="settings-section">
         <div class="section-header-modern">
           <h2 class="section-title">AI Content Services</h2>
-          <p class="section-desc">Cấu hình API Key cho các mô hình AI, phục vụ tính năng vẽ Flowchart và hỗ trợ viết code.</p>
+          <p class="section-desc">Cấu hình API Key cho các mô hình AI, phục vụ tính năng vẽ Flowchart v? h? trợ viết code.</p>
         </div>
 
         <div class="setting-item">
-          <label>Nhà cung cấp mặc định (Provider)</label>
+          <label>Nh? cung cấp mặc định (Provider)</label>
           <select v-model="settings.ai.provider" class="theme-select" @change="saveSettings">
             <option value="gemini">Gemini (Google) - Nên dùng</option>
             <option value="openai">ChatGPT (OpenAI)</option>
             <option value="claude">Claude (Anthropic)</option>
-            <option value="ollama">Ollama (Chạy Offline cục bộ)</option>
+            <option value="ollama">Ollama (Chạy Offline cục b?)</option>
           </select>
         </div>
 
@@ -333,7 +365,7 @@ watch(showSettingsTrigger, (val) => {
       <div v-show="currentCategory === 'chill'" class="settings-section">
         <div class="section-header-modern">
           <h2 class="section-title">Smoking & Relax</h2>
-          <p class="section-desc">Cài đặt cho widget giải lao khi làm việc căng thẳng.</p>
+          <p class="section-desc">C?i đặt cho widget giải lao khi l?m việc căng thẳng.</p>
         </div>
 
         <div class="setting-item-vertical">
@@ -341,7 +373,7 @@ watch(showSettingsTrigger, (val) => {
           <label class="checkbox-container">
             <input type="checkbox" v-model="settings.chill.enableWidget" @change="saveSettings" />
             <span class="checkmark"></span>
-            Hiển thị điếu thuốc ở góc màn hình
+            Hiển th? điếu thuốc ? góc m?n hình
           </label>
         </div>
       </div>
@@ -359,7 +391,7 @@ watch(showSettingsTrigger, (val) => {
             <div class="rule-list">
               <div class="rule-item"><span class="rule-tag">CSS</span><p>Tự động thay bằng <code>common_pda.css</code>.</p></div>
               <div class="rule-item"><span class="rule-tag">LAYOUT</span><p>Bọc trang trong thẻ <code>div.pda_list</code>.</p></div>
-              <div class="rule-item"><span class="rule-tag">STYLE</span><p>Tách CSS ra khỏi mã JSP và đưa lên phần đầu.</p></div>
+              <div class="rule-item"><span class="rule-tag">STYLE</span><p>Tách CSS ra khỏi mã JSP v? đưa lên phần đầu.</p></div>
               <div class="rule-item"><span class="rule-tag">INDENT</span><p>Sử dụng 4 khoảng trắng cho thụt dòng.</p></div>
             </div>
           </div>
@@ -432,6 +464,18 @@ watch(showSettingsTrigger, (val) => {
   flex: 1; min-width: 0;
 }
 .premium-select:focus, .premium-input:focus { border-color: var(--accent-color); background: rgba(99,102,241,0.05); }
+
+.color-pickers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; }
+.color-input-wrapper { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); border: 1px solid rgba(128,128,128,0.2); border-radius: 8px; padding: 4px; }
+.color-picker-input { 
+  -webkit-appearance: none; border: none; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; background: transparent; padding: 0;
+}
+.color-picker-input::-webkit-color-swatch-wrapper { padding: 0; }
+.color-picker-input::-webkit-color-swatch { border: none; border-radius: 4px; }
+.premium-input-hex { 
+  background: transparent; border: none; color: var(--text-color); font-size: 0.75rem; font-family: monospace; outline: none; font-weight: 700;
+  width: 80px; flex-shrink: 0;
+}
 
 .theme-select-group { display: flex; gap: 10px; align-items: center; width: 100%; flex-wrap: nowrap; }
 

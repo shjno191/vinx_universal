@@ -10,7 +10,8 @@ import type {
     SystemControl, 
     ChillSettings, 
     ContextMenuState, 
-    TabContextMenuState 
+    TabContextMenuState,
+    TranslateSettings
 } from './types';
 
 export const theme = ref<'light' | 'dark' | '95'>('dark');
@@ -121,6 +122,12 @@ export const systemControlSettings = ref<SystemControl[]>([]);
 
 export const globalDictionaryPath = ref('');
 export const advancedTranslatePaths = ref<string[]>([]);
+
+export const translateSettings = ref<TranslateSettings>({
+    baseHighlightColor: '#3b82f6', // Soft Blue
+    techHighlightColor: '#eab308', // Soft Yellow/Gold
+    composedHighlightColor: '#10b981' // Green
+});
 
 export const loadingTheme = ref<'cute' | 'premium' | 'retro' | 'cyber' | 'nature' | 'orbit'>('cute');
 

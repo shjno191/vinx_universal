@@ -22,7 +22,8 @@ import {
   sharedTargetLang, 
   activeTab,
   systemControlSettings,
-  globalDictionaryPath
+  globalDictionaryPath,
+  translateSettings
 } from '@vinx/sdk';
 
 const props = defineProps<{ theme?: string }>();
@@ -49,6 +50,7 @@ const {
   debouncedInput,
   sourceWordsList,
   targetWordsList,
+  wordSourceMap,
   loadDictionary,
   loadFilesFromMultipleFolders,
   toggleExcelFile,
@@ -58,6 +60,24 @@ const {
   rebuildBaseDictionaryCache,
   saveDictionaryFile
 } = useTranslateManager();
+
+// Computed styles for dynamic highlight colors
+const highlightStyles = computed(() => {
+  if (!translateSettings || !translateSettings.value) {
+    return {};
+  }
+  return {
+    '--hl-base-color': translateSettings.value.baseHighlightColor,
+    '--hl-tech-color': translateSettings.value.techHighlightColor,
+    '--hl-composed-color': translateSettings.value.composedHighlightColor,
+    '--hl-base-bg': `${translateSettings.value.baseHighlightColor}33`, // 20% alpha
+    '--hl-tech-bg': `${translateSettings.value.techHighlightColor}33`,
+    '--hl-composed-bg': `${translateSettings.value.composedHighlightColor}33`,
+    '--hl-base-bg-hover': `${translateSettings.value.baseHighlightColor}66`, // 40% alpha
+    '--hl-tech-bg-hover': `${translateSettings.value.techHighlightColor}66`,
+    '--hl-composed-bg-hover': `${translateSettings.value.composedHighlightColor}66`,
+  };
+});
 
 const aggregatedSheets = computed(() => {
   const result: { file: string, name: string }[] = [];
@@ -145,7 +165,9 @@ const handleHighlighterClick = (event: MouseEvent) => {
 
 const handleHighlighterMouseOver = (event: MouseEvent) => {
   const target = event.target as HTMLElement;
-  if (target.tagName === 'MARK') hoveredWord.value = target.innerText;
+  if (target.tagName === 'MARK') {
+    hoveredWord.value = target.innerText;
+  }
 };
 
 const handleHighlighterMouseOut = () => { hoveredWord.value = null; };
@@ -288,14 +310,42 @@ const renderHighlighted = (text: string, mode: 'source' | 'target') => {
   const patternArr = mode === 'source' ? sourceWordsList.value : targetWordsList.value;
   if (patternArr.length === 0) return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+  // Escape the text for HTML rendering
   let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  
+  // Build pattern for original text
   const pattern = patternArr.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   const regex = new RegExp(`(${pattern})`, 'g');
   
-  return escaped.replace(regex, (match) => {
+  // We want to replace in the original text, then escape the result? 
+  // No, we need to match against the original text to get correct source info,
+  // but the result must be valid HTML.
+  
+  // Simple approach: Replace in original text with placeholders, then escape, then replace placeholders with HTML.
+  let i = 0;
+  const placeholders: string[] = [];
+  const processed = text.replace(regex, (match) => {
+    const placeholder = `__HL_PLACEHOLDER_${i}__`;
+    const sourceInfo = wordSourceMap.value.get(match);
+    
+    // Fallback: Try trimmed match if not found
+    const info = sourceInfo || wordSourceMap.value.get(match.trim());
+    
+    const sourceClass = info?.type === 'tech' ? 'hl-source-tech' : 'hl-source-base';
+    const sourceTitle = info ? `${info.type.toUpperCase()}: ${info.source || 'Unknown'}` : '';
     const attrMatch = match.replace(/"/g, '&quot;');
-    return `<mark class="hl-${mode}" data-word="${attrMatch}">${match}</mark>`;
+    
+    placeholders[i] = `<mark class="hl-${mode} ${sourceClass}" data-word="${attrMatch}" title="${sourceTitle}">${match.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</mark>`;
+    i++;
+    return placeholder;
   });
+
+  let finalHtml = processed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  for (let j = 0; j < i; j++) {
+    finalHtml = finalHtml.replace(`__HL_PLACEHOLDER_${j}__`, placeholders[j]);
+  }
+  
+  return finalHtml;
 };
 
 const highlightedInput = ref('');
@@ -342,7 +392,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 </script>
 
 <template>
-  <div class="premium-translate" :class="{ 'win95': props.theme === '95' }">
+  <div class="premium-translate" :class="{ 'win95': props.theme === '95' }" :style="highlightStyles">
     <header class="main-header glass">
       <div class="tabs-pill">
         <button @click="subTab = 'dictionary'" :class="{ active: subTab === 'dictionary' }" class="tab-pill-btn">DICTIONARY</button>
@@ -609,4 +659,37 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
   bottom: 40px;
 }
 .is-win95 .toast-text { color: #000; }
+/* Source-specific highlights */
+:deep(.hl-source-base) {
+  background-color: var(--hl-base-bg, rgba(59, 130, 246, 0.2));
+  border-bottom: 2px solid var(--hl-base-color, #3b82f6);
+  color: inherit;
+}
+
+:deep(.hl-source-tech) {
+  background-color: var(--hl-tech-bg, rgba(234, 179, 8, 0.2));
+  border-bottom: 2px solid var(--hl-tech-color, #eab308);
+  color: inherit;
+}
+
+:deep(mark.hl-source-base:hover) {
+  background-color: var(--hl-base-bg-hover, rgba(59, 130, 246, 0.4));
+}
+
+:deep(mark.hl-source-tech:hover) {
+  background-color: var(--hl-tech-bg-hover, rgba(234, 179, 8, 0.4));
+}
+
+:deep(.hl-target.hl-source-base) {
+  background-color: var(--hl-base-bg, rgba(16, 185, 129, 0.1));
+  border-bottom: 2px solid var(--hl-base-color, #10b981);
+}
+
+:deep(.hl-target.hl-source-tech) {
+  background-color: var(--hl-tech-bg, rgba(249, 115, 22, 0.1));
+  border-bottom: 2px solid var(--hl-tech-color, #f97316);
+}
+
+.is-win95 .hl-source-base { background: #000080; color: #fff; border: none; }
+.is-win95 .hl-source-tech { background: #808000; color: #fff; border: none; }
 </style>

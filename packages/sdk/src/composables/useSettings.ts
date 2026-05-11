@@ -13,7 +13,8 @@ import {
   triggerSettingsRefresh,
   globalDictionaryPath,
   advancedTranslatePaths,
-  hiddenExplorerPaths
+  hiddenExplorerPaths,
+  translateSettings
 } from '../store';
 
 
@@ -60,6 +61,11 @@ export interface Settings {
     ollamaUrl: string;
     ollamaModel: string;
   };
+  translate: {
+    baseHighlightColor: string;
+    techHighlightColor: string;
+    composedHighlightColor: string;
+  };
 }
 
 export const settings = ref<Settings>({
@@ -104,6 +110,11 @@ export const settings = ref<Settings>({
     claudeModel: 'claude-3-haiku-20240307',
     ollamaUrl: 'http://localhost:11434/api/generate',
     ollamaModel: 'llama3',
+  },
+  translate: {
+    baseHighlightColor: '#3b82f6',
+    techHighlightColor: '#eab308',
+    composedHighlightColor: '#10b981'
   }
 });
 
@@ -139,6 +150,9 @@ export function useSettings() {
         globalDictionaryPath.value = settings.value.dictionary_path || '';
         advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
         hiddenExplorerPaths.value = settings.value.hidden_explorer_paths || [];
+        if (settings.value.translate) {
+          translateSettings.value = settings.value.translate;
+        }
       }
 
     } catch (e) {
@@ -148,6 +162,11 @@ export function useSettings() {
 
   const saveSettings = async () => {
     try {
+      // Sync back to translateSettings before saving
+      if (settings.value.translate) {
+        translateSettings.value = { ...settings.value.translate };
+      }
+      
       await invoke('save_settings', { settings: JSON.stringify(settings.value, null, 2) });
       globalShortcuts.value = settings.value.shortcuts;
       editorSettings.value = settings.value.editor;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { sanitize, Icons } from '@vinx/sdk';
+import { ref, computed } from 'vue';
+import { sanitize, Icons, useClipboard } from '@vinx/sdk';
 
 interface DictionaryEntry {
   jp: string;
@@ -21,6 +21,30 @@ const emit = defineEmits<{
   (e: 'delete', item: DictionaryEntry): void;
   (e: 'copy', text: string, event: MouseEvent): void;
 }>();
+
+const { copyToClipboard } = useClipboard();
+const copiedCell = ref<{ row: number, col: string } | null>(null);
+let copyTimer: any = null;
+
+const handleCellClick = async (text: string, rowIdx: number, colKey: string, event: MouseEvent) => {
+  const cleanText = text ? text.trim() : '';
+  if (!cleanText) return;
+
+  console.log(`[DictionaryTable] Attempting to copy: "${cleanText}"`);
+  const success = await copyToClipboard(cleanText);
+  if (success) {
+    console.log(`[DictionaryTable] Copy successful for row ${rowIdx}, col ${colKey}`);
+    if (copyTimer) clearTimeout(copyTimer);
+    copiedCell.value = { row: rowIdx, col: colKey };
+    copyTimer = setTimeout(() => {
+      copiedCell.value = null;
+    }, 2000);
+    
+    emit('copy', cleanText, event);
+  } else {
+    console.warn(`[DictionaryTable] Copy failed for: "${cleanText}"`);
+  }
+};
 
 const filteredData = computed(() => {
   if (!props.searchQuery) return props.data;
@@ -93,16 +117,25 @@ const highlightMatch = (text: string) => {
           <tr v-for="(item, idx) in filteredData.slice(0, 100)" 
               :key="idx" 
               v-else
-              v-memo="[item.jp, item.en, item.vi, props.searchQuery, props.isStrict]">
+              v-memo="[item.jp, item.en, item.vi, props.searchQuery, props.isStrict, copiedCell?.row === idx]">
             <td class="col-index">{{ idx + 1 }}</td>
-            <td @click="emit('copy', item.jp, $event)" class="clickable-cell">
+            <td @click="handleCellClick(item.jp, idx, 'jp', $event)" class="clickable-cell">
               <span v-html="highlightMatch(item.jp)"></span>
+              <transition name="badge">
+                <span v-if="copiedCell?.row === idx && copiedCell?.col === 'jp'" class="copy-badge">COPIED!</span>
+              </transition>
             </td>
-            <td @click="emit('copy', item.en, $event)" class="clickable-cell code-text">
+            <td @click="handleCellClick(item.en, idx, 'en', $event)" class="clickable-cell code-text">
               <span v-html="highlightMatch(item.en)"></span>
+              <transition name="badge">
+                <span v-if="copiedCell?.row === idx && copiedCell?.col === 'en'" class="copy-badge">COPIED!</span>
+              </transition>
             </td>
-            <td @click="emit('copy', item.vi, $event)" class="clickable-cell">
+            <td @click="handleCellClick(item.vi, idx, 'vi', $event)" class="clickable-cell">
               <span v-html="highlightMatch(item.vi || '-')"></span>
+              <transition name="badge">
+                <span v-if="copiedCell?.row === idx && copiedCell?.col === 'vi'" class="copy-badge">COPIED!</span>
+              </transition>
             </td>
             <td class="col-actions">
               <div class="action-icons">
@@ -129,15 +162,15 @@ const highlightMatch = (text: string) => {
 <style scoped>
 .dictionary-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 .dict-table-wrapper { flex: 1; overflow-y: auto; border-radius: 12px; }
-.dict-table { width: 100%; border-collapse: collapse; }
+.dict-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .dict-table th { position: sticky; top: 0; background: #6366f1; color: #fff; padding: 12px 15px; text-align: left; font-size: 0.65rem; font-weight: 800; z-index: 5; }
 .dict-table tbody tr { transition: background 0.2s; }
 .dict-table tbody tr:hover { background-color: rgba(99, 102, 241, 0.04); }
-.dict-table td { padding: 10px 15px; font-size: 0.8rem; border-bottom: 1px solid rgba(128,128,128,0.08); color: var(--text-color); }
+.dict-table td { padding: 10px 15px; font-size: 0.8rem; border-bottom: 1px solid rgba(128,128,128,0.08); color: var(--text-color); position: relative; overflow: visible; }
 .clickable-cell { cursor: pointer; transition: background 0.2s; }
 .clickable-cell:hover { background: rgba(99, 102, 241, 0.06); }
 .clickable-cell:active { background: rgba(99, 102, 241, 0.1); }
-.col-index { text-align: center; opacity: 0.4; }
+.col-index { text-align: center; opacity: 0.4; width: 40px; }
 .col-actions { text-align: center; width: 80px; }
 .action-icons { display: flex; justify-content: center; gap: 5px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
 .dict-table tbody tr:hover .action-icons { opacity: 1; pointer-events: auto; }
@@ -149,4 +182,34 @@ const highlightMatch = (text: string) => {
 .lang-tag { background: rgba(99, 102, 241, 0.1); color: #6366f1; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
 .code-text { font-family: 'Consolas', monospace; color: var(--accent-color); }
 :deep(.local-match) { background: #6366f1; color: white; border-radius: 2px; padding: 0 2px; }
+
+/* Copy Badge */
+.copy-badge {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: #10b981;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+}
+
+.badge-enter-active { animation: badge-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.badge-leave-active { animation: badge-out 0.4s ease-in forwards; }
+
+@keyframes badge-in {
+  0% { opacity: 0; transform: translateY(-50%) scale(0.5); }
+  100% { opacity: 1; transform: translateY(-50%) scale(1); }
+}
+
+@keyframes badge-out {
+  0% { opacity: 1; transform: translateY(-50%) scale(1); }
+  100% { opacity: 0; transform: translateY(-70%) scale(0.8); }
+}
 </style>

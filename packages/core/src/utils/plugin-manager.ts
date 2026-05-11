@@ -78,6 +78,18 @@ export function usePluginManager() {
         console.error(`Failed to load plugin at ${path}:`, e);
       }
     }
+
+    // Sort plugins by predefined order
+    const order = ['SQL-Helper', 'Translate', 'Compare', 'Convert', 'Editor', 'Git', 'FlowChart', 'Chill'];
+    plugins.value.sort((a, b) => {
+      const idxA = order.indexOf(a.name);
+      const idxB = order.indexOf(b.name);
+      
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.name.localeCompare(b.name);
+    });
   };
 
   return {

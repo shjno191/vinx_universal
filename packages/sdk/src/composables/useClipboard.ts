@@ -13,25 +13,39 @@ export function useClipboard() {
   const copyToClipboard = async (text: string): Promise<boolean> => {
     if (!text) return false;
     try {
+      // Try Tauri plugin first
       await writeText(text);
       return true;
     } catch (error) {
-      console.error('[Clipboard] Failed to copy:', error);
-      return false;
+      // Fallback to Web API
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+        throw new Error('Web Clipboard API not available');
+      } catch (webError) {
+        console.error('[Clipboard] Both Tauri and Web clipboard failed:', webError);
+        return false;
+      }
     }
   };
 
-  /**
-   * Reads text from the system clipboard.
-   * @returns string or empty
-   */
   const readFromClipboard = async (): Promise<string> => {
     try {
-      const text = await readText();
-      return text || '';
+      // Try Tauri plugin first
+      return await readText();
     } catch (error) {
-      console.error('[Clipboard] Failed to read:', error);
-      return '';
+      // Fallback to Web API
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          return await navigator.clipboard.readText();
+        }
+        return '';
+      } catch (webError) {
+        console.error('[Clipboard] Both Tauri and Web clipboard failed:', webError);
+        return '';
+      }
     }
   };
 

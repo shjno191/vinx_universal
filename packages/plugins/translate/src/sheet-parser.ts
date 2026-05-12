@@ -7,6 +7,14 @@ export interface SheetMetadata {
 }
 
 /**
+ * Helper to check if a string looks like a physical DB name (identifiers, underscores, caps).
+ */
+function isPhysicalLike(s: string): boolean {
+  if (!s || s.length < 2) return false;
+  return /^[A-Z0-9_$#.]+$/.test(s);
+}
+
+/**
  * Parses a worksheet to find technical header definitions and extract a mapping.
  * Uses a scoring system to distinguish between table metadata and column definitions.
  */
@@ -16,26 +24,29 @@ export function parseTechnicalSheet(worksheet: XLSX.WorkSheet): Map<string, stri
 
   let bestScore = -1;
   let headerRowIndex = -1;
-  let logicalColIdx = -1;
-  let physicalColIdx = -1;
+  // Support multiple logical/physical column pairs
+  let columnPairs: Array<{ li: number, pi: number }> = [];
 
   // Scan first 50 rows for the header
   for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
     const row = jsonData[i] || [];
     let score = 0;
-    let li = -1;
-    let pi = -1;
+    const currentPairs: Array<{ li: number, pi: number }> = [];
+    
+    // We search for logical/physical markers
+    let tempLi: number[] = [];
+    let tempPi: number[] = [];
 
     row.forEach((cell, idx) => {
       const s = String(cell || '').toLowerCase();
       // High priority for columns mentioning 'column' or specific 'name' patterns
       if (s.includes('論理') && s.includes('名')) {
-        li = idx;
-        score += (s.includes('カラム') || s.includes('column')) ? 10 : 2;
+        tempLi.push(idx);
+        score += (s.includes('カラム') || s.includes('column') || s.includes('項目')) ? 10 : 2;
       }
       if (s.includes('物理') && s.includes('名')) {
-        pi = idx;
-        score += (s.includes('カラム') || s.includes('column')) ? 10 : 2;
+        tempPi.push(idx);
+        score += (s.includes('カラム') || s.includes('column') || s.includes('項目')) ? 10 : 2;
       }
       // Additional indicators
       if (s === 'no.' || s === 'no' || s === '番号') score += 2;
@@ -47,34 +58,95 @@ export function parseTechnicalSheet(worksheet: XLSX.WorkSheet): Map<string, stri
       if (s.includes('テーブル') || s.includes('table')) score -= 15;
     });
 
-    if (li !== -1 && pi !== -1 && score > bestScore) {
-      bestScore = score;
-      headerRowIndex = i;
-      logicalColIdx = li;
-      physicalColIdx = pi;
+    // Pair up closest logical/physical columns
+    if (tempLi.length > 0 && tempPi.length > 0) {
+      // Simple heuristic: pair them based on proximity
+      tempLi.forEach(li => {
+        let nearestPi = -1;
+        let minDist = Infinity;
+        tempPi.forEach(pi => {
+          const dist = Math.abs(li - pi);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestPi = pi;
+          }
+        });
+        if (nearestPi !== -1) {
+          currentPairs.push({ li, pi });
+        }
+      });
+      
+      // Ensure we also pair any unpaired physical columns
+      tempPi.forEach(pi => {
+        if (!currentPairs.some(p => p.pi === pi)) {
+          let nearestLi = -1;
+          let minDist = Infinity;
+          tempLi.forEach(li => {
+            const dist = Math.abs(li - pi);
+            if (dist < minDist) {
+              minDist = dist;
+              nearestLi = li;
+            }
+          });
+          if (nearestLi !== -1) {
+             currentPairs.push({ li: nearestLi, pi });
+          }
+        }
+      });
+
+      if (score > bestScore) {
+        bestScore = score;
+        headerRowIndex = i;
+        columnPairs = currentPairs;
+      }
     }
   }
 
   if (headerRowIndex !== -1) {
     for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
       const row = jsonData[i] || [];
-      const logical = String(row[logicalColIdx] || '').trim();
-      const physical = String(row[physicalColIdx] || '').trim();
-      if (logical && physical) {
-        mapping.set(logical, physical); // Store as Logical -> Physical
-      }
+      columnPairs.forEach(pair => {
+        const logical = String(row[pair.li] || '').trim();
+        const physical = String(row[pair.pi] || '').trim();
+        if (logical && physical && logical !== physical) {
+          mapping.set(logical, physical); // Store as Logical -> Physical
+        }
+      });
     }
   } else {
-    // Fallback logic for simple sheets without complex headers
-    jsonData.forEach(row => {
-      if (row.length >= 2) {
-        const logical = String(row[0] || '').trim();
-        const physical = String(row[1] || '').trim();
-        if (logical && physical && logical.length < 200) {
-          mapping.set(logical, physical);
-        }
+    // Fallback logic improved for DB List format
+    // Detect if it's a DB List format (5+ columns with repeating table/column info)
+    let dbListScore = 0;
+    for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
+      const row = jsonData[i] || [];
+      if (row.length >= 5 && isPhysicalLike(String(row[1])) && isPhysicalLike(String(row[3]))) {
+        dbListScore++;
       }
-    });
+    }
+
+    if (dbListScore > 3) {
+      jsonData.forEach(row => {
+        if (row.length >= 5) {
+          const tableJP = String(row[0] || '').trim();
+          const tableEN = String(row[1] || '').trim();
+          const colEN = String(row[3] || '').trim();
+          const colJP = String(row[4] || '').trim();
+          if (tableJP && tableEN) mapping.set(tableJP, tableEN);
+          if (colJP && colEN) mapping.set(colJP, colEN);
+        }
+      });
+    } else {
+      // Simple 2-column fallback
+      jsonData.forEach(row => {
+        if (row.length >= 2) {
+          const logical = String(row[0] || '').trim();
+          const physical = String(row[1] || '').trim();
+          if (logical && physical && logical.length < 200) {
+            mapping.set(logical, physical);
+          }
+        }
+      });
+    }
   }
 
   return mapping;
@@ -104,6 +176,18 @@ export function extractSheetMetadata(worksheet: XLSX.WorkSheet): SheetMetadata {
       }
     }
     if (logical && physical) break;
+  }
+
+  // Fallback for DB List format
+  if (!logical || !physical) {
+    for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
+      const row = jsonData[i] || [];
+      if (row.length >= 5 && isPhysicalLike(String(row[1])) && isPhysicalLike(String(row[3]))) {
+        logical = String(row[0] || '').trim();
+        physical = String(row[1] || '').trim();
+        break;
+      }
+    }
   }
 
   // Fallback old logic if not found

@@ -9,6 +9,8 @@ export interface SheetCacheData {
 
 let cachedConfigDir: string | null = null;
 
+const CACHE_VERSION = '1.2'; // Bumping version for new DB List parser
+
 export function useCacheManager() {
   const { readFile, writeFile } = useFileSystem();
 
@@ -39,8 +41,9 @@ export function useCacheManager() {
   const saveCache = async (excelPath: string, data: any) => {
     try {
       const cachePath = await getCachePath(excelPath);
+      data.version = CACHE_VERSION;
       await writeFile(cachePath, JSON.stringify(data, null, 2));
-      console.log(`[CacheManager] Saved cache to: ${cachePath}`);
+      console.log(`[CacheManager] Saved cache to: ${cachePath} (v${CACHE_VERSION})`);
     } catch (error) {
       console.warn(`[CacheManager] Failed to save cache for ${excelPath}:`, error);
     }
@@ -51,7 +54,12 @@ export function useCacheManager() {
       const cachePath = await getCachePath(excelPath);
       const content = await readFile(cachePath);
       if (content) {
-        return JSON.parse(content);
+        const data = JSON.parse(content);
+        if (data.version !== CACHE_VERSION) {
+          console.log(`[CacheManager] Cache version mismatch for ${excelPath}. Expected ${CACHE_VERSION}, got ${data.version}`);
+          return null;
+        }
+        return data;
       }
       return null;
     } catch (error) {

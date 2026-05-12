@@ -14,8 +14,12 @@ const {
   saveSettings,
   openSettingsFile,
   pickDictionary,
-  pickAdvancedPath,
-  removeAdvancedPath,
+  addTranslateGroup,
+  removeTranslateGroup,
+  renameTranslateGroup,
+  toggleGroupActive,
+  addPathToGroup,
+  removePathFromGroup,
   downloadTemplate,
   startRecording,
   formatShortcut,
@@ -144,15 +148,62 @@ watch(showSettingsTrigger, (val) => {
           <div class="card-header">
             <span class="card-icon" v-html="Icons.Plus"></span>
             <span class="card-label">Nguồn quét từ điển (Quick Translate)</span>
+            <button class="add-group-btn" @click="addTranslateGroup" title="Thêm nhóm mới">
+              <span v-html="Icons.Plus"></span> Nhóm mới
+            </button>
           </div>
           <div class="card-body">
-            <div class="path-chips">
-              <div v-for="(path, idx) in settings.advanced_translate_paths" :key="idx" class="path-chip">
-                <span class="chip-text">{{ path }}</span>
-                <span class="chip-remove" @click="removeAdvancedPath(idx)" v-html="Icons.Close"></span>
+            <div v-for="group in settings.advanced_translate_groups" :key="group.id" class="translate-group">
+              <div class="group-header">
+                <div class="group-title-row">
+                  <input 
+                    type="text" 
+                    class="group-name-input" 
+                    :value="group.name" 
+                    @change="(e) => renameTranslateGroup(group.id, (e.target as HTMLInputElement).value)"
+                    placeholder="Tên nhóm..."
+                  />
+                  <div class="group-actions">
+                    <div 
+                      class="toggle-switch-mini" 
+                      :class="{ active: group.active }" 
+                      @click="toggleGroupActive(group.id)"
+                      :title="group.active ? 'Đang kích hoạt' : 'Đang tạm dừng'"
+                    >
+                      <div class="switch-handle"></div>
+                    </div>
+                    <button class="icon-btn-danger" @click="removeTranslateGroup(group.id)" title="Xóa nhóm">
+                      <span v-html="Icons.Trash2"></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="group-paths">
+                <div v-if="!group.paths || group.paths.length === 0" class="empty-group-hint">
+                  Chưa có nguồn nào trong nhóm này...
+                </div>
+                <div v-for="(p, pIdx) in group.paths" :key="pIdx" class="path-chip-modern">
+                  <span class="chip-icon" v-html="p.type === 'folder' ? Icons.Folder : Icons.File"></span>
+                  <span class="chip-text" :title="p.path">{{ p.path }}</span>
+                  <span class="chip-remove" @click="removePathFromGroup(group.id, pIdx)" v-html="Icons.Close"></span>
+                </div>
+              </div>
+
+              <div class="group-footer">
+                <button class="premium-button-dashed mini" @click="addPathToGroup(group.id, true)">
+                  <span v-html="Icons.Plus"></span> Thư mục
+                </button>
+                <button class="premium-button-dashed mini" @click="addPathToGroup(group.id, false)">
+                  <span v-html="Icons.Plus"></span> Tệp Excel
+                </button>
               </div>
             </div>
-            <button class="premium-button-dashed" @click="pickAdvancedPath">Thêm thư mục nguồn</button>
+            
+            <div v-if="!settings.advanced_translate_groups || settings.advanced_translate_groups.length === 0" class="empty-state">
+              <p>Chưa có nhóm nguồn từ điển nào được tạo.</p>
+              <button class="premium-button secondary" @click="addTranslateGroup">Tạo nhóm đầu tiên</button>
+            </div>
           </div>
         </div>
 
@@ -569,4 +620,145 @@ watch(showSettingsTrigger, (val) => {
 .theme-95 .category-btn.active { background: #000080 !important; color: #fff !important; border: none !important; }
 .theme-95 .save-all-btn { border: 2px solid !important; border-color: #fff #808080 #808080 #fff !important; background: #c0c0c0 !important; color: #000 !important; border-radius: 0; }
 .theme-95 .theme-select, .theme-95 .text-input { border: 2px solid !important; border-color: #808080 #fff #fff #808080 !important; border-radius: 0; background: #fff !important; color: #000 !important; }
+.add-group-btn {
+  margin-left: auto;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: var(--accent-color);
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.add-group-btn:hover { background: var(--accent-color); color: #fff; }
+
+.translate-group {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(128, 128, 128, 0.1);
+  border-radius: 12px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.group-header {
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.05);
+}
+
+.group-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.group-name-input {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  font-weight: 800;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex: 1;
+  outline: none;
+}
+.group-name-input:hover, .group-name-input:focus { background: rgba(0,0,0,0.05); }
+
+.group-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toggle-switch-mini {
+  width: 32px;
+  height: 16px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+.toggle-switch-mini.active { background: var(--accent-color); }
+.switch-handle {
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: left 0.3s;
+}
+.toggle-switch-mini.active .switch-handle { left: 18px; }
+
+.icon-btn-danger {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+.icon-btn-danger:hover { opacity: 1; }
+
+.group-paths {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.path-chip-modern {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(128, 128, 128, 0.05);
+  border-radius: 8px;
+  padding: 6px 10px;
+  transition: all 0.2s;
+}
+.path-chip-modern:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(128, 128, 128, 0.1); }
+
+.chip-icon { opacity: 0.5; display: flex; align-items: center; }
+
+.group-footer {
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.premium-button-dashed.mini {
+  padding: 4px 10px;
+  font-size: 0.65rem;
+  margin-top: 0;
+  flex: 1;
+}
+
+.empty-group-hint {
+  font-size: 0.7rem;
+  opacity: 0.3;
+  font-style: italic;
+  text-align: center;
+  padding: 10px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 30px 10px;
+  opacity: 0.5;
+}
+.empty-state p { font-size: 0.8rem; margin-bottom: 12px; }
+
+.advanced-path-actions { display: flex; gap: 8px; margin-top: 8px; }
+.advanced-path-actions .premium-button-dashed { flex: 1; margin-top: 0; }
 </style>

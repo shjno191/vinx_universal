@@ -317,13 +317,22 @@ export function useTranslateManager() {
 
     try {
       const allFiles: string[] = [];
-      for (const folder of folders) {
+      for (const p of folders) {
         try {
-          const files = await invoke('list_files_in_dir', { path: folder, extension: 'xlsx' }) as string[];
-          const normalized = files.map(f => String(f).replace(/\\/g, '/'));
-          allFiles.push(...normalized);
-        } catch (dirErr) {
-          console.warn(`[TranslateManager] Skip folder ${folder}:`, dirErr);
+          // Check if path is a directory or a file
+          const node = await invoke('read_dir_tree', { path: p, depth: 0 }) as any;
+          if (node.is_dir) {
+            const files = await invoke('list_files_in_dir', { path: p, extension: 'xlsx' }) as string[];
+            const normalized = files.map(f => String(f).replace(/\\/g, '/'));
+            allFiles.push(...normalized);
+          } else {
+            // It's a file, check if it's an Excel file
+            if (p.toLowerCase().endsWith('.xlsx') || p.toLowerCase().endsWith('.xls')) {
+              allFiles.push(p.replace(/\\/g, '/'));
+            }
+          }
+        } catch (err) {
+          console.warn(`[TranslateManager] Skip path ${p}:`, err);
         }
       }
 

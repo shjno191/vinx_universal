@@ -117,3 +117,14 @@ export interface TranslateSettings {
     techHighlightColor: string;
     composedHighlightColor: string;
 }
+export interface AdvancedTranslatePath {
+    path: string;
+    type: 'file' | 'folder';
+}
+
+export interface AdvancedTranslateGroup {
+    id: string;
+    name: string;
+    active: boolean;
+    paths: AdvancedTranslatePath[];
+}

@@ -1,4 +1,4 @@
-import { ref, shallowRef, watch } from 'vue';
+import { ref, shallowRef, watch, computed } from 'vue';
 import type { 
     EditorSettings, 
     CursorPosition, 
@@ -10,7 +10,8 @@ import type {
     ChillSettings, 
     ContextMenuState, 
     TabContextMenuState,
-    TranslateSettings
+    TranslateSettings,
+    AdvancedTranslateGroup
 } from './types';
 
 export type { GitFile, GitBranch };
@@ -122,7 +123,20 @@ export const activeTab = ref('SQL-Helper');
 export const systemControlSettings = ref<SystemControl[]>([]);
 
 export const globalDictionaryPath = ref('');
-export const advancedTranslatePaths = ref<string[]>([]);
+export const advancedTranslateGroups = ref<AdvancedTranslateGroup[]>([]);
+export const advancedTranslatePaths = computed(() => {
+    const paths: string[] = [];
+    advancedTranslateGroups.value.forEach(group => {
+        if (group.active) {
+            group.paths.forEach(p => {
+                if (!paths.includes(p.path)) {
+                    paths.push(p.path);
+                }
+            });
+        }
+    });
+    return paths;
+});
 
 export const translateSettings = ref<TranslateSettings>({
     baseHighlightColor: '#3b82f6', // Soft Blue

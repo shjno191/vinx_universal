@@ -12,7 +12,7 @@ import {
   loadingTheme,
   triggerSettingsRefresh,
   globalDictionaryPath,
-  advancedTranslatePaths,
+  advancedTranslateGroups,
   hiddenExplorerPaths,
   translateSettings
 } from '../store';
@@ -23,6 +23,7 @@ export interface Settings {
   loading_theme: string;
   dictionary_path: string;
   advanced_translate_paths: string[];
+  advanced_translate_groups: any[];
   shortcuts: {
     focus_search: string;
     open_settings: string;
@@ -73,6 +74,7 @@ export const settings = ref<Settings>({
   loading_theme: 'cute',
   dictionary_path: '',
   advanced_translate_paths: [],
+  advanced_translate_groups: [],
   shortcuts: {
     focus_search: 'ctrl+f',
     open_settings: 'ctrl+shift+s',
@@ -148,7 +150,25 @@ export function useSettings() {
         aiSettings.value = settings.value.ai as any;
         chillSettings.value = settings.value.chill;
         globalDictionaryPath.value = settings.value.dictionary_path || '';
-        advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
+        
+        // Migration: If we have old paths but no groups, create a default group
+        const oldPaths = settings.value.advanced_translate_paths || [];
+        if (oldPaths.length > 0 && (!settings.value.advanced_translate_groups || settings.value.advanced_translate_groups.length === 0)) {
+          const defaultGroup = {
+            id: 'default-' + Date.now(),
+            name: 'Default Group',
+            active: true,
+            paths: oldPaths.map((p: string) => ({
+              path: p,
+              type: (p.toLowerCase().endsWith('.xlsx') || p.toLowerCase().endsWith('.xls')) ? 'file' : 'folder'
+            }))
+          };
+          settings.value.advanced_translate_groups = [defaultGroup];
+          // Clear old paths once migrated to avoid duplication
+          settings.value.advanced_translate_paths = [];
+        }
+
+        advancedTranslateGroups.value = settings.value.advanced_translate_groups || [];
         hiddenExplorerPaths.value = settings.value.hidden_explorer_paths || [];
         if (settings.value.translate) {
           translateSettings.value = settings.value.translate;
@@ -174,7 +194,7 @@ export function useSettings() {
       loadingTheme.value = (settings.value.loading_theme || 'cute') as any;
       aiSettings.value = settings.value.ai as any;
       chillSettings.value = settings.value.chill;
-      advancedTranslatePaths.value = settings.value.advanced_translate_paths || [];
+      advancedTranslateGroups.value = settings.value.advanced_translate_groups || [];
       settings.value.hidden_explorer_paths = [...hiddenExplorerPaths.value];
       triggerSettingsRefresh.value++;
 
@@ -207,11 +227,12 @@ export function useSettings() {
     }
   };
 
-  const pickAdvancedPath = async (): Promise<string | null> => {
+  const pickAdvancedPath = async (isFolder: boolean = true): Promise<string | null> => {
     try {
       const selected = await open({
         multiple: false,
-        directory: true,
+        directory: isFolder,
+        filters: isFolder ? undefined : [{ name: 'Excel', extensions: ['xlsx', 'xls'] }]
       });
       if (selected) {
         const path = Array.isArray(selected) ? selected[0] : selected;
@@ -220,7 +241,6 @@ export function useSettings() {
         }
         if (!settings.value.advanced_translate_paths.includes(path)) {
           settings.value.advanced_translate_paths.push(path);
-          advancedTranslatePaths.value = [...settings.value.advanced_translate_paths];
           await saveSettings();
         }
         return path;
@@ -235,7 +255,77 @@ export function useSettings() {
   const removeAdvancedPath = async (index: number) => {
     if (settings.value.advanced_translate_paths) {
       settings.value.advanced_translate_paths.splice(index, 1);
-      advancedTranslatePaths.value = [...settings.value.advanced_translate_paths];
+      await saveSettings();
+    }
+  };
+
+  const addTranslateGroup = async () => {
+    if (!settings.value.advanced_translate_groups) settings.value.advanced_translate_groups = [];
+    const newGroup = {
+      id: 'group-' + Date.now(),
+      name: 'New Group ' + (settings.value.advanced_translate_groups.length + 1),
+      active: true,
+      paths: []
+    };
+    settings.value.advanced_translate_groups.push(newGroup);
+    await saveSettings();
+  };
+
+  const removeTranslateGroup = async (groupId: string) => {
+    if (!settings.value.advanced_translate_groups) return;
+    settings.value.advanced_translate_groups = settings.value.advanced_translate_groups.filter(g => g.id !== groupId);
+    await saveSettings();
+  };
+
+  const renameTranslateGroup = async (groupId: string, newName: string) => {
+    if (!settings.value.advanced_translate_groups) return;
+    const group = settings.value.advanced_translate_groups.find(g => g.id === groupId);
+    if (group) {
+      group.name = newName;
+      await saveSettings();
+    }
+  };
+
+  const toggleGroupActive = async (groupId: string) => {
+    if (!settings.value.advanced_translate_groups) return;
+    const group = settings.value.advanced_translate_groups.find(g => g.id === groupId);
+    if (group) {
+      group.active = !group.active;
+      await saveSettings();
+    }
+  };
+
+  const addPathToGroup = async (groupId: string, isFolder: boolean) => {
+    if (!settings.value.advanced_translate_groups) return;
+    const group = settings.value.advanced_translate_groups.find(g => g.id === groupId);
+    if (group) {
+      try {
+        const selected = await open({
+          multiple: false,
+          directory: isFolder,
+          filters: isFolder ? undefined : [{ name: 'Excel', extensions: ['xlsx', 'xls'] }]
+        });
+        if (selected) {
+          const path = Array.isArray(selected) ? selected[0] : selected;
+          if (!group.paths.some((p: any) => p.path === path)) {
+            group.paths.push({
+              path,
+              type: isFolder ? 'folder' : 'file'
+            });
+            await saveSettings();
+          }
+        }
+      } catch (e) {
+        console.error('[useSettings] Failed to add path to group:', e);
+      }
+    }
+  };
+
+  const removePathFromGroup = async (groupId: string, pathIndex: number) => {
+    if (!settings.value.advanced_translate_groups) return;
+    const group = settings.value.advanced_translate_groups.find(g => g.id === groupId);
+    if (group && group.paths) {
+      group.paths.splice(pathIndex, 1);
       await saveSettings();
     }
   };
@@ -332,6 +422,12 @@ export function useSettings() {
     pickDictionary,
     pickAdvancedPath,
     removeAdvancedPath,
+    addTranslateGroup,
+    removeTranslateGroup,
+    renameTranslateGroup,
+    toggleGroupActive,
+    addPathToGroup,
+    removePathFromGroup,
     downloadTemplate,
     startRecording,
     formatShortcut,

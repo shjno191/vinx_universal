@@ -159,7 +159,7 @@ const { globalLoading } = useGlobalLoading();
           <template v-else-if="loadingTheme === 'retro'">
             <div class="win95-titlebar">
               <div class="win95-icon">📁</div>
-              <span class="win95-title-text">Vinx Universal - Đang xử lý yêu cầu...</span>
+              <span class="win95-title-text">Vinx Universal - Processing request...</span>
               <div class="win95-btn-group">
                 <div class="win95-btn">_</div>
                 <div class="win95-btn"></div>
@@ -172,7 +172,7 @@ const { globalLoading } = useGlobalLoading();
                 <div class="win95-big-icon">💿💽</div>
               </div>
               <div class="win95-right">
-                <div class="win95-msg-primary">Windows đang cập nhật hệ thống của bạn.</div>
+                <div class="win95-msg-primary">Windows is updating your system.</div>
                 <div class="win95-msg-secondary">{{ globalLoading.message }}...</div>
                 <div class="win95-spacer"></div>
                 <div class="win95-bar-wrap">
@@ -184,14 +184,14 @@ const { globalLoading } = useGlobalLoading();
                     ></div>
                   </div>
                 </div>
-                <div class="win95-pct-label">{{ globalLoading.progress }}% Hoàn thành</div>
+                <div class="win95-pct-label">{{ globalLoading.progress }}% Completed</div>
               </div>
             </div>
 
             <div class="win95-statusbar">
               <div class="win95-status-cell">
                 <span class="win95-status-light" :class="{ blink: globalLoading.progress < 100 }"></span>
-                Đang tải dữ liệu...
+                Loading data...
               </div>
               <div class="win95-status-divider"></div>
               <div class="win95-status-cell">Vinx OS v1.0.0</div>

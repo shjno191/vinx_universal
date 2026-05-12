@@ -125,13 +125,13 @@ export function useSettings() {
   const currentCategory = ref('general');
 
   const categories = [
-    { id: 'general', name: 'Giao diện & Hệ thống', icon: 'Settings' },
-    { id: 'translate', name: 'Dictionary & Translate', icon: 'Globe' },
-    { id: 'editor-git', name: 'Editor & Source Control', icon: 'Edit3' },
-    { id: 'shortcut', name: 'Phím tắt bàn phím', icon: 'Keyboard' },
-    { id: 'ai', name: 'AI Service (Flowchart)', icon: 'Cpu' },
-    { id: 'chill', name: 'Smoking Tab', icon: 'Coffee' },
-    { id: 'convert', name: 'Convert UI Tab', icon: 'RefreshCw' },
+    { id: 'general', name: 'Appearance', icon: 'Settings' },
+    { id: 'translate', name: 'Dictionary', icon: 'Globe' },
+    { id: 'editor-git', name: 'Editor & Git', icon: 'Edit3' },
+    { id: 'shortcut', name: 'Shortcuts', icon: 'Keyboard' },
+    { id: 'ai', name: 'AI Services', icon: 'Cpu' },
+    { id: 'chill', name: 'Relaxing', icon: 'Coffee' },
+    { id: 'convert', name: 'Converter', icon: 'RefreshCw' },
   ];
 
 

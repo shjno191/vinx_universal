@@ -3,7 +3,6 @@ import type {
     EditorSettings, 
     CursorPosition, 
     AiSettings, 
-    AiProvider, 
     GitFile, 
     GitBranch, 
     GitCompareRequest, 
@@ -13,6 +12,8 @@ import type {
     TabContextMenuState,
     TranslateSettings
 } from './types';
+
+export type { GitFile, GitBranch };
 
 export const theme = ref<'light' | 'dark' | '95'>('dark');
 

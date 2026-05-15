@@ -44,11 +44,12 @@ export const editorSettings = ref<EditorSettings>({
 export const cursorHistory = shallowRef<CursorPosition[]>([]);
 export const cursorHistoryIndex = ref(-1);
 export const globalShortcuts = ref({
-
-    open_settings: 'ctrl+shift+s',
-    open_file: 'ctrl+o',
-    prev_tab: 'ctrl+arrowleft',
-    next_tab: 'ctrl+arrowright'
+    open_settings: 'ctrl+,',
+    open_file: 'ctrl+p',
+    focus_search: 'ctrl+f',
+    global_search: 'ctrl+shift+f',
+    prev_tab: 'ctrl+shift+[',
+    next_tab: 'ctrl+shift+]'
 });
 
 

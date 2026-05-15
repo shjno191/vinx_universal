@@ -35,6 +35,8 @@ import {
   selectedExplorerPaths,
   lastSelectedPath,
   Icons,
+  globalShortcuts,
+  matchShortcut,
   useSettings,
   useFileSystem
 } from '@vinx/sdk';
@@ -83,7 +85,10 @@ const {
 
 // --- Local State -------------------------------------------------------------
 const searchQuery = ref('');
-const activeSidebar = ref<'explorer'>('explorer');
+const activeSidebar = ref<'explorer' | 'search'>('explorer');
+const searchContentQuery = ref('');
+const searchContentResults = ref<any[]>([]);
+const isSearchingContent = ref(false);
 
 const activeEditorTheme = ref(globalTheme.value === 'dark' ? 'vs-dark' : 'vs-light');
 const editors = { left: null as any, right: null as any };
@@ -379,12 +384,104 @@ const resolveAndOpenPath = async (rawPath: string) => {
 
 // --- Handlers ---
 const handleKeyDown = (e: KeyboardEvent) => {
-  if (e.ctrlKey || e.metaKey) {
-    if (e.key.toLowerCase() === 'o') { e.preventDefault(); e.shiftKey ? openProject() : openFile(); }
-    if (e.key.toLowerCase() === 's') { e.preventDefault(); handleSave(); }
-    if (e.key.toLowerCase() === 'p') { e.preventDefault(); showFilePalette.value = true; paletteQuery.value = ''; }
-    if (e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); activeSidebar.value = 'explorer'; showExplorer.value = true; }
+  const shortcuts = globalShortcuts.value;
+
+  if (matchShortcut(e, shortcuts.open_file || 'ctrl+p')) {
+    e.preventDefault();
+    showFilePalette.value = true;
+    paletteQuery.value = '';
+    return;
   }
+
+  if (matchShortcut(e, 'ctrl+s')) {
+    e.preventDefault();
+    handleSave();
+    return;
+  }
+
+  // Global Search (Ctrl+Shift+F or Ctrl+Shift+S per user request)
+  if (matchShortcut(e, shortcuts.global_search || 'ctrl+shift+f') || matchShortcut(e, 'ctrl+shift+s')) {
+    e.preventDefault();
+    activeSidebar.value = 'search';
+    showExplorer.value = true;
+    nextTick(() => {
+        document.getElementById('global-search-input')?.focus();
+    });
+    return;
+  }
+
+  if (e.ctrlKey || e.metaKey) {
+    if (e.shiftKey && e.key.toLowerCase() === 'e') { 
+      e.preventDefault(); 
+      activeSidebar.value = 'explorer'; 
+      showExplorer.value = true; 
+    }
+  }
+};
+
+const performGlobalSearch = async () => {
+    const root = gitTabRepoPath.value || projectRootPath.value;
+    if (!searchContentQuery.value.trim() || !root) return;
+    
+    isSearchingContent.value = true;
+    searchContentResults.value = [];
+    
+    try {
+        // Use git grep with -- to search in current directory
+        // Added --ignore-case (-i) and --line-number (-n)
+        const raw = await invoke('git_execute', {
+            args: ['grep', '-n', '-i', '--fixed-strings', '--context=0', '--untracked', searchContentQuery.value.trim(), '--', '.'],
+            cwd: root
+        }).catch(err => {
+            // git grep returns exit code 1 if no matches are found, which Tauri might treat as an error
+            if (err.toString().includes('1') || err.toString().includes('status 1')) {
+                return '';
+            }
+            throw err;
+        }) as string;
+        
+        if (!raw) {
+            searchContentResults.value = [];
+            return;
+        }
+
+        const lines = raw.split('\n').filter(l => l.trim());
+        searchContentResults.value = lines.map(line => {
+            const firstColon = line.indexOf(':');
+            const secondColon = line.indexOf(':', firstColon + 1);
+            if (firstColon === -1 || secondColon === -1) return null;
+            
+            const path = line.substring(0, firstColon);
+            const lineNum = parseInt(line.substring(firstColon + 1, secondColon));
+            const content = line.substring(secondColon + 1).trim();
+            
+            return {
+                path,
+                fullPath: root + '/' + path,
+                line: lineNum,
+                content
+            };
+        }).filter(r => r !== null);
+    } catch (e) {
+        console.error('Global search failed:', e);
+        searchContentResults.value = [];
+    } finally {
+        isSearchingContent.value = false;
+    }
+};
+
+const handleGlobalSearchClick = (res: any) => {
+    openFileByPath(res.fullPath);
+};
+
+const handleSidebarClick = (sidebar: 'explorer' | 'search') => {
+    activeSidebar.value = sidebar;
+    showExplorer.value = true;
+    if (sidebar === 'search') {
+        nextTick(() => {
+            document.getElementById('global-search-input')?.focus();
+        });
+    }
 };
 
 const handlePaletteKeyDown = (e: KeyboardEvent) => {
@@ -503,71 +600,113 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
   <div class="editor-tab-container">
     <div class="activity-bar">
       <div class="activity-item" :class="{ active: activeSidebar === 'explorer' && showExplorer }" 
-           @click="activeSidebar = 'explorer'; showExplorer = true" title="Explorer (Ctrl+Shift+E)">
+           @click="handleSidebarClick('explorer')" title="Explorer (Ctrl+Shift+E)">
         <span v-html="Icons.Folder"></span>
+      </div>
+      <div class="activity-item" :class="{ active: activeSidebar === 'search' && showExplorer }" 
+           @click="handleSidebarClick('search')" title="Search (Ctrl+Shift+F)">
+        <span v-html="Icons.Search"></span>
       </div>
     </div>
 
     <div v-if="showExplorer" class="sidebar-panel" :style="{ width: sidebarWidth + 'px' }">
-      <div class="explorer-header">
-        <span class="explorer-title">EXPLORER</span>
-        <div class="explorer-actions">
-          <button class="explorer-icon-btn" @click="openProject" title="Open Folder" v-html="Icons.Folder"></button>
-          <button class="explorer-icon-btn" @click="refreshTree" title="Refresh" v-html="Icons.Refresh"></button>
-          <button class="explorer-icon-btn danger-hover" @click="closeProject" title="Close Project" v-html="Icons.Close"></button>
-        </div>
-      </div>
-      
-      <div class="explorer-body">
-        <div class="explorer-root-label" v-if="projectRoot" @click="toggleFolder(projectRoot)">
-          <span class="explorer-folder-arrow" v-html="expandedPaths.has(projectRoot.path) ? Icons.ChevronDown : Icons.ChevronRight"></span>
-          <span class="root-icon" v-html="expandedPaths.has(projectRoot.path) ? Icons.FolderOpen : Icons.Folder"></span>
-          <span class="explorer-name">{{ projectRoot.name }}</span>
-        </div>
-
-        <template v-if="projectRoot && (expandedPaths.has(projectRoot.path) || searchQuery)">
-          <ExplorerNode
-            v-for="child in visibleChildren"
-            :key="child.path"
-            :node="child"
-            :expanded-paths="expandedPaths"
-            :depth="1"
-            :search-query="searchQuery"
-            :active-path="activeTabLeft?.path || activeTabRight?.path"
-            @open="(node) => node.is_dir ? toggleFolder(node) : openFileByPath(node.path)"
-            @toggle="toggleFolder"
-            @select="handleExplorerSelect"
-          />
-
-        </template>
-
-        <!-- HIDDEN GROUP -->
-        <div v-if="projectRoot && hiddenNodes.length > 0" class="hidden-group">
-          <div class="hidden-header" @click="isHiddenGroupExpanded = !isHiddenGroupExpanded">
-            <span class="explorer-folder-arrow" v-html="isHiddenGroupExpanded ? Icons.ChevronDown : Icons.ChevronRight"></span>
-            <span class="hidden-label">HIDDEN ({{ hiddenNodes.length }})</span>
-          </div>
-          <div v-if="isHiddenGroupExpanded" class="hidden-content">
-            <div v-for="node in hiddenNodes" :key="node.path" class="hidden-item">
-              <span class="node-icon" :class="node.is_dir ? 'icon-folder' : 'icon-file'" v-html="node.is_dir ? Icons.Folder : Icons.File"></span>
-              <span class="hidden-name" @click="node.is_dir ? toggleFolder(node) : openFileByPath(node.path)">{{ node.name }}</span>
-              <button class="unhide-btn" title="Unhide" @click.stop="handleUnhide(node.path)">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
+      <!-- Explorer Sidebar -->
+      <template v-if="activeSidebar === 'explorer'">
+        <div class="explorer-header">
+          <span class="explorer-title">EXPLORER</span>
+          <div class="explorer-actions">
+            <button class="explorer-icon-btn" @click="openProject" title="Open Folder" v-html="Icons.Folder"></button>
+            <button class="explorer-icon-btn" @click="refreshTree" title="Refresh" v-html="Icons.Refresh"></button>
+            <button class="explorer-icon-btn danger-hover" @click="closeProject" title="Close Project" v-html="Icons.Close"></button>
           </div>
         </div>
         
-        <div v-if="!projectRoot" class="explorer-empty">
-          <p>No project folder open</p>
-          <button class="open-folder-btn-minimal" @click="openProject">Open Folder</button>
-        </div>
-      </div>
+        <div class="explorer-body">
+          <div class="explorer-root-label" v-if="projectRoot" @click="toggleFolder(projectRoot)">
+            <span class="explorer-folder-arrow" v-html="expandedPaths.has(projectRoot.path) ? Icons.ChevronDown : Icons.ChevronRight"></span>
+            <span class="root-icon" v-html="expandedPaths.has(projectRoot.path) ? Icons.FolderOpen : Icons.Folder"></span>
+            <span class="explorer-name">{{ projectRoot.name }}</span>
+          </div>
 
-      <div class="explorer-footer" v-if="currentBranchName" title="Switch Branch" @click="showBranchSwitcher = true">
-          <span class="footer-icon" v-html="Icons.Branch"></span>
-          <span class="footer-branch">{{ currentBranchName }}</span>
-      </div>
+          <template v-if="projectRoot && (expandedPaths.has(projectRoot.path) || searchQuery)">
+            <ExplorerNode
+              v-for="child in visibleChildren"
+              :key="child.path"
+              :node="child"
+              :expanded-paths="expandedPaths"
+              :depth="1"
+              :search-query="searchQuery"
+              :active-path="activeTabLeft?.path || activeTabRight?.path"
+              @open="(node) => node.is_dir ? toggleFolder(node) : openFileByPath(node.path)"
+              @toggle="toggleFolder"
+              @select="handleExplorerSelect"
+            />
+          </template>
+
+          <div v-if="projectRoot && hiddenNodes.length > 0" class="hidden-group">
+            <div class="hidden-header" @click="isHiddenGroupExpanded = !isHiddenGroupExpanded">
+              <span class="explorer-folder-arrow" v-html="isHiddenGroupExpanded ? Icons.ChevronDown : Icons.ChevronRight"></span>
+              <span class="hidden-label">HIDDEN ({{ hiddenNodes.length }})</span>
+            </div>
+            <div v-if="isHiddenGroupExpanded" class="hidden-content">
+              <div v-for="node in hiddenNodes" :key="node.path" class="hidden-item">
+                <span class="node-icon" :class="node.is_dir ? 'icon-folder' : 'icon-file'" v-html="node.is_dir ? Icons.Folder : Icons.File"></span>
+                <span class="hidden-name" @click="node.is_dir ? toggleFolder(node) : openFileByPath(node.path)">{{ node.name }}</span>
+                <button class="unhide-btn" title="Unhide" @click.stop="handleUnhide(node.path)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div v-if="!projectRoot" class="explorer-empty">
+            <p>No project folder open</p>
+            <button class="open-folder-btn-minimal" @click="openProject">Open Folder</button>
+          </div>
+        </div>
+
+        <div class="explorer-footer" v-if="currentBranchName" title="Switch Branch" @click="showBranchSwitcher = true">
+            <span class="footer-icon" v-html="Icons.Branch"></span>
+            <span class="footer-branch">{{ currentBranchName }}</span>
+        </div>
+      </template>
+
+      <!-- Global Search Sidebar -->
+      <template v-else-if="activeSidebar === 'search'">
+        <div class="explorer-header">
+          <span class="explorer-title">SEARCH</span>
+        </div>
+        <div class="search-sidebar-body">
+          <div class="search-input-container">
+            <input 
+              id="global-search-input"
+              v-model="searchContentQuery" 
+              class="search-content-input" 
+              placeholder="Search in files..." 
+              @keydown.enter="performGlobalSearch"
+            />
+            <button class="search-btn" @click="performGlobalSearch" :disabled="isSearchingContent">
+                <span v-if="isSearchingContent" class="spinner-small"></span>
+                <span v-else v-html="Icons.Search"></span>
+            </button>
+          </div>
+          <div class="search-results-list">
+            <div v-if="searchContentResults.length === 0 && !isSearchingContent" class="no-results">
+              {{ searchContentQuery ? 'No results found' : 'Type to search...' }}
+            </div>
+            <div v-for="(res, idx) in searchContentResults" :key="idx" class="search-result-item" @click="handleGlobalSearchClick(res)">
+                <div class="search-result-file">
+                    <span class="file-icon" v-html="Icons.File"></span>
+                    <span class="file-name">{{ res.path }}</span>
+                </div>
+                <div class="search-result-preview">
+                    <span class="line-number">{{ res.line }}:</span>
+                    <span class="content-preview">{{ res.content }}</span>
+                </div>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
 
     <div class="sidebar-resizer" v-if="showExplorer" @mousedown="handleSidebarResize"></div>
@@ -777,4 +916,21 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 .file-name { font-size: 0.85rem; font-weight: 700; color: var(--text-color); }
 .file-path { font-size: 0.65rem; opacity: 0.4; }
 .palette-icon { opacity: 0.5; display: flex; }
+.search-sidebar-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 10px; }
+.search-input-container { display: flex; gap: 4px; margin-bottom: 15px; }
+.search-content-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-color); padding: 4px 8px; font-size: 0.75rem; outline: none; }
+.search-content-input:focus { border-color: var(--accent-color); }
+.search-btn { background: var(--accent-color); color: white; border: none; border-radius: 4px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.search-results-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.no-results { text-align: center; opacity: 0.4; font-size: 0.75rem; margin-top: 20px; }
+.search-result-item { padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.03); cursor: pointer; transition: 0.2s; border: 1px solid transparent; }
+.search-result-item:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+.search-result-file { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 800; opacity: 0.8; margin-bottom: 4px; }
+.search-result-preview { font-size: 0.7rem; display: flex; gap: 6px; opacity: 0.6; font-family: monospace; }
+.line-number { color: var(--accent-color); font-weight: 800; flex-shrink: 0; }
+.content-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.spinner-small { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

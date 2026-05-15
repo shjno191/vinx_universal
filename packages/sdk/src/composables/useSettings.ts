@@ -25,6 +25,7 @@ export interface Settings {
   advanced_translate_groups: any[];
   shortcuts: {
     focus_search: string;
+    global_search: string;
     open_settings: string;
     open_file: string;
     prev_tab: string;
@@ -65,10 +66,11 @@ export const settings = ref<Settings>({
   advanced_translate_groups: [],
   shortcuts: {
     focus_search: 'ctrl+f',
-    open_settings: 'ctrl+shift+s',
-    open_file: 'ctrl+o',
-    prev_tab: 'ctrl+arrowleft',
-    next_tab: 'ctrl+arrowright'
+    global_search: 'ctrl+shift+f',
+    open_settings: 'ctrl+,',
+    open_file: 'ctrl+p',
+    prev_tab: 'ctrl+shift+[',
+    next_tab: 'ctrl+shift+]'
   },
   editor: {
     middleClickClose: true,

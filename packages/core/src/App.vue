@@ -8,10 +8,11 @@ import {
   showSettingsTrigger,
   isGlobalSmoking,
   chillSettings,
+  globalShortcuts,
+  matchShortcut,
   Icons
 } from "@vinx/sdk";
 import { usePluginManager } from "./utils/plugin-manager";
-import { matchShortcut } from "./utils/keyboard";
 
 // Components
 import SettingsTab from "./components/SettingsTab.vue";
@@ -49,12 +50,7 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   }
 
   // Keyboard Shortcuts Check
-  let shortcuts: any = {};
-  try {
-    shortcuts = JSON.parse(localStorage.getItem('vinx_shortcuts') || '{}');
-  } catch (e) {
-    console.error('Failed to parse shortcuts from localStorage:', e);
-  }
+  const shortcuts = globalShortcuts.value;
   
   // Settings shortcut
   if (matchShortcut(e, shortcuts.open_settings || 'ctrl+,')) {
@@ -63,21 +59,25 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
     showSettingsTrigger.value = { category: currentTab.value === 'Translate' ? 'translate' : 'general' };
   }
 
-  // Tab switching shortcuts
+  // Tab switching shortcuts (Global)
+  if (matchShortcut(e, shortcuts.prev_tab || 'ctrl+shift+[')) {
+    e.preventDefault();
+    const idx = allTabs.value.indexOf(currentTab.value);
+    currentTab.value = allTabs.value[(idx - 1 + allTabs.value.length) % allTabs.value.length];
+    return;
+  }
+  if (matchShortcut(e, shortcuts.next_tab || 'ctrl+shift+]')) {
+    e.preventDefault();
+    const idx = allTabs.value.indexOf(currentTab.value);
+    currentTab.value = allTabs.value[(idx + 1) % allTabs.value.length];
+    return;
+  }
+
+  // Input-aware shortcuts
   const activeEl = document.activeElement;
   const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+  
   if (!isInput) {
-    if (matchShortcut(e, shortcuts.prev_tab || 'ctrl+shift+[')) {
-      e.preventDefault();
-      const idx = allTabs.value.indexOf(currentTab.value);
-      currentTab.value = allTabs.value[(idx - 1 + allTabs.value.length) % allTabs.value.length];
-    }
-    if (matchShortcut(e, shortcuts.next_tab || 'ctrl+shift+]')) {
-      e.preventDefault();
-      const idx = allTabs.value.indexOf(currentTab.value);
-      currentTab.value = allTabs.value[(idx + 1) % allTabs.value.length];
-    }
-    
     // Chill smoke logic
     if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();

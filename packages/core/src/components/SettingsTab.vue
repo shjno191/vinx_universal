@@ -370,14 +370,14 @@ watch(showSettingsTrigger, (val) => {
             <div class="shortcut-row" @click="startRecording('prev_tab')">
               <span class="shortcut-desc">Chuyển về Tab phía trước</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
-                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN T? HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab) }}
+                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab) }}
               </span>
               <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
             <div class="shortcut-row" @click="startRecording('next_tab')">
               <span class="shortcut-desc">Chuyển sang Tab tiếp theo</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
-                {{ isRecording === 'next_tab' ? 'HÃY NHẤN T? HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab) }}
+                {{ isRecording === 'next_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab) }}
               </span>
               <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
@@ -735,4 +735,123 @@ watch(showSettingsTrigger, (val) => {
 
 .advanced-path-actions { display: flex; gap: 8px; margin-top: 8px; }
 .advanced-path-actions .premium-button-dashed { flex: 1; margin-top: 0; }
+
+/* Shortcuts UI */
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(128, 128, 128, 0.1);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.shortcut-row:hover {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: var(--accent-color);
+  transform: translateX(4px);
+}
+.shortcut-row.locked {
+  cursor: default;
+  opacity: 0.6;
+}
+.shortcut-row.locked:hover {
+  transform: none;
+  border-color: rgba(128, 128, 128, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+.shortcut-desc {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+.shortcut-key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--accent-color);
+  background: rgba(99, 102, 241, 0.1);
+  padding: 4px 10px;
+  border-radius: 6px;
+  min-width: 100px;
+  text-align: center;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+.shortcut-key.recording {
+  background: var(--accent-color);
+  color: #fff;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+/* Converter UI Rules */
+.rules-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rule-group {
+  padding: 20px;
+  background: rgba(128, 128, 128, 0.05);
+  border: 1px solid rgba(128, 128, 128, 0.1);
+  border-radius: 16px;
+}
+.rule-title {
+  margin: 0 0 15px 0;
+  font-size: 0.9rem;
+  font-weight: 900;
+  color: var(--accent-color);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rule-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.1);
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+.rule-tag {
+  font-size: 0.65rem;
+  font-weight: 900;
+  background: var(--accent-color);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  min-width: 50px;
+  text-align: center;
+}
+.rule-item p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-color);
+  opacity: 0.8;
+}
+.rule-item code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--accent-color);
+  font-family: 'JetBrains Mono', monospace;
+}
 </style>

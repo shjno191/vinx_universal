@@ -13,9 +13,9 @@ import {
   editorSettings,
   chillSettings,
   activeTab,
+  matchShortcut,
   useSettings
 } from '@vinx/sdk';
-import { matchShortcut } from '../utils/keyboard';
 
 export function useAppShell() {
   const { settings } = useSettings();

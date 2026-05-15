@@ -9,3 +9,4 @@ export * from './composables/useGit';
 export * from './composables/useFileSystem';
 export * from './utils/systemControl';
 export * from './utils/security';
+export * from './utils/keyboard';

@@ -34,6 +34,25 @@ export function useGit() {
 
   const refresh = async () => {
     if (!gitTabRepoPath.value || isSyncing.value) return;
+    
+    // Check if it is a git repository first
+    try {
+      await invoke('git_execute', {
+        args: ['rev-parse', '--is-inside-work-tree'],
+        cwd: gitTabRepoPath.value
+      });
+    } catch (e) {
+      // Not a git repository, clear state and return
+      gitStatus.value = [];
+      changedFiles.value = [];
+      stagedFiles.value = [];
+      branches.value = [];
+      gitBranches.value = [];
+      history.value = [];
+      currentBranch.value = '';
+      return;
+    }
+
     isSyncing.value = true;
     try {
       await Promise.all([loadStatus(), loadBranches(), loadHistory()]);

@@ -2,7 +2,6 @@ import { ref, shallowRef, watch, computed } from 'vue';
 import type { 
     EditorSettings, 
     CursorPosition, 
-    AiSettings, 
     GitFile, 
     GitBranch, 
     GitCompareRequest, 
@@ -52,32 +51,6 @@ export const globalShortcuts = ref({
     next_tab: 'ctrl+arrowright'
 });
 
-//  AI / Flow Chart State 
-
-
-
-export const aiSettings = ref<AiSettings>({
-    provider: 'gemini',
-    geminiKey: '',
-    geminiModel: 'gemini-1.5-flash',
-    openaiKey: '',
-    openaiModel: 'gpt-4o-mini',
-    claudeKey: '',
-    claudeModel: 'claude-3-haiku-20240307',
-    ollamaUrl: 'http://localhost:11434/api/generate',
-    ollamaModel: 'llama3',
-});
-
-// The code that will be analyzed for flow chart generation
-export const currentFlowCode = ref('');
-
-// Signal to auto-navigate to the Flow Chart tab
-export const triggerFlowChart = ref(false);
-
-// Flow Chart Persistence
-export const mermaidCode = ref('');
-export const analysisMode = ref<'code' | 'ai'>('code');
-export const showRawFlowCode = ref(false);
 
 // Git / Source Control State
 

@@ -385,32 +385,6 @@ watch(showSettingsTrigger, (val) => {
         </div>
       </div>
 
-      <!-- AI SERVICES -->
-      <div v-show="currentCategory === 'ai'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">AI Content Services</h2>
-          <p class="section-desc">Cấu hình API Key cho các mô hình AI, phục vụ tính năng vẽ Flowchart và hỗ trợ viết code.</p>
-        </div>
-
-        <div class="setting-item">
-          <label>Nhà cung cấp mặc định (Provider)</label>
-          <select v-model="settings.ai.provider" class="theme-select" @change="saveSettings">
-            <option value="gemini">Gemini (Google) - Nên dùng</option>
-            <option value="openai">ChatGPT (OpenAI)</option>
-            <option value="claude">Claude (Anthropic)</option>
-            <option value="ollama">Ollama (Chạy Offline cục bộ)</option>
-          </select>
-        </div>
-
-        <div class="provider-block glass" :class="{ active: settings.ai.provider === 'gemini' }">
-          <div class="provider-label"><span class="provider-dot gemini"></span> Google Gemini API</div>
-          <input v-model="settings.ai.geminiKey" type="password" class="text-input" placeholder="Nhập API Key (AIza...)" @change="saveSettings"/>
-          <select v-model="settings.ai.geminiModel" class="theme-select" @change="saveSettings">
-            <option value="gemini-1.5-flash">gemini-1.5-flash (Nhanh)</option>
-            <option value="gemini-1.5-pro">gemini-1.5-pro (Mạnh nhất)</option>
-          </select>
-        </div>
-      </div>
 
       <!-- SMOKING / CHILL -->
       <div v-show="currentCategory === 'chill'" class="settings-section">

@@ -34,3 +34,9 @@
 - [x] Audit `java-analyzer.ts` for correctness and security <!-- id: 23 -->
 - [x] Implement recommended fixes (Memory leaks, Error handling) <!-- id: 24 -->
 - [x] Setup Vitest for core utility testing <!-- id: 25 -->
+
+## Project Cleanup & Git Improvement (May 15, 2026)
+
+- [x] Remove Flowchart plugin and related SDK utilities <!-- id: 26 -->
+- [x] Improve Git tab to handle non-git folders gracefully <!-- id: 27 -->
+- [x] Verify build and functionality after cleanup <!-- id: 28 -->

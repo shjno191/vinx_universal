@@ -9,6 +9,3 @@ export * from './composables/useGit';
 export * from './composables/useFileSystem';
 export * from './utils/systemControl';
 export * from './utils/security';
-export * from './utils/ai-provider';
-export * from './utils/ast-analyzer';
-export * from './utils/boi-monarch';

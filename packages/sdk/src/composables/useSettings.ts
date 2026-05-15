@@ -7,7 +7,6 @@ import {
   globalShortcuts,
   editorSettings,
   theme,
-  aiSettings,
   chillSettings,
   loadingTheme,
   triggerSettingsRefresh,
@@ -51,17 +50,6 @@ export interface Settings {
     burnTimeMinutes: number;
     enableWidget: boolean;
   };
-  ai: {
-    provider: string;
-    geminiKey: string;
-    geminiModel: string;
-    openaiKey: string;
-    openaiModel: string;
-    claudeKey: string;
-    claudeModel: string;
-    ollamaUrl: string;
-    ollamaModel: string;
-  };
   translate: {
     baseHighlightColor: string;
     techHighlightColor: string;
@@ -102,17 +90,6 @@ export const settings = ref<Settings>({
     burnTimeMinutes: 5,
     enableWidget: false
   },
-  ai: {
-    provider: 'gemini',
-    geminiKey: '',
-    geminiModel: 'gemini-1.5-flash',
-    openaiKey: '',
-    openaiModel: 'gpt-4o-mini',
-    claudeKey: '',
-    claudeModel: 'claude-3-haiku-20240307',
-    ollamaUrl: 'http://localhost:11434/api/generate',
-    ollamaModel: 'llama3',
-  },
   translate: {
     baseHighlightColor: '#3b82f6',
     techHighlightColor: '#eab308',
@@ -131,7 +108,6 @@ export function useSettings() {
     { id: 'translate', name: 'Dictionary', icon: 'Globe' },
     { id: 'editor-git', name: 'Editor & Git', icon: 'Edit3' },
     { id: 'shortcut', name: 'Shortcuts', icon: 'Keyboard' },
-    { id: 'ai', name: 'AI Services', icon: 'Cpu' },
     { id: 'chill', name: 'Relaxing', icon: 'Coffee' },
     { id: 'convert', name: 'Converter', icon: 'RefreshCw' },
   ];
@@ -147,7 +123,6 @@ export function useSettings() {
         editorSettings.value = settings.value.editor;
         theme.value = settings.value.theme as 'light' | 'dark' | '95';
         loadingTheme.value = (settings.value.loading_theme || 'cute') as any;
-        aiSettings.value = settings.value.ai as any;
         chillSettings.value = settings.value.chill;
         globalDictionaryPath.value = settings.value.dictionary_path || '';
         
@@ -192,7 +167,6 @@ export function useSettings() {
       editorSettings.value = settings.value.editor;
       theme.value = settings.value.theme as 'light' | 'dark' | '95';
       loadingTheme.value = (settings.value.loading_theme || 'cute') as any;
-      aiSettings.value = settings.value.ai as any;
       chillSettings.value = settings.value.chill;
       advancedTranslateGroups.value = settings.value.advanced_translate_groups || [];
       settings.value.hidden_explorer_paths = [...hiddenExplorerPaths.value];

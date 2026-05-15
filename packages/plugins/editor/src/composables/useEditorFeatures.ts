@@ -4,8 +4,6 @@ import {
   projectRootPath,
   gitTabRepoPath,
   triggerOpenDiff,
-  currentFlowCode,
-  triggerFlowChart,
   gitBranches,
   useGlobalLoading
 } from '@vinx/sdk';
@@ -18,10 +16,6 @@ export function useEditorFeatures() {
   const { showLoading: startLoading, hideLoading: stopLoading } = useGlobalLoading();
 
 
-  const generateFlowChart = (code: string) => {
-    currentFlowCode.value = code || '';
-    triggerFlowChart.value = true;
-  };
 
   const handleGitCompare = async (mode: 'branch' | 'local' | 'commit', tab: Tab) => {
     const repoPath = gitTabRepoPath.value || projectRootPath.value;
@@ -112,7 +106,6 @@ export function useEditorFeatures() {
   return {
     selectionModal,
     showBranchSwitcher,
-    generateFlowChart,
     handleGitCompare,
     onGitSelection,
     switchBranch

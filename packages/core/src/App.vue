@@ -5,7 +5,6 @@ import {
   projectRootPath, 
   gitTabRepoPath, 
   triggerCloseModals, 
-  triggerFlowChart, 
   showSettingsTrigger,
   isGlobalSmoking,
   chillSettings,
@@ -100,16 +99,8 @@ const handleMouseUp = (e: MouseEvent) => {
 watch([projectRootPath, gitTabRepoPath], async ([root, git]) => {
   await saveSettings({ last_project_root: root, last_git_repo: git });
 });
-
 watch(showSettingsTrigger, (val) => {
   if (val?.category) showSettingsModal.value = true;
-});
-
-watch(triggerFlowChart, (val) => {
-  if (val) {
-    currentTab.value = 'FlowChart';
-    triggerFlowChart.value = false;
-  }
 });
 
 onMounted(async () => {
@@ -235,7 +226,6 @@ html, body {
 .tab-btn.active { opacity: 1; border-bottom-color: var(--accent-color); color: var(--accent-color); }
 
 .git-tab.active { border-bottom-color: #10b981; color: #10b981; }
-.flowchart-tab.active { border-bottom-color: #8b5cf6; color: #8b5cf6; }
 .chill-tab.active { border-bottom-color: #f43f5e; color: #f43f5e; }
 
 .nav-actions { display: flex; align-items: center; gap: 8px; }

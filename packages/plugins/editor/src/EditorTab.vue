@@ -35,7 +35,6 @@ import {
   selectedExplorerPaths,
   lastSelectedPath,
   Icons,
-  boiMonarch,
   useSettings,
   useFileSystem
 } from '@vinx/sdk';
@@ -77,7 +76,6 @@ const {
 const {
   selectionModal,
   showBranchSwitcher,
-  generateFlowChart,
   handleGitCompare,
   onGitSelection,
   switchBranch
@@ -314,7 +312,6 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
     if (other) { other.setScrollTop(e.scrollTop); other.setScrollLeft(e.scrollLeft); }
   });
 
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, () => generateFlowChart(activeTabLeft.value?.content || ''));
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => handleSave());
 };
 
@@ -491,7 +488,6 @@ onMounted(async () => {
     // Register BOI Script language if not already registered
     if (!monaco.languages.getLanguages().some(lang => lang.id === 'boi-script')) {
         monaco.languages.register({ id: 'boi-script' });
-        monaco.languages.setMonarchTokensProvider('boi-script', boiMonarch);
     }
 
     const { refreshSettings } = useSettings();
@@ -646,7 +642,6 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
           <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
           <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
           <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Explorer" v-html="Icons.Project"></button>
-          <button class="action-btn" @click="generateFlowChart(activeTabLeft?.content || '')" title="Flow Chart (Ctrl+Shift+G)" v-html="Icons.Git"></button>
           <button class="action-btn" @click="showSplit = !showSplit" :class="{ active: showSplit }" title="Split Screen" v-html="Icons.CompareInline"></button>
         </div>
       </div>

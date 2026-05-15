@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, watch, ref as vueRef } from "vue";
+import { onMounted, onUnmounted, watch, ref as vueRef } from "vue";
 import { useAppShell } from "./composables/useAppShell";
 import { 
   projectRootPath, 
@@ -12,6 +12,7 @@ import {
   Icons
 } from "@vinx/sdk";
 import { usePluginManager } from "./utils/plugin-manager";
+import { matchShortcut } from "./utils/keyboard";
 
 // Components
 import SettingsTab from "./components/SettingsTab.vue";
@@ -31,8 +32,7 @@ const {
   applyTheme,
   loadSettings,
   saveSettings,
-  checkForUpdates,
-  matchShortcut
+  checkForUpdates
 } = useAppShell();
 
 const settingsRef = vueRef<any>(null);
@@ -50,7 +50,12 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   }
 
   // Keyboard Shortcuts Check
-  const shortcuts = JSON.parse(localStorage.getItem('vinx_shortcuts') || '{}'); 
+  let shortcuts: any = {};
+  try {
+    shortcuts = JSON.parse(localStorage.getItem('vinx_shortcuts') || '{}');
+  } catch (e) {
+    console.error('Failed to parse shortcuts from localStorage:', e);
+  }
   
   // Settings shortcut
   if (matchShortcut(e, shortcuts.open_settings || 'ctrl+,')) {
@@ -124,6 +129,12 @@ onMounted(async () => {
   window.addEventListener("keydown", handleGlobalKeyDown);
   window.addEventListener("keyup", handleGlobalKeyUp);
   window.addEventListener("mouseup", handleMouseUp);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", handleGlobalKeyDown);
+  window.removeEventListener("keyup", handleGlobalKeyUp);
+  window.removeEventListener("mouseup", handleMouseUp);
 });
 </script>
 

@@ -9,9 +9,12 @@
   "scripts": {
     "dev": "npm run dev -w packages/core",
     "build": "npm run build --workspaces --if-present",
-    "tauri": "npm run tauri -w packages/core"
+    "tauri": "npm run tauri -w packages/core",
+    "test": "vitest"
   },
   "devDependencies": {
-    "typescript": "~5.6.2"
+    "@vitest/ui": "^4.1.6",
+    "typescript": "~5.6.2",
+    "vitest": "^4.1.6"
   }
 }

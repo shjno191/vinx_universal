@@ -16,6 +16,7 @@ import {
   activeTab,
   useSettings
 } from '@vinx/sdk';
+import { matchShortcut } from '../utils/keyboard';
 
 export function useAppShell() {
   const { settings } = useSettings();
@@ -104,9 +105,16 @@ export function useAppShell() {
 
   const saveSettings = async (updates: any) => {
     try {
+      // Merge with the latest settings from memory to avoid unnecessary disk reads 
+      // when we already have the state. However, to ensure we don't overwrite 
+      // settings saved by other parts of the app, we still fetch the latest.
       const raw = await invoke('get_settings') as string;
       const current = JSON.parse(raw || '{}');
       const next = { ...current, ...updates };
+      
+      // Update local ref first for immediate UI feedback
+      settings.value = { ...settings.value, ...updates };
+      
       await invoke('save_settings', { settings: JSON.stringify(next, null, 2) });
     } catch (e) {
       console.error('Failed to save settings:', e);
@@ -137,21 +145,6 @@ export function useAppShell() {
     }
   };
 
-  const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
-    if (!shortcutStr) return false;
-    const parts = shortcutStr.toLowerCase().split('+');
-    const key = parts.pop();
-    const ctrl = parts.includes('ctrl');
-    const shift = parts.includes('shift');
-    const alt = parts.includes('alt');
-    const meta = parts.includes('meta');
-    
-    return e.key.toLowerCase() === key &&
-           e.ctrlKey === ctrl &&
-           e.shiftKey === shift &&
-           e.altKey === alt &&
-           e.metaKey === meta;
-  };
 
   return {
     currentTab,

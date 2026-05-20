@@ -102,8 +102,37 @@ const paletteResults = ref<string[]>([]);
 const paletteSelectedIndex = ref(0);
 const paletteInput = ref<HTMLInputElement | null>(null);
 
-watch(showFilePalette, (val) => {
+const searchFiles = async (query: string) => {
+    let results: string[] = [];
+    if (gitTabRepoPath.value && query.trim()) {
+        results = await searchRepoFiles(query);
+    }
+    
+    if (results.length === 0 && projectRoot.value) {
+        const q = query.toLowerCase();
+        const all: string[] = [];
+        const traverse = (node: any) => {
+            if (all.length >= 100) return;
+            if (hiddenExplorerPaths.value.includes(node.path)) return;
+            if (!node.is_dir) {
+                const relPath = node.path.substring(projectRootPath.value.length + 1).replace(/\\/g, '/');
+                if (!q || relPath.toLowerCase().includes(q) || node.name.toLowerCase().includes(q)) {
+                    all.push(relPath);
+                }
+            } else if (node.children) {
+                node.children.forEach(traverse);
+            }
+        };
+        traverse(projectRoot.value);
+        results = all;
+    }
+    return results;
+};
+
+watch(showFilePalette, async (val) => {
     if (val) {
+        paletteResults.value = await searchFiles(paletteQuery.value);
+        paletteSelectedIndex.value = 0;
         nextTick(() => {
             paletteInput.value?.focus();
         });
@@ -111,7 +140,7 @@ watch(showFilePalette, (val) => {
 });
 
 watch(paletteQuery, async (val) => {
-    paletteResults.value = await searchRepoFiles(val);
+    paletteResults.value = await searchFiles(val);
     paletteSelectedIndex.value = 0;
 });
 
@@ -399,8 +428,8 @@ const handleKeyDown = (e: KeyboardEvent) => {
     return;
   }
 
-  // Global Search (Ctrl+Shift+F or Ctrl+Shift+S per user request)
-  if (matchShortcut(e, shortcuts.global_search || 'ctrl+shift+f') || matchShortcut(e, 'ctrl+shift+s')) {
+  // Global Search
+  if (matchShortcut(e, shortcuts.global_search || 'ctrl+shift+f')) {
     e.preventDefault();
     activeSidebar.value = 'search';
     showExplorer.value = true;
@@ -445,7 +474,7 @@ const performGlobalSearch = async () => {
             return;
         }
 
-        const lines = raw.split('\n').filter(l => l.trim());
+        const lines = raw.split('\n').filter(l => l.trim()).slice(0, 500);
         searchContentResults.value = lines.map(line => {
             const firstColon = line.indexOf(':');
             const secondColon = line.indexOf(':', firstColon + 1);

@@ -357,9 +357,12 @@ watch(showSettingsTrigger, (val) => {
               </span>
               <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
-            <div class="shortcut-row locked">
+            <div class="shortcut-row" @click="startRecording('global_search')">
               <span class="shortcut-desc">Tìm kiếm văn bản toàn cục</span>
-              <span class="shortcut-key">CTRL + SHIFT + F</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'global_search' }">
+                {{ isRecording === 'global_search' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.global_search) }}
+              </span>
+              <input v-if="isRecording === 'global_search'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
           </div>
         </div>

@@ -3,8 +3,11 @@ import { ref, computed } from 'vue';
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor';
 import { useCompare } from './useCompare';
 import { theme as globalTheme, Icons } from '@vinx/sdk';
+import ImageCompare from './ImageCompare.vue';
 
 const props = defineProps<{ theme?: string }>();
+
+const activeMode = ref<'text' | 'image'>('text');
 
 const {
   originalText,
@@ -66,9 +69,17 @@ const currentOptions = computed(() => ({
     <header class="action-bar glass">
       <div class="toolbar-section">
         <span class="toolbar-title">COMPARE</span>
+        <div class="mode-switcher glass">
+          <button class="mode-btn" :class="{ active: activeMode === 'text' }" @click="activeMode = 'text'">
+            <span v-html="Icons.FileText"></span> Text
+          </button>
+          <button class="mode-btn" :class="{ active: activeMode === 'image' }" @click="activeMode = 'image'">
+            <span v-html="Icons.Image"></span> Image
+          </button>
+        </div>
       </div>
 
-      <div class="toolbar-section">
+      <div class="toolbar-section" v-if="activeMode === 'text'">
         <div class="button-group glass">
           <button class="icon-btn" :class="{ active: !renderSideBySide }" @click="renderSideBySide = !renderSideBySide" title="Toggle Inline/Split View">
             <span v-html="renderSideBySide ? Icons.Columns : Icons.Rows"></span>
@@ -87,7 +98,7 @@ const currentOptions = computed(() => ({
     </header>
 
     <main class="main-content">
-      <div class="editor-wrapper glass">
+      <div v-if="activeMode === 'text'" class="editor-wrapper glass">
         <VueMonacoDiffEditor
           :original="originalText"
           :modified="modifiedText"
@@ -98,6 +109,9 @@ const currentOptions = computed(() => ({
           @mount="handleEditorMount"
           class="diff-instance"
         />
+      </div>
+      <div v-else class="image-wrapper glass">
+        <ImageCompare />
       </div>
     </main>
   </div>
@@ -115,6 +129,11 @@ const currentOptions = computed(() => ({
 .toolbar-section { display: flex; align-items: center; gap: 12px; }
 .toolbar-title { font-size: 0.8rem; font-weight: 900; letter-spacing: 0.1em; color: var(--accent-color); opacity: 0.8; }
 
+.mode-switcher { display: flex; padding: 4px; border-radius: 10px; gap: 4px; background: rgba(0,0,0,0.05); }
+.mode-btn { border: none; background: transparent; color: var(--text-color); border-radius: 8px; cursor: pointer; opacity: 0.5; display: flex; align-items: center; justify-content: center; padding: 4px 12px; font-weight: bold; gap: 6px; font-size: 0.85rem; transition: all 0.2s; }
+.mode-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+.mode-btn.active { opacity: 1; color: var(--accent-color); background: var(--glass-bg); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
 .button-group { display: flex; padding: 4px; border-radius: 10px; gap: 4px; background: rgba(0,0,0,0.05); }
 .icon-btn { width: 32px; height: 32px; border: none; background: transparent; color: var(--text-color); border-radius: 8px; cursor: pointer; opacity: 0.5; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); transform: translateY(-1px); }
@@ -124,9 +143,10 @@ const currentOptions = computed(() => ({
 .main-content { flex: 1; display: flex; min-height: 0; }
 .editor-wrapper { flex: 1; border-radius: 16px; overflow: hidden; position: relative; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
 .diff-instance { width: 100%; height: 100%; }
+.image-wrapper { flex: 1; border-radius: 16px; overflow: hidden; position: relative; display: flex; flex-direction: column; padding: 12px; box-sizing: border-box; }
 
 .win95 .action-bar { background: #c0c0c0; border: 2px outset #fff; border-radius: 0; box-shadow: none; }
-.win95 .icon-btn { border: 2px outset #fff; border-radius: 0; background: #c0c0c0; }
-.win95 .icon-btn.active { border: 2px inset #fff; background: #d0d0d0; }
-.win95 .editor-wrapper { border: 2px inset #fff; border-radius: 0; }
+.win95 .icon-btn, .win95 .mode-btn { border: 2px outset #fff; border-radius: 0; background: #c0c0c0; }
+.win95 .icon-btn.active, .win95 .mode-btn.active { border: 2px inset #fff; background: #d0d0d0; }
+.win95 .editor-wrapper, .win95 .image-wrapper { border: 2px inset #fff; border-radius: 0; }
 </style>

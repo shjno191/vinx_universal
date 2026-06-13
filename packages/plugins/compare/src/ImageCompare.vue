@@ -368,19 +368,20 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
           </button>
         </div>
 
-        <div class="option-group overlay-controls" v-if="selectedIndices.length === 2">
-          <label class="toggle-label">
-            <input type="checkbox" v-model="overlayMode" />
+        <div class="option-group overlay-controls">
+          <label class="toggle-label" :class="{ 'is-disabled': selectedIndices.length < 2 }">
+            <input type="checkbox" v-model="overlayMode" :disabled="selectedIndices.length < 2" />
             Overlay Mode
           </label>
           <input 
-            v-if="overlayMode" 
             type="range" 
             min="0" 
             max="1" 
             step="0.01" 
             v-model.number="opacity" 
             class="opacity-slider"
+            :class="{ 'is-disabled': !overlayMode || selectedIndices.length < 2 }"
+            :disabled="!overlayMode || selectedIndices.length < 2"
             title="Adjust Opacity"
           />
         </div>
@@ -603,6 +604,16 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
 
 .compact-btn:disabled {
   opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.toggle-label.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.opacity-slider.is-disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 

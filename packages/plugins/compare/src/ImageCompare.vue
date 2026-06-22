@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { Icons } from '@vinx/sdk';
 
 interface SlotConfig {
@@ -11,14 +11,109 @@ const images = ref<(string | null)>([null, null, null, null]);
 const selectedIndices = ref<number[]>([]);
 const overlayMode = ref(false);
 const opacity = ref(0.5);
-const measureMode = ref(false);
-const measureActive = ref(false);
-const measureStart = ref({ x: 0, y: 0 });
-const measureEnd = ref({ x: 0, y: 0 });
+const showGrid = ref(false);
 const isVertical = ref(true); // Default is vertical now
+const overlayOffset = ref({ x: 0, y: 0 });
 const zoomLevel = ref(1);
 const activeSlot = ref<number>(0); // Tracks which slot will receive the next paste
 const lockedBaseIndex = ref<number | null>(null); // Explicit locked Base slot
+
+interface WorkspaceData {
+  id: number;
+  images: (string | null)[];
+  selectedIndices: number[];
+  overlayMode: boolean;
+  opacity: number;
+  showGrid: boolean;
+  isVertical: boolean;
+  overlayOffset: { x: number, y: number };
+  zoomLevel: number;
+  activeSlot: number;
+  lockedBaseIndex: number | null;
+}
+
+const workspaces = ref<WorkspaceData[]>([]);
+const currentWsId = ref(1);
+let nextWsId = 2;
+
+workspaces.value.push({
+  id: 1,
+  images: [null, null, null, null],
+  selectedIndices: [],
+  overlayMode: false,
+  opacity: 0.5,
+  showGrid: false,
+  isVertical: true,
+  overlayOffset: { x: 0, y: 0 },
+  zoomLevel: 1,
+  activeSlot: 0,
+  lockedBaseIndex: null
+});
+
+const saveCurrentWorkspace = () => {
+  const ws = workspaces.value.find(w => w.id === currentWsId.value);
+  if (ws) {
+    ws.images = [...images.value];
+    ws.selectedIndices = [...selectedIndices.value];
+    ws.overlayMode = overlayMode.value;
+    ws.opacity = opacity.value;
+    ws.showGrid = showGrid.value;
+    ws.isVertical = isVertical.value;
+    ws.overlayOffset = { ...overlayOffset.value };
+    ws.zoomLevel = zoomLevel.value;
+    ws.activeSlot = activeSlot.value;
+    ws.lockedBaseIndex = lockedBaseIndex.value;
+  }
+};
+
+const loadWorkspace = (id: number) => {
+  saveCurrentWorkspace();
+  const ws = workspaces.value.find(w => w.id === id);
+  if (ws) {
+    images.value = [...ws.images];
+    selectedIndices.value = [...ws.selectedIndices];
+    overlayMode.value = ws.overlayMode;
+    opacity.value = ws.opacity;
+    showGrid.value = ws.showGrid;
+    isVertical.value = ws.isVertical;
+    overlayOffset.value = { ...ws.overlayOffset };
+    zoomLevel.value = ws.zoomLevel;
+    activeSlot.value = ws.activeSlot;
+    lockedBaseIndex.value = ws.lockedBaseIndex;
+    currentWsId.value = id;
+  }
+};
+
+const createWorkspace = () => {
+  saveCurrentWorkspace();
+  const id = nextWsId++;
+  workspaces.value.push({
+    id,
+    images: [null, null, null, null],
+    selectedIndices: [],
+    overlayMode: false,
+    opacity: 0.5,
+    showGrid: false,
+    isVertical: true,
+    overlayOffset: { x: 0, y: 0 },
+    zoomLevel: 1,
+    activeSlot: 0,
+    lockedBaseIndex: null
+  });
+  loadWorkspace(id);
+};
+
+const deleteWorkspace = (id: number) => {
+  if (workspaces.value.length <= 1) return;
+  const ws = workspaces.value.find(w => w.id === id);
+  if (ws) {
+    ws.images.forEach(url => { if (url) URL.revokeObjectURL(url); });
+    workspaces.value = workspaces.value.filter(w => w.id !== id);
+    if (currentWsId.value === id) {
+      loadWorkspace(workspaces.value[0].id);
+    }
+  }
+};
 
 const showSettings = ref(false);
 const slotConfigs = ref<SlotConfig[]>([
@@ -105,241 +200,71 @@ const onScroll2 = () => {
 };
 // -----------------------------
 
-// --- Mouse Panning & Measuring Logic ---
+// --- Mouse Panning & Overlay Logic ---
 const isDragging = ref(false);
 const startPos = ref({ x: 0, y: 0 });
 const scrollPos = ref({ left: 0, top: 0 });
 const activePane = ref<HTMLElement | null>(null);
 
-const measureDragging = ref(false);
-const mouseClient = ref({ x: 0, y: 0 });
-const activeImgSource = ref<string | null>(null);
-const imgRect = ref({ width: 0, height: 0, left: 0, top: 0 });
-
-const measureW = computed(() => Math.round(Math.abs(measureEnd.value.x - measureStart.value.x) / zoomLevel.value));
-const measureH = computed(() => Math.round(Math.abs(measureEnd.value.y - measureStart.value.y) / zoomLevel.value));
-
-const magnifierCenter = ref({ x: 0, y: 0 });
-const hoverActive = ref(false);
-const isNudged = ref(false);
-const lastRealMouse = ref({ x: 0, y: 0 });
-
-const magnifierStyle = computed(() => {
-  const shouldShow = measureMode.value && (measureDragging.value || hoverActive.value);
-  if (!shouldShow || !activeImgSource.value) return { display: 'none' };
-  
-  const magSize = 160;
-  const zoomFactor = 8; // 8x zoom for pixel-grid level detail
-
-  const cx = measureDragging.value ? measureEnd.value.x : magnifierCenter.value.x;
-  const cy = measureDragging.value ? measureEnd.value.y : magnifierCenter.value.y;
-
-  const imageLocalX = cx - imgRect.value.left;
-  const imageLocalY = cy - imgRect.value.top;
-
-  const bgWidth = imgRect.value.width * zoomFactor;
-  const bgHeight = imgRect.value.height * zoomFactor;
-
-  const bgPosX = -(imageLocalX * zoomFactor) + (magSize / 2);
-  const bgPosY = -(imageLocalY * zoomFactor) + (magSize / 2);
-
-  return {
-    width: magSize + 'px',
-    height: magSize + 'px',
-    left: (mouseClient.value.x + 20) + 'px',
-    top: (mouseClient.value.y + 20) + 'px',
-    backgroundImage: `
-      linear-gradient(rgba(255, 255, 255, 0.4) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.4) 1px, transparent 1px),
-      url(${activeImgSource.value})
-    `,
-    backgroundSize: `${zoomFactor}px ${zoomFactor}px, ${zoomFactor}px ${zoomFactor}px, ${bgWidth}px ${bgHeight}px`,
-    backgroundPosition: `${bgPosX}px ${bgPosY}px, ${bgPosX}px ${bgPosY}px, ${bgPosX}px ${bgPosY}px`
-  };
-});
-
-const handlePaneMouseMove = (e: MouseEvent, paneIndex: number) => {
-  if (!measureMode.value) {
-    hoverActive.value = false;
-    return;
-  }
-  
-  if (isNudged.value) {
-    const dx = Math.abs(e.clientX - lastRealMouse.value.x);
-    const dy = Math.abs(e.clientY - lastRealMouse.value.y);
-    if (dx < 5 && dy < 5) return;
-    isNudged.value = false;
-  }
-
-  hoverActive.value = true;
-  lastRealMouse.value = { x: e.clientX, y: e.clientY };
-  
-  const pane = paneIndex === 0 ? pane1Ref.value : pane2Ref.value;
-  if (!pane) return;
-  
-  const zoomContainer = pane.querySelector('.zoom-container');
-  const imgElement = pane.querySelector('.preview-img') as HTMLImageElement;
-  
-  if (zoomContainer && imgElement) {
-    const zcRect = zoomContainer.getBoundingClientRect();
-    const iRect = imgElement.getBoundingClientRect();
-    
-    imgRect.value = {
-      width: iRect.width,
-      height: iRect.height,
-      left: iRect.left - zcRect.left,
-      top: iRect.top - zcRect.top
-    };
-    
-    const mouseX = e.clientX - zcRect.left;
-    const mouseY = e.clientY - zcRect.top;
-    
-    if (!measureDragging.value) {
-      magnifierCenter.value = { x: mouseX, y: mouseY };
-      activeImgSource.value = paneIndex === 0 ? img1.value : img2.value;
-    }
-  }
-};
-
-const handlePaneMouseLeave = () => {
-  if (!measureDragging.value) {
-    hoverActive.value = false;
-  }
-};
-
-const measureBoxStyle = computed(() => {
-  if (!measureActive.value || (measureStart.value.x === measureEnd.value.x && measureStart.value.y === measureEnd.value.y)) {
-    return { display: 'none' };
-  }
-  const left = Math.min(measureStart.value.x, measureEnd.value.x);
-  const top = Math.min(measureStart.value.y, measureEnd.value.y);
-  const width = Math.abs(measureStart.value.x - measureEnd.value.x);
-  const height = Math.abs(measureStart.value.y - measureEnd.value.y);
-  return {
-    left: left + 'px',
-    top: top + 'px',
-    width: width + 'px',
-    height: height + 'px'
-  };
-});
+const isDraggingOverlay = ref(false);
+const overlayStartMouse = ref({ x: 0, y: 0 });
+const overlayStartOffset = ref({ x: 0, y: 0 });
 
 const handleMouseDown = (e: MouseEvent, pane: HTMLElement | null) => {
   if (!pane) return;
-  activePane.value = pane;
-  mouseClient.value = { x: e.clientX, y: e.clientY };
   
-  if (measureMode.value) {
-    const zoomContainer = pane.querySelector('.zoom-container');
-    const imgElement = pane.querySelector('.preview-img') as HTMLImageElement;
-    if (zoomContainer && imgElement) {
-      const zcRect = zoomContainer.getBoundingClientRect();
-      const iRect = imgElement.getBoundingClientRect();
-      
-      imgRect.value = {
-        width: iRect.width,
-        height: iRect.height,
-        left: iRect.left - zcRect.left,
-        top: iRect.top - zcRect.top
-      };
-
-      const x = isNudged.value ? magnifierCenter.value.x : (e.clientX - zcRect.left);
-      const y = isNudged.value ? magnifierCenter.value.y : (e.clientY - zcRect.top);
-      measureStart.value = { x, y };
-      measureEnd.value = { x, y };
-      measureActive.value = true;
-      measureDragging.value = true;
-      activeImgSource.value = pane.classList.contains('pane-1') ? img1.value : img2.value;
-    }
-  } else {
-    isDragging.value = true;
-    startPos.value = { x: e.clientX, y: e.clientY };
-    scrollPos.value = { left: pane.scrollLeft, top: pane.scrollTop };
-    pane.style.cursor = 'grabbing';
+  if (overlayMode.value && (e.target as HTMLElement).classList.contains('top-img')) {
+    isDraggingOverlay.value = true;
+    overlayStartMouse.value = { x: e.clientX, y: e.clientY };
+    overlayStartOffset.value = { ...overlayOffset.value };
+    return;
   }
+  
+  activePane.value = pane;
+  isDragging.value = true;
+  startPos.value = { x: e.clientX, y: e.clientY };
+  scrollPos.value = { left: pane.scrollLeft, top: pane.scrollTop };
+  pane.style.cursor = 'grabbing';
 };
 
 const onGlobalMouseMove = (e: MouseEvent) => {
-  if (measureMode.value && isNudged.value) {
-    const dx = Math.abs(e.clientX - lastRealMouse.value.x);
-    const dy = Math.abs(e.clientY - lastRealMouse.value.y);
-    if (dx < 5 && dy < 5) return;
-    isNudged.value = false;
+  if (isDraggingOverlay.value) {
+    const dx = (e.clientX - overlayStartMouse.value.x) / zoomLevel.value;
+    const dy = (e.clientY - overlayStartMouse.value.y) / zoomLevel.value;
+    overlayOffset.value = {
+      x: overlayStartOffset.value.x + dx,
+      y: overlayStartOffset.value.y + dy
+    };
+    return;
   }
-  lastRealMouse.value = { x: e.clientX, y: e.clientY };
-  mouseClient.value = { x: e.clientX, y: e.clientY };
-  if (isDragging.value && activePane.value && !measureMode.value) {
+
+  if (isDragging.value && activePane.value) {
     e.preventDefault();
     const dx = e.clientX - startPos.value.x;
     const dy = e.clientY - startPos.value.y;
     activePane.value.scrollLeft = scrollPos.value.left - dx;
     activePane.value.scrollTop = scrollPos.value.top - dy;
-  } else if (measureActive.value && activePane.value && measureMode.value && measureDragging.value) {
-    const zoomContainer = activePane.value.querySelector('.zoom-container');
-    if (zoomContainer) {
-      const rect = zoomContainer.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      measureEnd.value = { x, y };
-    }
   }
 };
 
 const onGlobalMouseUp = () => {
+  isDraggingOverlay.value = false;
   if (isDragging.value && activePane.value) {
     activePane.value.style.cursor = 'grab';
   }
   isDragging.value = false;
-  measureDragging.value = false;
-  // Intentionally not clearing activePane so keyboard can still interact with the last active pane.
-};
-
-const jumpMagnifierTo = (pointRelative: {x: number, y: number}) => {
-  magnifierCenter.value = { ...pointRelative };
-  isNudged.value = true;
-  if (activePane.value) {
-    const zoomContainer = activePane.value.querySelector('.zoom-container');
-    if (zoomContainer) {
-      const zcRect = zoomContainer.getBoundingClientRect();
-      mouseClient.value = {
-        x: pointRelative.x + zcRect.left,
-        y: pointRelative.y + zcRect.top
-      };
-    }
-  }
 };
 
 const handleKeyDown = (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && measureMode.value) {
-    measureMode.value = false;
-    e.preventDefault();
-    return;
-  }
-
-  if (!measureMode.value) return;
+  if (!overlayMode.value) return;
 
   let handled = false;
-  // Apply zoomLevel to step so nudging aligns with 1 physical pixel of the image.
-  const step = (e.shiftKey ? 10 : 1) * zoomLevel.value;
+  const step = (e.shiftKey ? 10 : 1);
 
-  if (measureActive.value && !measureDragging.value) {
-    if (e.key === 'ArrowUp') { measureEnd.value.y -= step; handled = true; }
-    if (e.key === 'ArrowDown') { measureEnd.value.y += step; handled = true; }
-    if (e.key === 'ArrowLeft') { measureEnd.value.x -= step; handled = true; }
-    if (e.key === 'ArrowRight') { measureEnd.value.x += step; handled = true; }
-    if (handled) jumpMagnifierTo(measureEnd.value);
-  } else if (hoverActive.value && !measureDragging.value) {
-    if (e.key === 'ArrowUp') { magnifierCenter.value.y -= step; handled = true; }
-    if (e.key === 'ArrowDown') { magnifierCenter.value.y += step; handled = true; }
-    if (e.key === 'ArrowLeft') { magnifierCenter.value.x -= step; handled = true; }
-    if (e.key === 'ArrowRight') { magnifierCenter.value.x += step; handled = true; }
-    if (handled) jumpMagnifierTo(magnifierCenter.value);
-  } else if (measureActive.value && measureDragging.value) {
-    if (e.key === 'ArrowUp') { measureEnd.value.y -= step; handled = true; }
-    if (e.key === 'ArrowDown') { measureEnd.value.y += step; handled = true; }
-    if (e.key === 'ArrowLeft') { measureEnd.value.x -= step; handled = true; }
-    if (e.key === 'ArrowRight') { measureEnd.value.x += step; handled = true; }
-    if (handled) jumpMagnifierTo(measureEnd.value);
-  }
+  if (e.key === 'ArrowUp') { overlayOffset.value.y -= step; handled = true; }
+  if (e.key === 'ArrowDown') { overlayOffset.value.y += step; handled = true; }
+  if (e.key === 'ArrowLeft') { overlayOffset.value.x -= step; handled = true; }
+  if (e.key === 'ArrowRight') { overlayOffset.value.x += step; handled = true; }
 
   if (handled) e.preventDefault();
 };
@@ -365,7 +290,10 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', onGlobalMouseMove);
   window.removeEventListener('mouseup', onGlobalMouseUp);
   window.removeEventListener('keydown', handleKeyDown);
-  images.value.forEach(url => { if(url) URL.revokeObjectURL(url) });
+  saveCurrentWorkspace();
+  workspaces.value.forEach(ws => {
+    ws.images.forEach(url => { if(url) URL.revokeObjectURL(url) });
+  });
 });
 
 // --- Slot Selection & Base Locking ---
@@ -417,6 +345,7 @@ const clearImages = async () => {
   overlayMode.value = false;
   activeSlot.value = 0;
   lockedBaseIndex.value = null;
+  overlayOffset.value = { x: 0, y: 0 };
 };
 
 const removeImage = (index: number) => {
@@ -460,25 +389,66 @@ const onDrop = (e: DragEvent, targetIdx: number) => {
 
 
 
-const zoomIn = () => zoomLevel.value = Math.min(zoomLevel.value + 0.25, 5);
-const zoomOut = () => zoomLevel.value = Math.max(zoomLevel.value - 0.25, 0.25);
-const resetZoom = () => zoomLevel.value = 1;
+const setZoomCenter = async (newZoom: number) => {
+  const oldZoom = zoomLevel.value;
+  if (oldZoom === newZoom) return;
+  
+  const panes = [pane1Ref.value, pane2Ref.value].filter(Boolean) as HTMLElement[];
+  const paneCenters = panes.map(pane => {
+    return {
+      pane,
+      cx: pane.scrollLeft + pane.clientWidth / 2,
+      cy: pane.scrollTop + pane.clientHeight / 2,
+    };
+  });
+  
+  zoomLevel.value = newZoom;
+  
+  await nextTick(); // wait for DOM update of zoom-container dimensions
+  
+  const ratio = newZoom / oldZoom;
+  paneCenters.forEach(({ pane, cx, cy }) => {
+    pane.scrollLeft = cx * ratio - pane.clientWidth / 2;
+    pane.scrollTop = cy * ratio - pane.clientHeight / 2;
+  });
+};
+
+const zoomIn = () => setZoomCenter(Math.min(zoomLevel.value + 0.25, 5));
+const zoomOut = () => setZoomCenter(Math.max(zoomLevel.value - 0.25, 0.25));
+const resetZoom = () => setZoomCenter(1);
 
 const hasAnyImage = computed(() => images.value.some(img => img !== null));
 </script>
 
 <template>
   <div class="image-compare-container" :class="{ 'layout-vertical': isVertical }">
-    <!-- Main Left Content -->
+    <!-- Left Workspace Taskbar -->
+    <div class="workspace-sidebar glass">
+      <div 
+        v-for="(ws, index) in workspaces" 
+        :key="'ws-'+ws.id" 
+        class="workspace-item"
+        :class="{ active: currentWsId === ws.id }"
+        @click="loadWorkspace(ws.id)"
+        :title="'Workspace ' + (index + 1)"
+      >
+        {{ index + 1 }}
+        <button class="remove-ws-btn" v-if="workspaces.length > 1" @click.stop="deleteWorkspace(ws.id)">×</button>
+      </div>
+      <button class="add-ws-btn" @click="createWorkspace" title="New Workspace">
+        <span v-html="Icons.Plus"></span>
+      </button>
+    </div>
+
+    <!-- Main Content -->
     <div class="main-content">
       <!-- Large Images -->
-      <div class="large-panes" :class="{ 'layout-measuring': measureMode }" @wheel.prevent="handleWheel">
+      <div class="large-panes" @wheel.prevent="handleWheel">
         <!-- Hide Pane 1 completely if overlay is active to maximize Pane 2 space -->
         <div class="pane pane-1 glass" v-show="!overlayMode" 
+             :class="{ 'grid-bg': showGrid }"
              ref="pane1Ref" 
              @mousedown="handleMouseDown($event, pane1Ref)"
-             @mousemove="handlePaneMouseMove($event, 0)"
-             @mouseleave="handlePaneMouseLeave"
              @scroll="onScroll1"
              @dragover.prevent
              @drop="onDrop($event, 0)"
@@ -487,17 +457,12 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
           <div class="zoom-container" :style="{ width: zoomLevel * 100 + '%', height: zoomLevel * 100 + '%' }">
             <div v-if="!img1" class="empty-state">Drop or Select Base Image</div>
             <img v-else :src="img1" class="preview-img" draggable="false" />
-            
-            <div class="measure-box" v-if="measureActive" :style="measureBoxStyle">
-              <div class="measure-label">{{ measureW }} x {{ measureH }} px</div>
-            </div>
           </div>
         </div>
         <div class="pane pane-2 glass" 
+             :class="{ 'grid-bg': showGrid }"
              ref="pane2Ref" 
              @mousedown="handleMouseDown($event, pane2Ref)"
-             @mousemove="handlePaneMouseMove($event, 1)"
-             @mouseleave="handlePaneMouseLeave"
              @scroll="onScroll2"
              @dragover.prevent
              @drop="onDrop($event, 1)"
@@ -508,12 +473,10 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
             <div v-if="!img2" class="empty-state">Drop or Select Compare Image</div>
             <template v-else>
               <img v-if="overlayMode && img1" :src="img1" class="overlay-img base-img" draggable="false" />
-              <img :src="img2" class="preview-img" :class="{ 'overlay-img top-img': overlayMode }" :style="overlayMode ? { opacity: opacity } : {}" draggable="false" />
+              <img :src="img2" class="preview-img" :class="{ 'overlay-img top-img': overlayMode }" 
+                   :style="overlayMode ? { opacity: opacity, transform: `translate(calc(-50% + ${overlayOffset.x}px), calc(-50% + ${overlayOffset.y}px))` } : {}" 
+                   draggable="false" />
             </template>
-            
-            <div class="measure-box" v-if="measureActive" :style="measureBoxStyle">
-              <div class="measure-label">{{ measureW }} x {{ measureH }} px</div>
-            </div>
           </div>
         </div>
       </div>
@@ -579,17 +542,22 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
         </div>
 
         <div class="option-group">
-          <label class="toggle-label" title="Drag on image to measure">
-            <input type="checkbox" v-model="measureMode" />
-            Measure Tool
+          <label class="toggle-label" title="Toggle background grid">
+            <input type="checkbox" v-model="showGrid" />
+            Background Grid
           </label>
         </div>
 
         <div class="option-group overlay-controls">
-          <label class="toggle-label" :class="{ 'is-disabled': selectedIndices.length < 2 }">
-            <input type="checkbox" v-model="overlayMode" :disabled="selectedIndices.length < 2" />
-            Overlay Mode
-          </label>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label class="toggle-label" :class="{ 'is-disabled': selectedIndices.length < 2 }">
+              <input type="checkbox" v-model="overlayMode" :disabled="selectedIndices.length < 2" />
+              Overlay Mode
+            </label>
+            <button class="compact-btn" style="width: auto; padding: 4px 8px;" v-if="overlayMode" @click="overlayOffset = {x: 0, y: 0}" title="Reset Image Position">
+              Reset Pos
+            </button>
+          </div>
           <input 
             type="range" 
             min="0" 
@@ -601,6 +569,7 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
             :disabled="!overlayMode || selectedIndices.length < 2"
             title="Adjust Opacity"
           />
+          <div class="hint" style="margin-top: 4px;" v-if="overlayMode">Drag overlay image or use Arrow Keys to adjust position</div>
         </div>
 
         <div class="option-group zoom-controls" v-if="selectedIndices.length > 0">
@@ -622,10 +591,6 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
     </div>
   </div>
 
-  <!-- Magnifier (Visible on hover and drag) -->
-  <div class="magnifier" :style="magnifierStyle">
-    <div class="magnifier-crosshair"></div>
-  </div>
 
   <!-- Settings Modal -->
   <div v-if="showSettings" class="modal-overlay">
@@ -653,6 +618,91 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
   gap: 12px;
 }
 
+.workspace-sidebar {
+  width: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-radius: 12px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.workspace-item {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.workspace-item:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.workspace-item.active {
+  background: var(--accent-color, #3b82f6);
+  border-color: #60a5fa;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+.remove-ws-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.workspace-item:hover .remove-ws-btn {
+  opacity: 1;
+}
+
+.remove-ws-btn:hover {
+  background: #dc2626;
+  transform: scale(1.1);
+}
+
+.add-ws-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color);
+  border: 1px dashed rgba(255,255,255,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-ws-btn:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.6);
+}
+
 .main-content {
   flex: 1;
   display: flex;
@@ -677,12 +727,15 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
   border-radius: 12px;
   overflow: auto; /* Allow scrolling for zoomed images */
   position: relative;
-  background: rgba(0,0,0,0.2);
+  background-color: rgba(0,0,0,0.2);
   cursor: grab;
 }
 
-.layout-measuring .pane {
-  cursor: crosshair !important;
+.pane.grid-bg {
+  background-size: 20px 20px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
 }
 
 .pane::-webkit-scrollbar {
@@ -716,14 +769,11 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
   min-width: 100%;
   min-height: 100%;
   position: relative;
-  transition: width 0.2s, height 0.2s;
 }
 
 .preview-img {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
@@ -732,11 +782,13 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+}
+
+.overlay-img.top-img {
+  cursor: move;
 }
 
 .empty-state {
@@ -1038,61 +1090,7 @@ const hasAnyImage = computed(() => images.value.some(img => img !== null));
   background: rgba(255,0,0,1);
 }
 
-.measure-box {
-  position: absolute;
-  border: 1px dashed #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  z-index: 50;
-  pointer-events: none;
-}
 
-.measure-label {
-  position: absolute;
-  top: -24px;
-  left: 0;
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
-.magnifier {
-  position: fixed;
-  border-radius: 50%;
-  border: 2px solid white;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  pointer-events: none;
-  z-index: 9999;
-  background-repeat: no-repeat;
-  background-color: #1a1a1a;
-  overflow: hidden;
-}
-
-.magnifier-crosshair {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 16px;
-  height: 16px;
-  pointer-events: none;
-}
-
-.magnifier-crosshair::before,
-.magnifier-crosshair::after {
-  content: '';
-  position: absolute;
-  background: #ef4444;
-}
-
-.magnifier-crosshair::before {
-  top: 7px; left: 0; width: 16px; height: 2px;
-}
-.magnifier-crosshair::after {
-  top: 0; left: 7px; width: 2px; height: 16px;
-}
 
 .glass {
   background: var(--glass-bg, rgba(255, 255, 255, 0.05));

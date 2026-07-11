@@ -1,32 +1,32 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue';
-import { activeTabContextMenu } from '@vinx/sdk';
+import { activeTabContextMenu, Icons } from '@vinx/sdk';
 
 const emit = defineEmits<{
-    (e: 'compare', mode: 'branch' | 'local' | 'commit', tab: any): void;
+    (e: 'close-all'): void;
+    (e: 'move-left', tabId: string): void;
+    (e: 'move-right', tabId: string): void;
 }>();
 
 const closeMenu = () => {
     activeTabContextMenu.value = null;
 };
 
-const handleCompareLocal = () => {
+const handleCloseAll = () => {
+    emit('close-all');
+    closeMenu();
+};
+
+const handleMoveLeft = () => {
     if (activeTabContextMenu.value) {
-        emit('compare', 'local', activeTabContextMenu.value.tab);
+        emit('move-left', activeTabContextMenu.value.tab.id);
         closeMenu();
     }
 };
 
-const handleCompareBranch = () => {
+const handleMoveRight = () => {
     if (activeTabContextMenu.value) {
-        emit('compare', 'branch', activeTabContextMenu.value.tab);
-        closeMenu();
-    }
-};
-
-const handleCompareCommit = () => {
-    if (activeTabContextMenu.value) {
-        emit('compare', 'commit', activeTabContextMenu.value.tab);
+        emit('move-right', activeTabContextMenu.value.tab.id);
         closeMenu();
     }
 };
@@ -37,15 +37,11 @@ const onGlobalClick = (e: MouseEvent) => {
     
     const el = document.querySelector('.tab-context-menu');
     if (el && !el.contains(e.target as Node)) {
-        // Only close if the click isn't the right-click that opened it
-        // Or just let the component handle its own opening state
         closeMenu();
     }
 };
 
-// Use a separate handler for opening to avoid immediate close
 onMounted(() => {
-    // We only need mousedown/click to close. contextmenu on the same element shouldn't close it instantly.
     window.addEventListener('mousedown', onGlobalClick);
 });
 
@@ -61,19 +57,20 @@ onUnmounted(() => {
             class="tab-context-menu"
             :style="{ top: activeTabContextMenu.y + 'px', left: activeTabContextMenu.x + 'px' }"
         >
-            <div class="menu-header">Git Compare</div>
+            <div class="menu-header">Tab Actions</div>
             
-            <button class="ctx-item" @click="handleCompareLocal">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                Compare with Local (HEAD)
+            <button class="ctx-item" @click="handleMoveLeft">
+                <span v-html="Icons.ArrowLeft"></span>
+                Move to Left Split
             </button>
-            <button class="ctx-item" @click="handleCompareBranch">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-                Compare with Branch...
+            <button class="ctx-item" @click="handleMoveRight">
+                <span v-html="Icons.ArrowRight"></span>
+                Move to Right Split
             </button>
-            <button class="ctx-item" @click="handleCompareCommit">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><line x1="1.05" y1="12" x2="7" y2="12"/><line x1="17.01" y1="12" x2="22.96" y2="12"/></svg>
-                Compare with Commit...
+            <div class="ctx-divider"></div>
+            <button class="ctx-item danger" @click="handleCloseAll">
+                <span v-html="Icons.Close"></span>
+                Close All Tabs
             </button>
         </div>
     </teleport>
@@ -103,6 +100,12 @@ onUnmounted(() => {
     margin-bottom: 4px;
 }
 
+.ctx-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.05);
+    margin: 4px 0;
+}
+
 .ctx-item {
     display: flex;
     align-items: center;
@@ -120,9 +123,12 @@ onUnmounted(() => {
 }
 
 .ctx-item:hover { background: rgba(255,255,255,0.1); }
+.ctx-item.danger:hover { background: rgba(244, 63, 94, 0.2); color: #f43f5e; }
 
 :root.theme-light .tab-context-menu { background: #fff; border-color: rgba(0,0,0,0.15); }
 :root.theme-light .ctx-item { color: #1e1e2e; }
 :root.theme-light .ctx-item:hover { background: rgba(0,0,0,0.07); }
 :root.theme-light .menu-header { color: #1e1e2e; border-color: rgba(0,0,0,0.05); }
+:root.theme-light .ctx-divider { background: rgba(0,0,0,0.05); }
 </style>
+

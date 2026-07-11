@@ -204,11 +204,14 @@ fn build_node(path: &Path, depth: u32, max_depth: u32) -> Result<FileNode, Strin
 #[tauri::command]
 fn git_execute(args: Vec<String>, cwd: String) -> Result<String, String> {
     use std::process::Command;
+    let mut command = Command::new("git");
+
     #[cfg(target_os = "windows")]
-    let mut command = Command::new("git");
-    
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new("git");
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
 
     let full_command = format!("git {}", args.join(" "));
     let output = command

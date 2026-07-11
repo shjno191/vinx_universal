@@ -49,6 +49,8 @@ const { saveSettings } = useSettings();
 // --- Initialization ----------------------------------------------------------
 const {
   tabs,
+  tabsLeft,
+  tabsRight,
   activeTabIdLeft,
   activeTabIdRight,
   activeTabLeft,
@@ -59,6 +61,8 @@ const {
   currentActiveId,
   addTab,
   removeTab,
+  closeAllTabs,
+  moveToPane,
   openFileByPath,
   saveCurrentFile,
   getFileLanguage
@@ -134,7 +138,10 @@ watch(showFilePalette, async (val) => {
         paletteResults.value = await searchFiles(paletteQuery.value);
         paletteSelectedIndex.value = 0;
         nextTick(() => {
-            paletteInput.value?.focus();
+            if (paletteInput.value) {
+                paletteInput.value.focus();
+                paletteInput.value.select();
+            }
         });
     }
 });
@@ -418,7 +425,6 @@ const handleKeyDown = (e: KeyboardEvent) => {
   if (matchShortcut(e, shortcuts.open_file || 'ctrl+p')) {
     e.preventDefault();
     showFilePalette.value = true;
-    paletteQuery.value = '';
     return;
   }
 
@@ -741,7 +747,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
     <div class="sidebar-resizer" v-if="showExplorer" @mousedown="handleSidebarResize"></div>
 
     <ExplorerContextMenu @open="(node) => openFileByPath(node.path)" @compare="handleExplorerCompare" />
-    <TabContextMenu @compare="handleGitCompare" />
+    <TabContextMenu @close-all="closeAllTabs" @move-left="moveToPane($event, 'left')" @move-right="moveToPane($event, 'right')" />
     
     <GitSelectionModal 
       v-if="selectionModal" 
@@ -798,40 +804,45 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 
     <div class="editor-main-area">
 
-      <div class="editor-tabs-bar" @dblclick="addTab()">
-        <div class="tabs-scroll-area">
-          <div v-for="tab in tabs" :key="tab.id" class="editor-tab" :class="{ active: tab.id === currentActiveId, 'is-diff': tab.isDiff }" 
-               @click="currentActiveId = tab.id" @mouseup.middle.prevent="removeTab(tab.id)" @contextmenu.prevent.stop="showTabContextMenu($event, tab)">
-            <span class="tab-name">{{ tab.name }}</span>
-            <span class="tab-close" @click.stop="removeTab(tab.id)">&times;</span>
-          </div>
-        </div>
-        <div class="tab-bar-actions">
-          <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
-          <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
-          <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Explorer" v-html="Icons.Project"></button>
-          <button class="action-btn" @click="showSplit = !showSplit" :class="{ active: showSplit }" title="Split Screen" v-html="Icons.CompareInline"></button>
-        </div>
-      </div>
-
       <div class="editor-view-area" :class="{ 'split-view': showSplit }" @mouseup="handleEditorMouseUp">
-        <template v-if="activeTabLeft?.isDiff && activeTabLeft.diffData">
-          <div class="diff-editor-pane">
-            <VueMonacoDiffEditor 
-              :key="activeTabLeft.id" 
-              :original="activeTabLeft.diffData.original" 
-              :modified="activeTabLeft.diffData.modified"
-              :language="getFileLanguage(activeTabLeft.path?.split('.').pop() || '')" 
-              :theme="activeEditorTheme" 
-              :options="editorOptions"
-              class="monaco-instance" 
-            />
-
-
+        
+        <div class="editor-pane" :class="{ focused: focusedPane === 'left' }" @mousedown="focusedPane = 'left'">
+          <div class="editor-tabs-bar" 
+               @dblclick="addTab(undefined, undefined, undefined, undefined, 'left')"
+               @dragover.prevent 
+               @dragenter.prevent 
+               @drop="(e) => moveToPane(e.dataTransfer?.getData('text/plain') || '', 'left')">
+            <div class="tabs-scroll-area">
+              <div v-for="tab in tabsLeft" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdLeft, 'is-diff': tab.isDiff }" 
+                   @click="currentActiveId = tab.id" @mouseup.middle.prevent="removeTab(tab.id)" @contextmenu.prevent.stop="showTabContextMenu($event, tab)"
+                   draggable="true"
+                   @dragstart="(e) => e.dataTransfer?.setData('text/plain', tab.id)">
+                <span class="tab-name">{{ tab.name }}</span>
+                <span class="tab-close" @click.stop="removeTab(tab.id)">&times;</span>
+              </div>
+            </div>
+            <div class="tab-bar-actions" v-if="!showSplit">
+              <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
+              <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
+              <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Explorer" v-html="Icons.Project"></button>
+              <button class="action-btn" @click="showSplit = !showSplit" :class="{ active: showSplit }" title="Split Screen" v-html="Icons.CompareInline"></button>
+            </div>
           </div>
-        </template>
-        <template v-else>
-          <div class="editor-pane" :class="{ focused: focusedPane === 'left' }" @mousedown="focusedPane = 'left'">
+          
+          <template v-if="activeTabLeft?.isDiff && activeTabLeft.diffData">
+            <div class="diff-editor-pane">
+              <VueMonacoDiffEditor 
+                :key="activeTabLeft.id" 
+                :original="activeTabLeft.diffData.original" 
+                :modified="activeTabLeft.diffData.modified"
+                :language="getFileLanguage(activeTabLeft.path?.split('.').pop() || '')" 
+                :theme="activeEditorTheme" 
+                :options="editorOptions"
+                class="monaco-instance" 
+              />
+            </div>
+          </template>
+          <template v-else-if="activeTabLeft">
             <VueMonacoEditor 
               v-model:value="activeTabLeft.content" 
               :language="activeTabLeft.language" 
@@ -840,17 +851,46 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               class="monaco-instance" 
               @mount="handleEditorMount($event, 'left')" 
             />
+          </template>
+        </div>
 
-
-          </div>
-          <div v-if="showSplit" class="editor-pane" :class="{ focused: focusedPane === 'right' }" @mousedown="focusedPane = 'right'">
-            <div class="pane-header">
-              <select v-model="activeTabIdRight" class="tab-select">
-                <optgroup label="Open Tabs">
-                  <option v-for="t in tabs" :key="t.id" :value="t.id">{{ t.name }}</option>
-                </optgroup>
-              </select>
+        <div v-if="showSplit" class="editor-pane" :class="{ focused: focusedPane === 'right' }" @mousedown="focusedPane = 'right'">
+          <div class="editor-tabs-bar" 
+               @dblclick="addTab(undefined, undefined, undefined, undefined, 'right')"
+               @dragover.prevent 
+               @dragenter.prevent 
+               @drop="(e) => moveToPane(e.dataTransfer?.getData('text/plain') || '', 'right')">
+            <div class="tabs-scroll-area">
+              <div v-for="tab in tabsRight" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdRight, 'is-diff': tab.isDiff }" 
+                   @click="currentActiveId = tab.id" @mouseup.middle.prevent="removeTab(tab.id)" @contextmenu.prevent.stop="showTabContextMenu($event, tab)"
+                   draggable="true"
+                   @dragstart="(e) => e.dataTransfer?.setData('text/plain', tab.id)">
+                <span class="tab-name">{{ tab.name }}</span>
+                <span class="tab-close" @click.stop="removeTab(tab.id)">&times;</span>
+              </div>
             </div>
+            <div class="tab-bar-actions">
+              <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
+              <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
+              <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Explorer" v-html="Icons.Project"></button>
+              <button class="action-btn" @click="showSplit = !showSplit" :class="{ active: showSplit }" title="Split Screen" v-html="Icons.CompareInline"></button>
+            </div>
+          </div>
+          
+          <template v-if="activeTabRight?.isDiff && activeTabRight.diffData">
+            <div class="diff-editor-pane">
+              <VueMonacoDiffEditor 
+                :key="activeTabRight.id" 
+                :original="activeTabRight.diffData.original" 
+                :modified="activeTabRight.diffData.modified"
+                :language="getFileLanguage(activeTabRight.path?.split('.').pop() || '')" 
+                :theme="activeEditorTheme" 
+                :options="editorOptions"
+                class="monaco-instance" 
+              />
+            </div>
+          </template>
+          <template v-else-if="activeTabRight">
             <VueMonacoEditor 
               v-model:value="activeTabRight.content" 
               :language="activeTabRight.language" 
@@ -859,10 +899,8 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               class="monaco-instance" 
               @mount="handleEditorMount($event, 'right')" 
             />
-
-
-          </div>
-        </template>
+          </template>
+        </div>
       </div>
     </div>
   </div>
@@ -935,9 +973,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 
 /* Command Palette */
 .palette-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; padding-top: 10vh; z-index: 10000; }
-.palette-container { width: 600px; max-width: 90%; background: #1a1b1e; border: 1px solid var(--accent-color); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; height: fit-content; max-height: 400px; }
+.palette-container { width: 600px; max-width: 90%; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; height: fit-content; max-height: 400px; }
 .palette-input-wrapper { padding: 15px; border-bottom: 1px solid rgba(128,128,128,0.1); display: flex; align-items: center; gap: 12px; }
-.palette-input { flex: 1; background: transparent; border: none; color: var(--text-color); font-size: 0.9rem; outline: none; }
+.palette-input { flex: 1; background: var(--input-bg); border: none; color: var(--text-color); font-size: 0.9rem; outline: none; padding: 6px; border-radius: 4px; }
 .palette-results { overflow-y: auto; }
 .palette-item { padding: 10px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.05); transition: 0.2s; }
 .palette-item:hover, .palette-item.active { background: rgba(99, 102, 241, 0.15); }
@@ -947,7 +985,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 .palette-icon { opacity: 0.5; display: flex; }
 .search-sidebar-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 10px; }
 .search-input-container { display: flex; gap: 4px; margin-bottom: 15px; }
-.search-content-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-color); padding: 4px 8px; font-size: 0.75rem; outline: none; }
+.search-content-input { flex: 1; background: var(--input-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-color); padding: 4px 8px; font-size: 0.75rem; outline: none; }
 .search-content-input:focus { border-color: var(--accent-color); }
 .search-btn { background: var(--accent-color); color: white; border: none; border-radius: 4px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }

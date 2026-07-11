@@ -15,6 +15,7 @@ export interface Tab {
   isModified?: boolean;
   isDiff?: boolean;
   diffData?: { original: string; modified: string };
+  pane?: 'left' | 'right';
 }
 
 export function useEditorTabs() {
@@ -22,7 +23,7 @@ export function useEditorTabs() {
 
   // --- State ---
   const tabs = ref<Tab[]>([
-    { id: '1', name: 'untitled.txt', content: '', language: 'plaintext' }
+    { id: '1', name: 'untitled.txt', content: '', language: 'plaintext', pane: 'left' }
   ]);
   const activeTabIdLeft = ref('1');
   const activeTabIdRight = ref('');
@@ -31,8 +32,11 @@ export function useEditorTabs() {
   const syncScroll = ref(false);
 
   // --- Computed ---
-  const activeTabLeft = computed(() => tabs.value.find(t => t.id === activeTabIdLeft.value) || tabs.value[0]);
-  const activeTabRight = computed(() => tabs.value.find(t => t.id === activeTabIdRight.value) || tabs.value[0]);
+  const activeTabLeft = computed(() => tabs.value.find(t => t.id === activeTabIdLeft.value) || tabs.value.find(t => t.pane === 'left' || !t.pane));
+  const activeTabRight = computed(() => tabs.value.find(t => t.id === activeTabIdRight.value) || tabs.value.find(t => t.pane === 'right'));
+
+  const tabsLeft = computed(() => tabs.value.filter(t => !t.pane || t.pane === 'left'));
+  const tabsRight = computed(() => tabs.value.filter(t => t.pane === 'right'));
 
   const currentActiveId = computed({
     get: () => focusedPane.value === 'left' ? activeTabIdLeft.value : (activeTabIdRight.value || activeTabIdLeft.value),
@@ -46,10 +50,15 @@ export function useEditorTabs() {
   });
 
   // --- Methods ---
-  const addTab = (name = 'untitled.txt', content = '', language = 'plaintext', path?: string) => {
+  const addTab = (name = 'untitled.txt', content = '', language = 'plaintext', path?: string, pane: 'left' | 'right' = 'left') => {
     const id = Date.now().toString() + Math.random();
-    tabs.value.push({ id, name, content, language, path });
-    currentActiveId.value = id;
+    tabs.value.push({ id, name, content, language, path, pane });
+    if (pane === 'left') {
+        activeTabIdLeft.value = id;
+    } else {
+        activeTabIdRight.value = id;
+    }
+    focusedPane.value = pane;
     return id;
   };
 
@@ -60,9 +69,38 @@ export function useEditorTabs() {
     if (tabs.value.length === 0) {
       addTab();
     } else if (currentActiveId.value === id) {
-      currentActiveId.value = tabs.value[Math.max(0, i - 1)].id;
+      const remaining = tabs.value.filter(t => t.pane === (focusedPane.value === 'left' ? 'left' : 'right') || !t.pane);
+      currentActiveId.value = remaining.length > 0 ? remaining[Math.max(0, remaining.length - 1)].id : '';
     }
     if (activeTabIdRight.value === id) activeTabIdRight.value = '';
+  };
+
+  const closeAllTabs = () => {
+    tabs.value = [];
+    addTab();
+    activeTabIdRight.value = '';
+  };
+
+  const moveToPane = (tabId: string, pane: 'left' | 'right') => {
+    const tab = tabs.value.find(t => t.id === tabId);
+    if (!tab) return;
+    tab.pane = pane;
+    
+    if (pane === 'left') {
+      activeTabIdLeft.value = tabId;
+      if (activeTabIdRight.value === tabId) {
+        const remainingRight = tabs.value.filter(t => t.pane === 'right' && t.id !== tabId);
+        activeTabIdRight.value = remainingRight.length > 0 ? remainingRight[remainingRight.length - 1].id : '';
+      }
+    } else {
+      activeTabIdRight.value = tabId;
+      if (activeTabIdLeft.value === tabId) {
+        const remainingLeft = tabs.value.filter(t => (t.pane === 'left' || !t.pane) && t.id !== tabId);
+        activeTabIdLeft.value = remainingLeft.length > 0 ? remainingLeft[remainingLeft.length - 1].id : '';
+      }
+      showSplit.value = true;
+    }
+    focusedPane.value = pane;
   };
 
   const openFileByPath = async (path: string) => {
@@ -77,7 +115,7 @@ export function useEditorTabs() {
       const name = path.split(/[/\\]/).pop() || path;
       const ext = path.split('.').pop() || '';
 
-      const id = addTab(name, content, getFileLanguage(ext), path);
+      const id = addTab(name, content, getFileLanguage(ext), path, focusedPane.value);
       return id;
     } catch (e) {
       console.error('[EditorTabs] Failed to open file:', e);
@@ -144,7 +182,8 @@ export function useEditorTabs() {
         language: getFileLanguage(path.split('.').pop() || ''),
         path: path,
         isDiff: true,
-        diffData: { original, modified }
+        diffData: { original, modified },
+        pane: 'left'
       };
       tabs.value.push(newTab);
       activeTabIdLeft.value = newTab.id;
@@ -155,6 +194,8 @@ export function useEditorTabs() {
 
   return {
     tabs,
+    tabsLeft,
+    tabsRight,
     activeTabIdLeft,
     activeTabIdRight,
     activeTabLeft,
@@ -165,6 +206,8 @@ export function useEditorTabs() {
     currentActiveId,
     addTab,
     removeTab,
+    closeAllTabs,
+    moveToPane,
     openFileByPath,
     saveCurrentFile,
     getFileLanguage

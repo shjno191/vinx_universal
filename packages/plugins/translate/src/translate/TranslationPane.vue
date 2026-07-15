@@ -406,9 +406,12 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
         <div class="pane-header">
           <div class="header-left">
             <span class="pane-label">SHEETS LIST</span>
-            <label class="only-checkbox" title="Only use selected sheets (skip base dictionary)">
+            <label class="only-checkbox" 
+                   :class="{ 'disabled-checkbox': activeSheets.size === 0 }"
+                   title="Only use selected sheets (Requires at least one active sheet in the list)">
               <input type="checkbox" 
-                     :checked="isOnlySelectedSheets"
+                     :disabled="activeSheets.size === 0"
+                     :checked="isOnlySelectedSheets && activeSheets.size > 0"
                      @change="emit('update:isOnlySelectedSheets', ($event.target as HTMLInputElement).checked)" />
               <span>ONLY</span>
             </label>
@@ -635,6 +638,7 @@ textarea {
 .only-checkbox { display: flex; align-items: center; gap: 4px; font-size: 0.55rem; font-weight: 950; color: var(--accent-color); cursor: pointer; opacity: 0.6; transition: opacity 0.2s; margin-left: 10px; }
 .only-checkbox:hover { opacity: 1; }
 .only-checkbox input { width: 12px; height: 12px; cursor: pointer; accent-color: var(--accent-color); margin: 0; }
+.disabled-checkbox { opacity: 0.3 !important; pointer-events: none; cursor: not-allowed; }
 
 /* SHEET SPLIT STYLES */
 .no-flex { display: block !important; }

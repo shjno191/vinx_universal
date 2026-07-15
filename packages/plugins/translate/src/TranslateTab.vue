@@ -194,11 +194,12 @@ const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null
 const openAddModal = () => { modalMode.value = 'add'; editBuffer.value = { jp: '', en: '', vi: '' }; showDictModal.value = true; };
 
 const handleContextAdd = (text: string) => {
-  const isJp = /[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFFEF\u4E00-\u9FAF]/.test(text);
+  const cleanedText = text.replace(/[,;]/g, '').trim();
+  const isJp = /[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFFEF\u4E00-\u9FAF]/.test(cleanedText);
   modalMode.value = 'add';
   editBuffer.value = {
-    jp: isJp ? text : '',
-    en: !isJp ? text : '',
+    jp: isJp ? cleanedText : '',
+    en: !isJp ? cleanedText : '',
     vi: ''
   };
   showDictModal.value = true;
@@ -699,7 +700,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 .toast-enter-from { opacity: 0; transform: translate(-50%, 20px) scale(0.9); }
 .toast-leave-to { opacity: 0; transform: translate(-50%, -20px) scale(0.9); }
 
-.is-win95 .vinx_toast {
+.is-win95 .vinx-toast {
   border-radius: 0;
   background: #c0c0c0 !important;
   border: 2px outset #fff !important;

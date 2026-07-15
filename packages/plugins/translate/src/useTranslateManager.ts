@@ -35,6 +35,7 @@ const excelFilesInFolder = shallowRef<string[]>([]);
 const selectedFiles = ref<Set<string>>(new Set());
 const fileSheetsData = shallowRef<Map<string, string[]>>(new Map());
 const selectedSheets = ref<Set<string>>(new Set());
+const activeSheets = ref<Set<string>>(new Set());
 
 const fileSheetCounts = shallowRef<Record<string, number>>({});
 const sheetRowCounts = shallowRef<Record<string, number>>({});
@@ -150,6 +151,7 @@ export function useTranslateManager() {
       console.log(`[TranslateManager] Auto-selecting best sheet (Score: ${maxScore}): ${bestSheetKey}`);
       
       selectedSheets.value.add(bestSheetKey);
+      activeSheets.value.add(bestSheetKey);
       await loadSingleSheet(file, sheetName);
       rebuildBaseDictionaryCache();
       updateCachedWords();
@@ -471,12 +473,15 @@ export function useTranslateManager() {
       selectedFiles.value.delete(filePath);
       // Automatically deselect all sheets of this file
       const newSelectedSheets = new Set(selectedSheets.value);
+      const newActiveSheets = new Set(activeSheets.value);
       for (const s of newSelectedSheets) {
         if (s.startsWith(`${filePath}::`)) {
           newSelectedSheets.delete(s);
+          newActiveSheets.delete(s);
         }
       }
       selectedSheets.value = newSelectedSheets;
+      activeSheets.value = newActiveSheets;
     } else {
       selectedFiles.value.add(filePath);
       await selectExcelFile(filePath);
@@ -583,6 +588,21 @@ export function useTranslateManager() {
         sourceSet.add(physical);
         sourceMap.set(logical, info);
         sourceMap.set(physical, info);
+        
+        // Fix for ONLY mode: Try to fetch VI translation from Base Dictionary
+        const viLogical = baseLookupPart.value.get(logical);
+        const viPhysical = baseLookupPart.value.get(physical);
+        
+        if (viLogical) {
+          lookup.set(logical, viLogical);
+          targetSet.add(viLogical);
+          sourceMap.set(viLogical, info);
+        }
+        if (viPhysical) {
+          lookup.set(physical, viPhysical);
+          targetSet.add(viPhysical);
+          sourceMap.set(viPhysical, info);
+        }
         return;
       }
 
@@ -597,8 +617,8 @@ export function useTranslateManager() {
       }
     };
 
-    // 1. Process Selected Sheets first (Insertion order = "First selected wins")
-    selectedSheets.value.forEach(fullKey => {
+    // 1. Process Active Sheets first (Insertion order = "First selected wins")
+    activeSheets.value.forEach(fullKey => {
       const parts = fullKey.split('::');
       const sheetName = parts[parts.length - 1];
       const info: WordSourceInfo = { type: 'tech', source: sheetName };
@@ -789,6 +809,7 @@ export function useTranslateManager() {
     selectedFiles,
     fileSheetsData,
     selectedSheets,
+    activeSheets,
     fileSheetCounts,
     sheetRowCounts,
     sheetMetadata,

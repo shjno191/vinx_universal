@@ -11,142 +11,140 @@ export interface SheetMetadata {
  */
 function isPhysicalLike(s: string): boolean {
   if (!s || s.length < 2) return false;
-  return /^[A-Z0-9_$#.]+$/.test(s);
+  // Must contain at least one letter, and only allowed characters
+  return /^[A-Za-z0-9_$#.]+$/.test(s) && /[A-Za-z]/.test(s);
 }
 
 /**
- * Parses a worksheet to find technical header definitions and extract a mapping.
- * Uses a scoring system to distinguish between table metadata and column definitions.
+ * Parses a worksheet to find technical definitions and extract a mapping.
+ * Uses content-based column profiling to automatically identify Japanese (Logical) 
+ * and English (Physical) columns, making it immune to formatting changes.
  */
 export function parseTechnicalSheet(worksheet: XLSX.WorkSheet): Map<string, string> {
   const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
   const mapping = new Map<string, string>();
+  
+  if (!jsonData || jsonData.length === 0) return mapping;
 
-  let bestScore = -1;
-  let headerRowIndex = -1;
-  // Support multiple logical/physical column pairs
-  let columnPairs: Array<{ li: number, pi: number }> = [];
-
-  // Scan first 50 rows for the header
-  for (let i = 0; i < Math.min(jsonData.length, 50); i++) {
+  const colProfiles: Record<number, { jp: number, en: number, total: number }> = {};
+  
+  // 1. Profile columns based on data
+  const sampleLimit = Math.min(jsonData.length, 100);
+  for (let i = 0; i < sampleLimit; i++) {
     const row = jsonData[i] || [];
-    let score = 0;
-    const currentPairs: Array<{ li: number, pi: number }> = [];
-    
-    // We search for logical/physical markers
-    let tempLi: number[] = [];
-    let tempPi: number[] = [];
-
-    row.forEach((cell, idx) => {
-      const s = String(cell || '').toLowerCase();
-      // High priority for columns mentioning 'column' or specific 'name' patterns
-      if (s.includes('論理') && s.includes('名')) {
-        tempLi.push(idx);
-        score += (s.includes('カラム') || s.includes('column') || s.includes('項目')) ? 10 : 2;
-      }
-      if (s.includes('物理') && s.includes('名')) {
-        tempPi.push(idx);
-        score += (s.includes('カラム') || s.includes('column') || s.includes('項目')) ? 10 : 2;
-      }
-      // Additional indicators
-      if (s === 'no.' || s === 'no' || s === '番号') score += 2;
-      if (s.includes('型') || s.includes('タイプ')) score += 2;
-      if (s.includes('長') || s.includes('精度')) score += 1;
-      if (s.includes('必須') || s === 'pk') score += 1;
+    row.forEach((cell, colIdx) => {
+      const s = String(cell || '').trim();
+      if (!s) return;
       
-      // Negative indicator: Table description info (prevents misidentifying table-level headers)
-      if (s.includes('テーブル') || s.includes('table')) score -= 15;
+      if (!colProfiles[colIdx]) colProfiles[colIdx] = { jp: 0, en: 0, total: 0 };
+      colProfiles[colIdx].total++;
+      
+      if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s)) {
+        // Exclude very long descriptions
+        if (s.length < 50) {
+          colProfiles[colIdx].jp++;
+        }
+      } else if (isPhysicalLike(s)) {
+        colProfiles[colIdx].en++;
+      }
     });
+  }
 
-    // Pair up closest logical/physical columns
-    if (tempLi.length > 0 && tempPi.length > 0) {
-      // Simple heuristic: pair them based on proximity
-      tempLi.forEach(li => {
-        let nearestPi = -1;
-        let minDist = Infinity;
-        tempPi.forEach(pi => {
-          const dist = Math.abs(li - pi);
-          if (dist < minDist) {
-            minDist = dist;
-            nearestPi = pi;
-          }
-        });
-        if (nearestPi !== -1) {
-          currentPairs.push({ li, pi });
-        }
-      });
-      
-      // Ensure we also pair any unpaired physical columns
-      tempPi.forEach(pi => {
-        if (!currentPairs.some(p => p.pi === pi)) {
-          let nearestLi = -1;
-          let minDist = Infinity;
-          tempLi.forEach(li => {
-            const dist = Math.abs(li - pi);
-            if (dist < minDist) {
-              minDist = dist;
-              nearestLi = li;
-            }
-          });
-          if (nearestLi !== -1) {
-             currentPairs.push({ li: nearestLi, pi });
-          }
-        }
-      });
-
-      if (score > bestScore) {
-        bestScore = score;
-        headerRowIndex = i;
-        columnPairs = currentPairs;
-      }
+  // 2. Identify candidate columns
+  const jpCols: number[] = [];
+  const enCols: number[] = [];
+  
+  for (const colIdxStr in colProfiles) {
+    const colIdx = parseInt(colIdxStr);
+    const prof = colProfiles[colIdx];
+    
+    // A column is "mostly Japanese" if > 15% of its cells are JP and it has at least 2 JP cells
+    if (prof.jp > prof.total * 0.15 && prof.jp >= 2) {
+      jpCols.push(colIdx);
+    }
+    // A column is "mostly English" if > 15% of its cells are EN and it has at least 2 EN cells
+    if (prof.en > prof.total * 0.15 && prof.en >= 2) {
+      enCols.push(colIdx);
     }
   }
 
-  if (headerRowIndex !== -1) {
-    for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
-      const row = jsonData[i] || [];
-      columnPairs.forEach(pair => {
-        const logical = String(row[pair.li] || '').trim();
-        const physical = String(row[pair.pi] || '').trim();
-        if (logical && physical && logical !== physical) {
-          mapping.set(logical, physical); // Store as Logical -> Physical
+  // 3. Pair them up by proximity
+  const pairs: Array<{ jp: number, en: number }> = [];
+  
+  jpCols.forEach(jpIdx => {
+    let bestEn = -1;
+    let minDist = Infinity;
+    enCols.forEach(enIdx => {
+      const dist = Math.abs(jpIdx - enIdx);
+      if (dist < minDist) {
+        minDist = dist;
+        bestEn = enIdx;
+      }
+    });
+    if (bestEn !== -1) {
+      pairs.push({ jp: jpIdx, en: bestEn });
+    }
+  });
+
+  // Ensure all EN cols are paired to capture everything (like DB list format)
+  enCols.forEach(enIdx => {
+    if (!pairs.some(p => p.en === enIdx)) {
+      let bestJp = -1;
+      let minDist = Infinity;
+      jpCols.forEach(jpIdx => {
+        const dist = Math.abs(jpIdx - enIdx);
+        if (dist < minDist) {
+          minDist = dist;
+          bestJp = jpIdx;
         }
       });
-    }
-  } else {
-    // Fallback logic improved for DB List format
-    // Detect if it's a DB List format (5+ columns with repeating table/column info)
-    let dbListScore = 0;
-    for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
-      const row = jsonData[i] || [];
-      if (row.length >= 5 && isPhysicalLike(String(row[1])) && isPhysicalLike(String(row[3]))) {
-        dbListScore++;
+      if (bestJp !== -1) {
+        pairs.push({ jp: bestJp, en: enIdx });
       }
     }
+  });
 
-    if (dbListScore > 3) {
-      jsonData.forEach(row => {
-        if (row.length >= 5) {
-          const tableJP = String(row[0] || '').trim();
-          const tableEN = String(row[1] || '').trim();
-          const colEN = String(row[3] || '').trim();
-          const colJP = String(row[4] || '').trim();
-          if (tableJP && tableEN) mapping.set(tableJP, tableEN);
-          if (colJP && colEN) mapping.set(colJP, colEN);
+  // Remove duplicate pairs
+  const uniquePairs = new Set<string>();
+  const finalPairs: Array<{ jp: number, en: number }> = [];
+  pairs.forEach(p => {
+    const key = `${p.jp}-${p.en}`;
+    if (!uniquePairs.has(key)) {
+      uniquePairs.add(key);
+      finalPairs.push(p);
+    }
+  });
+
+  // 4. Extract data using pairs
+  if (finalPairs.length > 0) {
+    jsonData.forEach(row => {
+      finalPairs.forEach(pair => {
+        const logical = String(row[pair.jp] || '').trim();
+        const physical = String(row[pair.en] || '').trim();
+        if (logical && physical && logical !== physical && logical.length < 200) {
+           mapping.set(logical, physical);
         }
       });
-    } else {
-      // Simple 2-column fallback
-      jsonData.forEach(row => {
-        if (row.length >= 2) {
-          const logical = String(row[0] || '').trim();
-          const physical = String(row[1] || '').trim();
-          if (logical && physical && logical.length < 200) {
-            mapping.set(logical, physical);
+    });
+  } else {
+    // 5. Ultimate Fallback: just search row by row if column profiling yielded nothing
+    jsonData.forEach(row => {
+      let tempJp = '';
+      let tempEn = '';
+      row.forEach(cell => {
+        const s = String(cell || '').trim();
+        if (s && s.length < 50) {
+          if (!tempJp && /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s)) {
+            tempJp = s;
+          } else if (!tempEn && isPhysicalLike(s)) {
+            tempEn = s;
           }
         }
       });
-    }
+      if (tempJp && tempEn && tempJp !== tempEn) {
+        mapping.set(tempJp, tempEn);
+      }
+    });
   }
 
   return mapping;
@@ -162,51 +160,53 @@ export function extractSheetMetadata(worksheet: XLSX.WorkSheet): SheetMetadata {
   let physical = '';
   let rowCount = 0;
 
-  // Search for table names in the first 20 rows
-  for (let i = 0; i < Math.min(jsonData.length, 20); i++) {
+  // Search for table names in the first 30 rows
+  for (let i = 0; i < Math.min(jsonData.length, 30); i++) {
     const row = jsonData[i] || [];
     for (let j = 0; j < row.length; j++) {
       const cell = String(row[j] || '').trim();
-      if (cell.includes('テーブル') && cell.includes('名')) {
-        const val = String(row[j + 1] || '').trim();
-        if (val) {
-          if (cell.includes('論理')) logical = val;
-          if (cell.includes('物理')) physical = val;
+      // Look for typical table name declarations
+      if (cell.includes('テーブル') || cell.includes('Table') || cell.includes('表名') || cell.includes('エンティティ') || cell.includes('論理') || cell.includes('物理')) {
+        // Search next cells in the same row
+        for (let k = j + 1; k < row.length; k++) {
+           const val = String(row[k] || '').trim();
+           if (val) {
+             if (!logical && /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(val)) logical = val;
+             else if (!physical && isPhysicalLike(val)) physical = val;
+           }
         }
       }
     }
     if (logical && physical) break;
   }
 
-  // Fallback for DB List format
+  // Fallback: Guess from the first valid JP/EN pair we find
   if (!logical || !physical) {
-    for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
+    for (let i = 0; i < Math.min(jsonData.length, 30); i++) {
       const row = jsonData[i] || [];
-      if (row.length >= 5 && isPhysicalLike(String(row[1])) && isPhysicalLike(String(row[3]))) {
-        logical = String(row[0] || '').trim();
-        physical = String(row[1] || '').trim();
+      let tempJp = '';
+      let tempEn = '';
+      for (const cell of row) {
+        const s = String(cell || '').trim();
+        if (s.length > 0 && s.length < 100) {
+          if (!tempJp && /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s)) tempJp = s;
+          else if (!tempEn && isPhysicalLike(s)) tempEn = s;
+        }
+      }
+      if (tempJp && tempEn) {
+        if (!logical) logical = tempJp;
+        if (!physical) physical = tempEn;
         break;
       }
     }
   }
 
-  // Fallback old logic if not found
-  if (!logical || !physical) {
-    if (jsonData.length >= 2) {
-      const row1 = jsonData[0] || [];
-      const row2 = jsonData[1] || [];
-      const lIdx = row1.findIndex((c: any) => String(c || '').includes('論理'));
-      const pIdx = row1.findIndex((c: any) => String(c || '').includes('物理'));
-      if (lIdx !== -1 && !logical) logical = String(row2[lIdx] || '').trim();
-      if (pIdx !== -1 && !physical) physical = String(row2[pIdx] || '').trim();
-    }
-  }
-
-  // Count rows starting from Row 5 (typical technical sheet layout)
+  // Count rows starting from Row 5
   if (jsonData.length >= 5) {
     for (let i = 4; i < jsonData.length; i++) {
       const row = jsonData[i];
-      if (row && (String(row[0] || '').trim() || String(row[1] || '').trim())) {
+      // A row is valid if it has at least one string cell
+      if (row && row.some((c: any) => String(c || '').trim())) {
         rowCount++;
       }
     }

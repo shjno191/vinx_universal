@@ -15,6 +15,7 @@ const props = defineProps<{
   selectedFiles: Set<string>; 
   aggregatedSheets: { file: string, name: string }[]; 
   selectedSheets: Set<string>; 
+  activeSheets: Set<string>;
   fileSheetCounts: Record<string, number>; 
   sheetRowCounts: Record<string, number>;  
   sheetMetadata: Record<string, { logical: string, physical: string, rowCount: number }>;
@@ -39,6 +40,8 @@ const emit = defineEmits<{
   (e: 'selectFolder'): void;
   (e: 'toggleFile', path: string): void;
   (e: 'toggleSheet', fullKey: string): void;
+  (e: 'toggleActiveSheet', fullKey: string): void;
+  (e: 'removeSheet', fullKey: string): void;
   (e: 'toggleAllSheets'): void;
   (e: 'update:fileSearch', val: string): void;
   (e: 'update:sheetSearch', val: string): void;
@@ -251,7 +254,23 @@ const groupedSelectedSheets = computed(() => {
       <!-- COLUMN 2: Input Pane -->
       <div class="pane-group">
         <div class="pane-header">
-          <span class="pane-label">INPUT SOURCE</span>
+          <div class="header-left">
+            <span class="pane-label">INPUT SOURCE</span>
+            <div class="hl-legend">
+              <div class="legend-item" title="Translated from Base Dictionary">
+                <span class="legend-dot base"></span>
+                <span class="legend-text">BASE</span>
+              </div>
+              <div class="legend-item" title="Translated from Technical Sheets">
+                <span class="legend-dot tech"></span>
+                <span class="legend-text">TECH</span>
+              </div>
+              <div class="legend-item" title="Found in both sources">
+                <span class="legend-dot composed"></span>
+                <span class="legend-text">BOTH</span>
+              </div>
+            </div>
+          </div>
           <div class="header-right">
             <button @click="emit('format')" class="ghost-btn format-btn">FORMAT</button>
             <button @click="emit('clear')" class="ghost-btn clear-btn">CLEAR ALL</button>
@@ -383,10 +402,13 @@ const groupedSelectedSheets = computed(() => {
                   </div>
                   <label v-for="fullKey in fullKeys" :key="'sel-' + fullKey" 
                          class="sheet-item compact" :title="sheetMetadata[fullKey]?.physical || fullKey">
-                    <input type="checkbox" checked @change="emit('toggleSheet', fullKey)" />
+                    <input type="checkbox" :checked="activeSheets.has(fullKey)" @change="emit('toggleActiveSheet', fullKey)" />
                     <div class="sheet-info-v">
                       <div class="sheet-header-line">
-                        <span class="sheet-name-label">{{ fullKey.split('::').pop() }}</span>
+                        <span class="sheet-name-label" :style="{ opacity: activeSheets.has(fullKey) ? 1 : 0.4 }">{{ fullKey.split('::').pop() }}</span>
+                        <button class="remove-sheet-btn" @click.prevent.stop="emit('removeSheet', fullKey)" title="Remove from list">
+                          <span v-html="Icons.Trash2 || Icons.X || '✕'"></span>
+                        </button>
                       </div>
                     </div>
                   </label>
@@ -637,7 +659,10 @@ textarea {
 .check-all-btn :deep(svg) { width: 14px; height: 14px; }
 
 .sheet-item.compact { padding: 4px 10px; }
-.sheet-item.compact .sheet-name-label { font-size: 0.68rem; opacity: 0.8; }
+.sheet-item.compact .sheet-name-label { font-size: 0.68rem; opacity: 0.8; transition: opacity 0.2s; }
+.remove-sheet-btn { background: transparent; border: none; color: var(--text-color); opacity: 0.2; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 2px; border-radius: 4px; transition: all 0.2s; }
+.remove-sheet-btn:hover { opacity: 1; background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+.remove-sheet-btn :deep(svg) { width: 12px; height: 12px; }
 
 /* Group Styles */
 .sheet-group-container { 
@@ -695,4 +720,13 @@ textarea {
   font-weight: 700; 
   border: 1px solid rgba(16, 185, 129, 0.2);
 }
+
+/* Highlight Legend */
+.hl-legend { display: flex; align-items: center; gap: 10px; margin-left: 12px; background: rgba(128,128,128,0.05); padding: 3px 8px; border-radius: 8px; border: 1px solid rgba(128,128,128,0.1); }
+.legend-item { display: flex; align-items: center; gap: 4px; cursor: help; }
+.legend-dot { width: 6px; height: 6px; border-radius: 50%; box-shadow: 0 0 4px currentColor; }
+.legend-dot.base { background: var(--hl-base-color, #3b82f6); color: var(--hl-base-color, #3b82f6); }
+.legend-dot.tech { background: var(--hl-tech-color, #eab308); color: var(--hl-tech-color, #eab308); }
+.legend-dot.composed { background: var(--hl-composed-color, #10b981); color: var(--hl-composed-color, #10b981); }
+.legend-text { font-size: 0.55rem; font-weight: 900; opacity: 0.7; color: var(--text-color); }
 </style>

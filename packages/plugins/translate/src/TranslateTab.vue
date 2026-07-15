@@ -42,6 +42,7 @@ const {
   selectedFiles,
   fileSheetsData,
   selectedSheets,
+  activeSheets,
   fileSheetCounts,
   sheetRowCounts,
   sheetMetadata,
@@ -467,6 +468,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         :selectedFiles="selectedFiles"
         :aggregatedSheets="aggregatedSheets"
         :selectedSheets="selectedSheets"
+        :activeSheets="activeSheets"
         :fileSheetCounts="fileSheetCounts"
         :sheetRowCounts="sheetRowCounts"
         :sheetMetadata="sheetMetadata"
@@ -476,17 +478,29 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         v-model:isOnlySelectedSheets="isOnlySelectedSheets"
         @selectFolder="pickQuickTranslateFolder"
         @refreshFiles="() => loadFilesFromMultipleFolders(advancedTranslatePaths, true)"
-        @clearSheets="() => { selectedSheets.clear(); updateCachedWords(); }"
+        @clearSheets="() => { selectedSheets.clear(); activeSheets.clear(); updateCachedWords(); }"
         @toggleFile="toggleExcelFile"
         @deepSearch="searchAllSheetsForText"
+        @toggleActiveSheet="(fullKey) => {
+          if (activeSheets.has(fullKey)) activeSheets.delete(fullKey);
+          else activeSheets.add(fullKey);
+          updateCachedWords();
+        }"
+        @removeSheet="(fullKey) => {
+          selectedSheets.delete(fullKey);
+          activeSheets.delete(fullKey);
+          updateCachedWords();
+        }"
         @toggleSheet="(fullKey) => { 
           if (selectedSheets.has(fullKey)) { 
             selectedSheets.delete(fullKey); 
+            activeSheets.delete(fullKey);
             updateCachedWords(); 
           } else { 
             (async () => { 
               const [file, sheet] = fullKey.split('::');
               selectedSheets.add(fullKey); 
+              activeSheets.add(fullKey);
               await loadSingleSheet(file, sheet); 
               updateCachedWords(); 
             })(); 

@@ -75,10 +75,10 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
 
   // Input-aware shortcuts
   const activeEl = document.activeElement;
-  const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
   
-  if (!isInput) {
-    // Chill smoke logic
+  // Chill smoke logic
+  // Only trigger if we are focused on the body or not in an input, to avoid breaking editor spaces.
+  if (activeEl?.tagName === 'BODY') {
     if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       isGlobalSmoking.value = true;

@@ -9,10 +9,21 @@ export function cleanAndFormatSql(input: string): string {
 
   // 1. Pre-cleaning (Java append / concatenations)
   const isJavaStyle = sql.includes('.append(') || (sql.includes('"') && (sql.includes('+') || sql.includes(';')));
-  if (isJavaStyle) {
-    const lines = sql.split('\n');
-    sql = lines.map(line => {
-      let l = line.trim();
+  
+  const lines = sql.split('\n');
+  sql = lines.map(line => {
+    let l = line.trim();
+    
+    // Discard trailing comments (either // or --)
+    const javaCommentIdx = l.lastIndexOf('//');
+    const sqlCommentIdx = l.lastIndexOf('--');
+    const commentIdx = Math.max(javaCommentIdx, sqlCommentIdx);
+    
+    if (commentIdx !== -1) {
+      l = l.substring(0, commentIdx).trim();
+    }
+
+    if (isJavaStyle) {
       l = l.replace(/^.*\.?append\s*\(\s*"/i, '');
       l = l.replace(/^.*?\+?=\s*"/i, '');
       l = l.replace(/"\s*\)\s*;?$/, '');
@@ -20,9 +31,10 @@ export function cleanAndFormatSql(input: string): string {
       l = l.replace(/"\s*\+\s*[^"\+]+\s*\+\s*"/g, ' ? ');
       l = l.replace(/"\s*\+\s*[^"\+]+$/g, ' ?');
       l = l.replace(/^[^"\+]+\s*\+\s*"/g, '? ');
-      return l;
-    }).join(' ');
-  }
+    }
+    
+    return l;
+  }).join(' ');
 
   // 2. Tokenize
   sql = sql.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').replace(/,/g, ' , ').replace(/\s+/g, ' ').trim();

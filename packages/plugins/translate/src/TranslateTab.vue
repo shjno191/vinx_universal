@@ -192,6 +192,18 @@ const handleEditorMouseMove = (e: MouseEvent, target: HTMLTextAreaElement | null
 
 // --- Dictionary CRUD ---
 const openAddModal = () => { modalMode.value = 'add'; editBuffer.value = { jp: '', en: '', vi: '' }; showDictModal.value = true; };
+
+const handleContextAdd = (text: string) => {
+  const isJp = /[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFFEF\u4E00-\u9FAF]/.test(text);
+  modalMode.value = 'add';
+  editBuffer.value = {
+    jp: isJp ? text : '',
+    en: !isJp ? text : '',
+    vi: ''
+  };
+  showDictModal.value = true;
+};
+
 const openEditModal = (item: any) => { modalMode.value = 'edit'; editingIdx.value = dictionaryData.value.indexOf(item); editBuffer.value = { ...item }; showDictModal.value = true; };
 const saveModalData = async () => {
   const newArr = [...dictionaryData.value];
@@ -291,6 +303,18 @@ const handleRefresh = async () => {
       }
     } else {
       showToast('Refreshed! No duplicates found.');
+    }
+  }
+};
+
+const handleRefreshBase = async () => {
+  const res = await loadDictionary(globalDictionaryPath.value, true);
+  if (res) {
+    try {
+      await saveDictionaryFile(globalDictionaryPath.value, dictionaryData.value);
+      showToast(`Refreshed Base! Cleaned ${res.removed} duplicates & stripped formatting.`);
+    } catch (e) {
+      showToast(`Refreshed, but failed to clean Base Dictionary file.`);
     }
   }
 };
@@ -420,6 +444,11 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         </button>
         <button v-if="subTab === 'dictionary'" class="action-btn-circle" @click="openAddModal" title="Add Entry" v-html="Icons.Plus"></button>
         <button v-if="subTab === 'dictionary'" class="action-btn-circle" @click="handleRefresh" title="Refresh" v-html="Icons.RefreshCw"></button>
+
+        <button v-if="subTab === 'quick-translate'" class="action-btn-rect" @click="handleRefreshBase" title="Refresh & Clean Base Dictionary">
+          <span v-html="Icons.RefreshCw" class="btn-icon"></span>
+          REFRESH BASE
+        </button>
       </div>
     </header>
 
@@ -506,6 +535,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
             })(); 
           } 
         }"
+        @contextAdd="handleContextAdd"
       />
     </div>
 

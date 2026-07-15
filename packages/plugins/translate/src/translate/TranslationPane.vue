@@ -49,6 +49,7 @@ const emit = defineEmits<{
   (e: 'update:isOnlySelectedSheets', val: boolean): void;
   (e: 'refreshFiles'): void;
   (e: 'clearSheets'): void;
+  (e: 'contextAdd', text: string): void;
 }>();
 
 // == COLUMN RESIZING LOGIC (HORIZONTAL) =======================================
@@ -202,6 +203,35 @@ const groupedSelectedSheets = computed(() => {
   });
   return groups;
 });
+
+// == CONTEXT MENU LOGIC =======================================================
+import { onMounted, onUnmounted } from 'vue';
+const contextMenu = ref({ show: false, x: 0, y: 0, text: '' });
+
+const onContextMenu = (e: MouseEvent) => {
+  const selection = window.getSelection()?.toString().trim();
+  if (selection) {
+    e.preventDefault();
+    contextMenu.value = {
+      show: true,
+      x: e.clientX,
+      y: e.clientY,
+      text: selection
+    };
+  }
+};
+
+const closeContextMenu = () => {
+  contextMenu.value.show = false;
+};
+
+const handleContextAdd = () => {
+  emit('contextAdd', contextMenu.value.text);
+  closeContextMenu();
+};
+
+onMounted(() => document.addEventListener('click', closeContextMenu));
+onUnmounted(() => document.removeEventListener('click', closeContextMenu));
 </script>
 
 <template>
@@ -297,14 +327,16 @@ const groupedSelectedSheets = computed(() => {
             </div>
             <textarea v-model="localInput" 
                       ref="inputTextarea" 
-                      @scroll="handleScroll('input')" 
+                      @scroll="handleScroll('input')"
+                      @contextmenu="onContextMenu"
                       placeholder="Paste text here..."></textarea>
             <div class="highlighter" 
                  v-html="sanitize(highlighterInput)" 
                  ref="inputHighlighter" 
                  @click="emit('highlighterClick', $event)" 
                  @mouseover="emit('highlighterMouseOver', $event)" 
-                 @mouseout="emit('highlighterMouseOut')">
+                 @mouseout="emit('highlighterMouseOut')"
+                 @contextmenu="onContextMenu">
             </div>
           </div>
         </div>
@@ -350,7 +382,8 @@ const groupedSelectedSheets = computed(() => {
             <textarea :value="output" 
                       readonly 
                       ref="resultTextarea" 
-                      @scroll="handleScroll('result')" 
+                      @scroll="handleScroll('result')"
+                      @contextmenu="onContextMenu"
                       placeholder="Translation..." 
                       class="clickable-result"></textarea>
             <div class="highlighter" 
@@ -358,7 +391,8 @@ const groupedSelectedSheets = computed(() => {
                  ref="resultHighlighter" 
                  @click="emit('highlighterClick', $event)" 
                  @mouseover="emit('highlighterMouseOver', $event)" 
-                 @mouseout="emit('highlighterMouseOut')">
+                 @mouseout="emit('highlighterMouseOut')"
+                 @contextmenu="onContextMenu">
             </div>
           </div>
         </div>
@@ -467,6 +501,18 @@ const groupedSelectedSheets = computed(() => {
         </div>
       </div>
     </div>
+
+    <!-- Context Menu -->
+    <Teleport to="body">
+      <div v-if="contextMenu.show" 
+           class="vinx-context-menu glass" 
+           :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+           @click.stop>
+        <div class="menu-item" @click="handleContextAdd">
+          <span v-html="Icons.Plus"></span> Add to Base Dictionary
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -729,4 +775,10 @@ textarea {
 .legend-dot.tech { background: var(--hl-tech-color, #eab308); color: var(--hl-tech-color, #eab308); }
 .legend-dot.composed { background: var(--hl-composed-color, #10b981); color: var(--hl-composed-color, #10b981); }
 .legend-text { font-size: 0.55rem; font-weight: 900; opacity: 0.7; color: var(--text-color); }
+
+/* Context Menu */
+.vinx-context-menu { position: fixed; z-index: 10000; padding: 4px; border-radius: 8px; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); border: 1px solid var(--glass-border); background: var(--container-bg); }
+.menu-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 0.75rem; font-weight: 600; color: var(--text-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+.menu-item:hover { background: var(--accent-color); color: #fff; }
+.menu-item :deep(svg) { width: 14px; height: 14px; }
 </style>

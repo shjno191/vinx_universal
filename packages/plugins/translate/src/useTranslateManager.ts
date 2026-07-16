@@ -493,14 +493,17 @@ export function useTranslateManager() {
       // Automatically deselect all sheets of this file
       const newSelectedSheets = new Set(selectedSheets.value);
       const newActiveSheets = new Set(activeSheets.value);
+      const newDictData = new Map(advancedDictData.value);
       for (const s of newSelectedSheets) {
         if (s.startsWith(`${filePath}::`)) {
           newSelectedSheets.delete(s);
           newActiveSheets.delete(s);
+          newDictData.delete(s);
         }
       }
       selectedSheets.value = newSelectedSheets;
       activeSheets.value = newActiveSheets;
+      advancedDictData.value = newDictData;
     } else {
       selectedFiles.value.add(filePath);
       await selectExcelFile(filePath);

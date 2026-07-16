@@ -12,18 +12,7 @@ export interface SheetConfig {
   startRow?: number;
 }
 
-/**
- * Converts an Excel column string (e.g., 'A', 'AA') to a 0-based index.
- */
-export function excelColToIndex(col: string): number {
-  if (!col) return -1;
-  let index = 0;
-  const upperCol = col.toUpperCase();
-  for (let i = 0; i < upperCol.length; i++) {
-    index = index * 26 + upperCol.charCodeAt(i) - 64;
-  }
-  return index - 1;
-}
+
 
 /**
  * Helper to check if a string looks like a physical DB name (identifiers, underscores, caps).
@@ -40,29 +29,32 @@ function isPhysicalLike(s: string): boolean {
  * and English (Physical) columns, making it immune to formatting changes.
  */
 export function parseTechnicalSheet(worksheet: XLSX.WorkSheet, config?: SheetConfig): Map<string, string> {
-  const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
   const mapping = new Map<string, string>();
   
-  if (!jsonData || jsonData.length === 0) return mapping;
-
+  // 1. Explicit Configuration Mode
   if (config?.jpCol && config?.physCol) {
-    const jpIdx = excelColToIndex(config.jpCol);
-    const physIdx = excelColToIndex(config.physCol);
+    const jpCol = config.jpCol.trim().toUpperCase();
+    const physCol = config.physCol.trim().toUpperCase();
     const startRow = (config.startRow || 1) - 1;
 
-    if (jpIdx >= 0 && physIdx >= 0) {
-      for (let i = Math.max(0, startRow); i < jsonData.length; i++) {
-        const row = jsonData[i];
-        if (!row) continue;
-        const logical = String(row[jpIdx] || '').trim();
-        const physical = String(row[physIdx] || '').trim();
-        if (logical && physical && logical !== physical && logical.length < 200) {
-          mapping.set(logical, physical);
-        }
+    // Use header: "A" to get literal column labels (A, B, C...) regardless of !ref shift
+    const jsonA = XLSX.utils.sheet_to_json(worksheet, { header: "A" }) as Record<string, any>[];
+    
+    for (let i = Math.max(0, startRow); i < jsonA.length; i++) {
+      const row = jsonA[i];
+      if (!row) continue;
+      const logical = String(row[jpCol] || '').trim();
+      const physical = String(row[physCol] || '').trim();
+      if (logical && physical && logical !== physical && logical.length < 200) {
+        mapping.set(logical, physical);
       }
-      return mapping;
     }
+    return mapping;
   }
+
+  // 2. Automatic Detection Mode
+  const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+  if (!jsonData || jsonData.length === 0) return mapping;
 
   const colProfiles: Record<number, { jp: number, en: number, total: number }> = {};
   

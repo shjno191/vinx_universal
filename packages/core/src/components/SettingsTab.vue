@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue';
-import { useSettings, useGlobalLoading, Icons, showSettingsTrigger, theme } from '@vinx/sdk';
+import { useSettings, useGlobalLoading, Icons, showSettingsTrigger, theme, useFileSystem } from '@vinx/sdk';
+import { invoke } from '@tauri-apps/api/core';
 
 const emit = defineEmits(['theme-changed']);
 
@@ -34,6 +35,26 @@ onMounted(() => {
 const handleSaveAndEmit = async () => {
   await saveSettings();
   emit('theme-changed', theme.value);
+};
+
+const handleClearCache = async () => {
+  try {
+    const configDir = await invoke<string>('get_app_config_dir');
+    const files = await invoke<string[]>('list_files_in_dir', { path: configDir, extension: 'json' });
+    const { writeFile } = useFileSystem();
+    let count = 0;
+    for (const file of files) {
+      const lower = file.toLowerCase();
+      if (!lower.endsWith('settings.json') && !lower.endsWith('history.json')) {
+        await writeFile(file, '{}');
+        count++;
+      }
+    }
+    alert(`Đã xóa ${count} file cache thành công! Vui lòng tải lại từ điển nếu cần thiết.`);
+  } catch (err) {
+    console.error(err);
+    alert('Có lỗi xảy ra khi xóa cache');
+  }
 };
 
 defineExpose({
@@ -148,9 +169,14 @@ watch(showSettingsTrigger, (val) => {
           <div class="card-header">
             <span class="card-icon" v-html="Icons.Plus"></span>
             <span class="card-label">Nguồn quét từ điển (Quick Translate)</span>
-            <button class="add-group-btn" @click="addTranslateGroup" title="Thêm nhóm mới">
-              <span v-html="Icons.Plus"></span> Nhóm mới
-            </button>
+            <div style="margin-left: auto; display: flex; gap: 8px;">
+              <button class="icon-btn-danger" style="opacity: 0.8; font-size: 0.75rem; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 4px; padding: 4px 8px;" @click="handleClearCache" title="Xóa toàn bộ Cache">
+                <span v-html="Icons.Trash2" style="margin-right: 4px; display: inline-flex; align-items: center;"></span> Xóa Cache
+              </button>
+              <button class="add-group-btn" @click="addTranslateGroup" title="Thêm nhóm mới">
+                <span v-html="Icons.Plus"></span> Nhóm mới
+              </button>
+            </div>
           </div>
           <div class="card-body">
             <div v-for="group in settings.advanced_translate_groups" :key="group.id" class="translate-group">

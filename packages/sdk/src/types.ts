@@ -120,6 +120,9 @@ export interface TranslateSettings {
 export interface AdvancedTranslatePath {
     path: string;
     type: 'file' | 'folder';
+    physCol?: string;
+    jpCol?: string;
+    startRow?: number;
 }
 
 export interface AdvancedTranslateGroup {

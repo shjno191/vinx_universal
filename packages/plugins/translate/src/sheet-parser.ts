@@ -6,6 +6,25 @@ export interface SheetMetadata {
   rowCount: number;
 }
 
+export interface SheetConfig {
+  jpCol?: string;
+  physCol?: string;
+  startRow?: number;
+}
+
+/**
+ * Converts an Excel column string (e.g., 'A', 'AA') to a 0-based index.
+ */
+export function excelColToIndex(col: string): number {
+  if (!col) return -1;
+  let index = 0;
+  const upperCol = col.toUpperCase();
+  for (let i = 0; i < upperCol.length; i++) {
+    index = index * 26 + upperCol.charCodeAt(i) - 64;
+  }
+  return index - 1;
+}
+
 /**
  * Helper to check if a string looks like a physical DB name (identifiers, underscores, caps).
  */
@@ -20,11 +39,30 @@ function isPhysicalLike(s: string): boolean {
  * Uses content-based column profiling to automatically identify Japanese (Logical) 
  * and English (Physical) columns, making it immune to formatting changes.
  */
-export function parseTechnicalSheet(worksheet: XLSX.WorkSheet): Map<string, string> {
+export function parseTechnicalSheet(worksheet: XLSX.WorkSheet, config?: SheetConfig): Map<string, string> {
   const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
   const mapping = new Map<string, string>();
   
   if (!jsonData || jsonData.length === 0) return mapping;
+
+  if (config?.jpCol && config?.physCol) {
+    const jpIdx = excelColToIndex(config.jpCol);
+    const physIdx = excelColToIndex(config.physCol);
+    const startRow = (config.startRow || 1) - 1;
+
+    if (jpIdx >= 0 && physIdx >= 0) {
+      for (let i = Math.max(0, startRow); i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row) continue;
+        const logical = String(row[jpIdx] || '').trim();
+        const physical = String(row[physIdx] || '').trim();
+        if (logical && physical && logical !== physical && logical.length < 200) {
+          mapping.set(logical, physical);
+        }
+      }
+      return mapping;
+    }
+  }
 
   const colProfiles: Record<number, { jp: number, en: number, total: number }> = {};
   

@@ -6,10 +6,11 @@ import {
   translateOutput,
   sharedTargetLang,
   useFileSystem,
-  useGlobalLoading
+  useGlobalLoading,
+  advancedTranslateGroups
 } from '@vinx/sdk';
 import { buildTranslationRegex, translateText } from './translation-engine';
-import { parseTechnicalSheet, extractSheetMetadata } from './sheet-parser';
+import { parseTechnicalSheet, extractSheetMetadata, SheetConfig } from './sheet-parser';
 import { useCacheManager } from './utils/cache-manager';
 
 export interface WordSourceInfo {
@@ -28,7 +29,7 @@ const isOnlySelectedSheets = ref(false);
 const isStrict = ref(false);
 
 const advancedDictData = shallowRef<Map<string, Map<string, string>>>(new Map());
-const advancedConfigs = ref<Record<string, AdvancedConfig>>({});
+const advancedConfigs = ref<Record<string, any>>({});
 
 const selectedFolder = ref<string>('');
 const excelFilesInFolder = shallowRef<string[]>([]);
@@ -84,6 +85,24 @@ export function useTranslateManager() {
   const baseLookupPart = shallowRef<Map<string, string>>(new Map());
 
   // --- Internal Helpers ---
+
+  const getConfigForFile = (filePath: string): SheetConfig | undefined => {
+    if (!filePath) return undefined;
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    for (const group of advancedTranslateGroups.value) {
+      if (!group.active) continue;
+      for (const p of group.paths) {
+        const configPath = (p.path || '').replace(/\\/g, '/');
+        if (p.type === 'file' && configPath === normalizedPath) {
+          return { jpCol: p.jpCol, physCol: p.physCol, startRow: p.startRow };
+        }
+        if (p.type === 'folder' && normalizedPath.startsWith(configPath)) {
+          return { jpCol: p.jpCol, physCol: p.physCol, startRow: p.startRow };
+        }
+      }
+    }
+    return undefined;
+  };
 
   const detectLanguageAndSetTarget = (text: string) => {
     if (!text || text.trim().length === 0) return;
@@ -498,7 +517,18 @@ export function useTranslateManager() {
 
       // Try cache first
       const cached = await loadCache(filePath);
+      const config = getConfigForFile(filePath);
+      
+      let isValidCache = false;
       if (cached && cached.sheetMappings && cached.sheetMappings[sheetName]) {
+        const cachedConfigStr = JSON.stringify(cached.config || {});
+        const currentConfigStr = JSON.stringify(config || {});
+        if (cachedConfigStr === currentConfigStr) {
+          isValidCache = true;
+        }
+      }
+
+      if (isValidCache) {
         console.log(`[TranslateManager] Loaded sheet mapping from cache: ${sheetKey}`);
         const mapping = new Map(Object.entries(cached.sheetMappings[sheetName]));
         const newMap = new Map(advancedDictData.value);
@@ -513,7 +543,7 @@ export function useTranslateManager() {
       const worksheet = workbook.Sheets[sheetName];
       if (!worksheet) return;
 
-      const mapping = parseTechnicalSheet(worksheet);
+      const mapping = parseTechnicalSheet(worksheet, config);
       if (mapping && mapping.size > 0) {
         console.log(`[TranslateManager] Loaded ${mapping.size} mappings from sheet: ${sheetName}`);
         const newMap = new Map(advancedDictData.value);
@@ -524,6 +554,7 @@ export function useTranslateManager() {
         if (cached) {
           if (!cached.sheetMappings) cached.sheetMappings = {};
           cached.sheetMappings[sheetName] = Object.fromEntries(mapping);
+          cached.config = config;
           await saveCache(filePath, cached);
         }
       }
@@ -713,7 +744,15 @@ export function useTranslateManager() {
         
         // Try cache first
         const cached = await loadCache(file);
-        let mappings = cached?.sheetMappings || {};
+        const config = getConfigForFile(file);
+        let mappings: Record<string, any> = {};
+        
+        const cachedConfigStr = JSON.stringify(cached?.config || {});
+        const currentConfigStr = JSON.stringify(config || {});
+        
+        if (cached && cachedConfigStr === currentConfigStr) {
+           mappings = cached.sheetMappings || {};
+        }
         
         // 1. Search in cached mappings
         for (const sheetName in mappings) {
@@ -740,7 +779,8 @@ export function useTranslateManager() {
              
              for (const sheetName of workbook.SheetNames) {
                const worksheet = workbook.Sheets[sheetName];
-               const mapping = parseTechnicalSheet(worksheet);
+               const config = getConfigForFile(file);
+               const mapping = parseTechnicalSheet(worksheet, config);
                if (mapping && mapping.size > 0) {
                  const plainMapping = Object.fromEntries(mapping);
                  newMappings[sheetName] = plainMapping;
@@ -760,7 +800,7 @@ export function useTranslateManager() {
              }
              // Save to persistent cache
              if (cached) {
-               await saveCache(file, { ...cached, sheetMappings: newMappings });
+               await saveCache(file, { ...cached, sheetMappings: newMappings, config });
              }
            } catch (err) {
              console.warn(`[TranslateManager] Deep search failed for ${file}:`, err);

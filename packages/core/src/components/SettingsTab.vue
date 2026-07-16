@@ -184,9 +184,25 @@ watch(showSettingsTrigger, (val) => {
                   Chưa có nguồn nào trong nhóm này...
                 </div>
                 <div v-for="(p, pIdx) in group.paths" :key="pIdx" class="path-chip-modern">
-                  <span class="chip-icon" v-html="p.type === 'folder' ? Icons.Folder : Icons.File"></span>
-                  <span class="chip-text" :title="p.path">{{ p.path }}</span>
-                  <span class="chip-remove" @click="removePathFromGroup(group.id, pIdx)" v-html="Icons.Close"></span>
+                  <div class="path-chip-header">
+                    <span class="chip-icon" v-html="p.type === 'folder' ? Icons.Folder : Icons.File"></span>
+                    <span class="chip-text" :title="p.path">{{ p.path }}</span>
+                    <span class="chip-remove" @click="removePathFromGroup(group.id, pIdx)" v-html="Icons.Close"></span>
+                  </div>
+                  <div class="path-chip-config">
+                    <div class="config-input-group">
+                      <label>Phys Col</label>
+                      <input type="text" v-model="p.physCol" class="mini-input" placeholder="A" @change="saveSettings" />
+                    </div>
+                    <div class="config-input-group">
+                      <label>JP Col</label>
+                      <input type="text" v-model="p.jpCol" class="mini-input" placeholder="B" @change="saveSettings" />
+                    </div>
+                    <div class="config-input-group">
+                      <label>Start Row</label>
+                      <input type="number" v-model="p.startRow" class="mini-input" placeholder="1" @change="saveSettings" />
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -696,15 +712,53 @@ watch(showSettingsTrigger, (val) => {
 
 .path-chip-modern {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(128, 128, 128, 0.05);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   transition: all 0.2s;
 }
 .path-chip-modern:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(128, 128, 128, 0.1); }
+
+.path-chip-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.path-chip-config {
+  display: flex;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(128, 128, 128, 0.1);
+}
+
+.config-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.config-input-group label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  opacity: 0.5;
+  text-transform: uppercase;
+}
+.mini-input {
+  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 4px;
+  color: var(--text-color);
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  width: 50px;
+  text-align: center;
+  outline: none;
+}
+.mini-input:focus { border-color: var(--accent-color); background: rgba(99, 102, 241, 0.1); }
 
 .chip-icon { opacity: 0.5; display: flex; align-items: center; }
 

@@ -207,6 +207,7 @@ const groupedSelectedSheets = computed(() => {
 // == CONTEXT MENU LOGIC =======================================================
 import { onMounted, onUnmounted } from 'vue';
 const contextMenu = ref({ show: false, x: 0, y: 0, text: '' });
+const sheetContextMenu = ref({ show: false, x: 0, y: 0, logical: '', physical: '', fullKey: '' });
 
 const onContextMenu = (e: MouseEvent) => {
   const selection = window.getSelection()?.toString().trim();
@@ -223,10 +224,32 @@ const onContextMenu = (e: MouseEvent) => {
 
 const closeContextMenu = () => {
   contextMenu.value.show = false;
+  sheetContextMenu.value.show = false;
 };
 
 const handleContextAdd = () => {
   emit('contextAdd', contextMenu.value.text);
+  closeContextMenu();
+};
+
+const onSheetContextMenu = (e: MouseEvent, fullKey: string) => {
+  e.preventDefault();
+  const meta = props.sheetMetadata[fullKey];
+  sheetContextMenu.value = {
+    show: true,
+    x: e.clientX,
+    y: e.clientY,
+    logical: meta?.logical || '',
+    physical: meta?.physical || fullKey.split('::').pop() || '',
+    fullKey
+  };
+};
+
+const copyFromSheetContext = (type: 'logical' | 'physical') => {
+  const text = type === 'logical' ? sheetContextMenu.value.logical : sheetContextMenu.value.physical;
+  if (text) {
+    emit('copy', text, new MouseEvent('click', { clientX: sheetContextMenu.value.x, clientY: sheetContextMenu.value.y }));
+  }
   closeContextMenu();
 };
 
@@ -438,7 +461,7 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
                     <span class="group-filename">{{ file.split(/[/\\]/).pop() }}</span>
                   </div>
                   <label v-for="fullKey in fullKeys" :key="'sel-' + fullKey" 
-                         class="sheet-item compact" :title="sheetMetadata[fullKey]?.physical || fullKey">
+                         class="sheet-item compact" :title="sheetMetadata[fullKey]?.physical || fullKey" @contextmenu.prevent="onSheetContextMenu($event, fullKey)">
                     <input type="checkbox" :checked="activeSheets.has(fullKey)" @change="emit('toggleActiveSheet', fullKey)" />
                     <div class="sheet-info-v">
                       <div class="sheet-header-line">
@@ -476,7 +499,7 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
                 <div v-if="aggregatedSheets.length === 0" class="empty-hint">No sheets available</div>
                 <label v-for="s in filteredSheets" :key="'all-' + s.file + '::' + s.name" 
                        v-memo="[s.name, s.file, selectedSheets.has(s.file + '::' + s.name), sheetRowCounts[s.file + '::' + s.name]]"
-                       class="sheet-item" :title="sheetMetadata[s.file + '::' + s.name]?.physical || s.name">
+                       class="sheet-item" :title="sheetMetadata[s.file + '::' + s.name]?.physical || s.name" @contextmenu.prevent="onSheetContextMenu($event, s.file + '::' + s.name)">
                   <input type="checkbox" 
                          :checked="selectedSheets.has(s.file + '::' + s.name)"
                          @change="emit('toggleSheet', s.file + '::' + s.name)" />
@@ -513,6 +536,20 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
            @click.stop>
         <div class="menu-item" @click="handleContextAdd">
           <span v-html="Icons.Plus"></span> Add to Base Dictionary
+        </div>
+      </div>
+
+      <div v-if="sheetContextMenu.show" 
+           class="vinx-context-menu glass" 
+           :style="{ left: sheetContextMenu.x + 'px', top: sheetContextMenu.y + 'px' }"
+           @click.stop>
+        <div class="menu-item" @click="copyFromSheetContext('physical')" v-if="sheetContextMenu.physical">
+          <span v-html="Icons.Copy || '📋'"></span> Copy EN name 
+          <span class="context-preview">{{ sheetContextMenu.physical }}</span>
+        </div>
+        <div class="menu-item" @click="copyFromSheetContext('logical')" v-if="sheetContextMenu.logical">
+          <span v-html="Icons.Copy || '📋'"></span> Copy JP name 
+          <span class="context-preview">{{ sheetContextMenu.logical }}</span>
         </div>
       </div>
     </Teleport>
@@ -785,4 +822,7 @@ textarea {
 .menu-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 0.75rem; font-weight: 600; color: var(--text-color); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
 .menu-item:hover { background: var(--accent-color); color: #fff; }
 .menu-item :deep(svg) { width: 14px; height: 14px; }
+
+.context-preview { opacity: 0.6; font-size: 0.85em; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; display: inline-block; vertical-align: middle; }
+.context-preview { opacity: 0.6; font-size: 0.85em; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; display: inline-block; vertical-align: middle; }
 </style>

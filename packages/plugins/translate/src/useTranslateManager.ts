@@ -105,25 +105,8 @@ export function useTranslateManager() {
   };
 
   const detectLanguageAndSetTarget = (text: string) => {
-    if (!text || text.trim().length === 0) return;
-    
-    // Check if it contains Japanese characters (Hiragana, Katakana, Kanji)
-    const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
-    const hasLatin = /[a-zA-Z]/.test(text);
-    
-    if (hasJapanese) {
-      // Input contains Japanese -> If current target is JP, it's definitely wrong, switch to EN
-      if (sharedTargetLang.value === 'jp') {
-        console.log('[TranslateManager] Auto-detected Japanese input, switching from JP target to EN');
-        sharedTargetLang.value = 'en';
-      }
-    } else if (hasLatin) {
-      // Input contains English -> If current target is EN, it's definitely wrong, switch to JP
-      if (sharedTargetLang.value === 'en') {
-        console.log('[TranslateManager] Auto-detected English input, switching from EN target to JP');
-        sharedTargetLang.value = 'jp';
-      }
-    }
+    // Disabled auto-language detection as it overrides manual selection and causes confusion
+    return;
   };
 
   const autoSelectSheetFromInput = async (text: string) => {
@@ -185,7 +168,7 @@ export function useTranslateManager() {
     if (translateDebounceTimer) clearTimeout(translateDebounceTimer);
     translateDebounceTimer = setTimeout(async () => {
       const oldLang = sharedTargetLang.value;
-      detectLanguageAndSetTarget(translateInput.value);
+      // detectLanguageAndSetTarget(translateInput.value); // Disabled
       
       // Try to auto-select sheet if none selected
       const autoSelected = await autoSelectSheetFromInput(translateInput.value);
@@ -244,11 +227,60 @@ export function useTranslateManager() {
       }
 
       if (jsonData.length > 0) {
+        let jpIdx = 0;
+        let enIdx = 1;
+        let viIdx = 2;
+
+        // Auto-detect columns based on content to handle swapped columns
+        const colProfiles: Record<number, { jp: number, en: number, total: number }> = {};
+        const sampleLimit = Math.min(jsonData.length, 100);
+        
+        // Start from 0 to also profile headers if they exist, but mostly data
+        for (let i = 0; i < sampleLimit; i++) {
+          const row = jsonData[i] || [];
+          row.forEach((cell, colIdx) => {
+            const s = String(cell || '').trim();
+            if (!s) return;
+            if (!colProfiles[colIdx]) colProfiles[colIdx] = { jp: 0, en: 0, total: 0 };
+            colProfiles[colIdx].total++;
+            
+            // Profile JP characters
+            if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s) && s.length < 50) {
+              colProfiles[colIdx].jp++;
+            } 
+            // Profile English characters
+            else if (/^[A-Za-z0-9_$#.]+$/.test(s) && /[A-Za-z]/.test(s)) {
+              colProfiles[colIdx].en++;
+            }
+          });
+        }
+        
+        let bestJpIdx = 0, bestJpScore = -1;
+        let bestEnIdx = 1, bestEnScore = -1;
+        for (const [colIdxStr, prof] of Object.entries(colProfiles)) {
+          const colIdx = parseInt(colIdxStr);
+          if (prof.jp > bestJpScore) { bestJpScore = prof.jp; bestJpIdx = colIdx; }
+          if (prof.en > bestEnScore) { bestEnScore = prof.en; bestEnIdx = colIdx; }
+        }
+        
+        // If we confidently found different columns for JP and EN
+        if (bestJpScore > 0 && bestEnScore > 0 && bestJpIdx !== bestEnIdx) {
+          jpIdx = bestJpIdx;
+          enIdx = bestEnIdx;
+          
+          // Vi is typically the 3rd remaining column
+          const allCols = Object.keys(colProfiles).map(Number);
+          const remaining = allCols.filter(c => c !== jpIdx && c !== enIdx);
+          if (remaining.length > 0) viIdx = remaining[0];
+        }
+
+        console.log(`[TranslateManager] Base Dictionary detected columns: JP=${jpIdx}, EN=${enIdx}, VI=${viIdx}`);
+
         const rawRows = jsonData.slice(1)
           .map(row => ({
-            jp: (row[0] || '').toString().trim(),
-            en: (row[1] || '').toString().trim(),
-            vi: (row[2] || '').toString().trim()
+            jp: (row[jpIdx] || '').toString().trim(),
+            en: (row[enIdx] || '').toString().trim(),
+            vi: (row[viIdx] || '').toString().trim()
           }))
           .filter(row => row.jp !== '' || row.en !== '' || row.vi !== '');
 

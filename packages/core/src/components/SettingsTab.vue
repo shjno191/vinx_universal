@@ -450,6 +450,13 @@ watch(showSettingsTrigger, (val) => {
               </span>
               <input v-if="isRecording === 'open_settings'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
+            <div class="shortcut-row" @click="startRecording('quick_open_tabs')">
+              <span class="shortcut-desc">Mở danh sách Tab (Quick Open Tabs)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'quick_open_tabs' }">
+                {{ isRecording === 'quick_open_tabs' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.quick_open_tabs || 'ctrl+~') }}
+              </span>
+              <input v-if="isRecording === 'quick_open_tabs'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
           </div>
         </div>
       </div>

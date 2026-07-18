@@ -36,6 +36,7 @@ export interface Settings {
     next_tab: string;
     move_tab_left: string;
     move_tab_right: string;
+    quick_open_tabs: string;
   };
   editor: {
     middleClickClose: boolean;
@@ -88,7 +89,8 @@ export const settings = ref<Settings>({
     prev_tab: 'ctrl+shift+[',
     next_tab: 'ctrl+shift+]',
     move_tab_left: 'alt+arrowleft',
-    move_tab_right: 'alt+arrowright'
+    move_tab_right: 'alt+arrowright',
+    quick_open_tabs: 'ctrl+~'
   },
   editor: {
     middleClickClose: true,

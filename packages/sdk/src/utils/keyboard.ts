@@ -9,8 +9,11 @@ export const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
   const shift = parts.includes('shift');
   const alt = parts.includes('alt');
   const meta = parts.includes('meta');
+  let k = e.key.toLowerCase();
+  if (k === '`' && key === '~') k = '~';
+  if (k === '~' && key === '`') k = '`';
   
-  return e.key.toLowerCase() === key &&
+  return k === key &&
          e.ctrlKey === ctrl &&
          e.shiftKey === shift &&
          e.altKey === alt &&

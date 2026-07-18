@@ -291,10 +291,11 @@ export function useGit() {
         args: ['ls-files', '--cached', '--others', '--exclude-standard'],
         cwd: gitTabRepoPath.value
       }) as string;
-      const allFiles = output.split('\n').filter(f => f.trim());
-      const q = query.toLowerCase();
+      const allFiles = output.split('\n')
+        .filter(f => f.trim())
+        .map(f => f.replace(/^"(.*)"$/, '$1'));
+      const q = query.toLowerCase().replace(/\\/g, '/');
       return allFiles.filter(f => f.toLowerCase().includes(q))
-        .map(f => f.replace(/^"(.*)"$/, '$1'))
         .slice(0, 50);
     } catch (e) {
       console.error('Search repo files failed:', e);

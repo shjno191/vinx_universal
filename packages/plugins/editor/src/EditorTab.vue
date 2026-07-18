@@ -106,6 +106,8 @@ const paletteResults = ref<string[]>([]);
 const paletteSelectedIndex = ref(0);
 const paletteInput = ref<HTMLInputElement | null>(null);
 
+
+
 const searchFiles = async (query: string) => {
     let results: string[] = [];
     if (gitTabRepoPath.value && query.trim()) {
@@ -113,7 +115,7 @@ const searchFiles = async (query: string) => {
     }
     
     if (results.length === 0 && projectRoot.value) {
-        const q = query.toLowerCase();
+        const q = query.toLowerCase().replace(/\\/g, '/');
         const all: string[] = [];
         const traverse = (node: any) => {
             if (all.length >= 100) return;
@@ -414,6 +416,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
     return;
   }
 
+
   if (e.ctrlKey || e.metaKey) {
     if (e.shiftKey && e.key.toLowerCase() === 'e') { 
       e.preventDefault(); 
@@ -641,7 +644,19 @@ onMounted(async () => {
             const wordInfo = model.getWordAtPosition(position);
             if (!wordInfo) return null;
             
-            const word = wordInfo.word;
+            let word = wordInfo.word;
+            
+            // Fallback for when word doesn't include the prefix (e.g., cursor exactly on a letter)
+            if (!word.startsWith('$') && !word.startsWith('#')) {
+                const lineContent = model.getLineContent(position.lineNumber);
+                if (wordInfo.startColumn > 1) {
+                    const charBefore = lineContent.charAt(wordInfo.startColumn - 2);
+                    if (charBefore === '$' || charBefore === '#') {
+                        word = charBefore + word;
+                    }
+                }
+            }
+            
             const text = model.getValue();
             const lines = text.split('\n');
             
@@ -698,9 +713,26 @@ onMounted(async () => {
             }
             
             if (targetLine !== -1) {
+                const range = new monaco.Range(targetLine, targetCol, targetLine, targetCol + word.length);
+                
+                // Add a custom highlight decoration that persists for 2 seconds
+                const oldDecorations = model.deltaDecorations([], [
+                    {
+                        range: range,
+                        options: {
+                            isWholeLine: true,
+                            className: 'custom-jump-highlight'
+                        }
+                    }
+                ]);
+                
+                setTimeout(() => {
+                    model.deltaDecorations(oldDecorations, []);
+                }, 2000);
+
                 return {
                     uri: model.uri,
-                    range: new monaco.Range(targetLine, targetCol, targetLine, targetCol + word.length)
+                    range: range
                 };
             }
             
@@ -886,6 +918,8 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
                 </div>
             </div>
         </transition>
+
+
     </Teleport>
 
     <div class="editor-main-area">
@@ -1086,4 +1120,10 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 
 .spinner-small { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Custom Jump Highlight */
+.custom-jump-highlight {
+    background-color: rgba(99, 102, 241, 0.35) !important;
+    transition: background-color 0.5s ease-out;
+}
 </style>

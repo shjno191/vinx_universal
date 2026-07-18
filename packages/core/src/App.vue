@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch, ref as vueRef } from "vue";
+import { onMounted, onUnmounted, watch, ref as vueRef, computed, nextTick } from "vue";
 import { useAppShell } from "./composables/useAppShell";
 import { 
   projectRootPath, 
@@ -37,6 +37,50 @@ const {
 
 const settingsRef = vueRef<any>(null);
 
+// --- Tabs Palette state ---
+const showTabsPalette = vueRef(false);
+const tabsPaletteQuery = vueRef('');
+const tabsPaletteInput = vueRef<HTMLInputElement | null>(null);
+const tabsPaletteSelectedIndex = vueRef(0);
+
+const filteredTabs = computed(() => {
+    if (!tabsPaletteQuery.value) return allTabs.value;
+    const q = tabsPaletteQuery.value.toLowerCase();
+    return allTabs.value.filter(t => t.toLowerCase().includes(q));
+});
+
+watch(showTabsPalette, (val) => {
+    if (val) {
+        tabsPaletteQuery.value = '';
+        tabsPaletteSelectedIndex.value = 0;
+        nextTick(() => {
+            if (tabsPaletteInput.value) {
+                tabsPaletteInput.value.focus();
+                tabsPaletteInput.value.select();
+            }
+        });
+    }
+});
+
+const handleTabsPaletteKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        tabsPaletteSelectedIndex.value = (tabsPaletteSelectedIndex.value + 1) % filteredTabs.value.length;
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        tabsPaletteSelectedIndex.value = (tabsPaletteSelectedIndex.value - 1 + filteredTabs.value.length) % filteredTabs.value.length;
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (filteredTabs.value[tabsPaletteSelectedIndex.value]) {
+            currentTab.value = filteredTabs.value[tabsPaletteSelectedIndex.value];
+            showTabsPalette.value = false;
+        }
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        showTabsPalette.value = false;
+    }
+};
+
 // Global Key Listeners
 const handleGlobalKeyDown = (e: KeyboardEvent) => {
   if (e.key === "Escape") {
@@ -57,6 +101,14 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
     e.preventDefault();
     showSettingsModal.value = true;
     showSettingsTrigger.value = { category: currentTab.value === 'Translate' ? 'translate' : 'general' };
+    return;
+  }
+
+  // Quick Open App Tabs
+  if (matchShortcut(e, shortcuts.quick_open_tabs || 'ctrl+~')) {
+    e.preventDefault();
+    showTabsPalette.value = true;
+    return;
   }
 
   // Tab switching shortcuts (Global)
@@ -183,6 +235,40 @@ onUnmounted(() => {
     </Teleport>
 
     <Teleport to="body">
+      <transition name="fade">
+          <div v-if="showTabsPalette" class="palette-backdrop" @click.self="showTabsPalette = false">
+              <div class="palette-container glass-effect">
+                  <div class="palette-input-wrapper">
+                      <span class="palette-icon" v-html="Icons.Search"></span>
+                      <input 
+                          ref="tabsPaletteInput"
+                          v-model="tabsPaletteQuery" 
+                          class="palette-input" 
+                          placeholder="Search App Tabs..." 
+                          autofocus
+                          @keydown="handleTabsPaletteKeyDown"
+                      />
+                  </div>
+                  <div v-if="filteredTabs.length > 0" class="palette-results">
+                      <div 
+                          v-for="(tab, idx) in filteredTabs" 
+                          :key="tab" 
+                          class="palette-item"
+                          :class="{ active: idx === tabsPaletteSelectedIndex }"
+                          @click="currentTab = tab; showTabsPalette = false"
+                      >
+                          <span class="file-icon" v-html="Icons.File"></span>
+                          <div class="file-info">
+                              <div class="file-name">{{ tab }}</div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </transition>
+    </Teleport>
+
+    <Teleport to="body">
       <div v-if="chillSettings?.enableWidget" class="chill-widget">
         <Cigarette :is-widget="true" :force-smoking="isGlobalSmoking" />
       </div>
@@ -193,6 +279,19 @@ onUnmounted(() => {
 </template>
 
 <style>
+/* Command Palette */
+.palette-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; padding-top: 10vh; z-index: 10000; }
+.palette-container { width: 600px; max-width: 90%; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; height: fit-content; max-height: 400px; }
+.palette-input-wrapper { padding: 15px; border-bottom: 1px solid rgba(128,128,128,0.1); display: flex; align-items: center; gap: 12px; }
+.palette-input { flex: 1; background: var(--input-bg); border: none; color: var(--text-color); font-size: 0.9rem; outline: none; padding: 6px; border-radius: 4px; }
+.palette-results { overflow-y: auto; }
+.palette-item { padding: 10px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.05); transition: 0.2s; }
+.palette-item:hover, .palette-item.active { background: rgba(99, 102, 241, 0.15); }
+.file-info { display: flex; flex-direction: column; gap: 2px; }
+.file-name { font-size: 0.85rem; font-weight: 700; color: var(--text-color); }
+.file-path { font-size: 0.65rem; opacity: 0.4; }
+.palette-icon { opacity: 0.5; display: flex; }
+.file-icon { opacity: 0.7; display: flex; }
 @import './themes.css';
 
 html, body {

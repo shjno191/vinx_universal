@@ -49,7 +49,14 @@ export const globalShortcuts = ref({
     focus_search: 'ctrl+f',
     global_search: 'ctrl+shift+f',
     prev_tab: 'ctrl+shift+[',
-    next_tab: 'ctrl+shift+]'
+    next_tab: 'ctrl+shift+]',
+    new_tab: 'ctrl+n',
+    save_file: 'ctrl+s',
+    close_tab: 'ctrl+w',
+    close_all_tabs: 'ctrl+shift+w',
+    move_tab_left: 'alt+arrowleft',
+    move_tab_right: 'alt+arrowright',
+    quick_open_tabs: 'ctrl+~'
 });
 
 

@@ -279,6 +279,8 @@ onUnmounted(() => {
 </template>
 
 <style>
+@import './themes.css';
+
 /* Command Palette */
 .palette-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; padding-top: 10vh; z-index: 10000; }
 .palette-container { width: 600px; max-width: 90%; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; height: fit-content; max-height: 400px; }
@@ -292,7 +294,7 @@ onUnmounted(() => {
 .file-path { font-size: 0.65rem; opacity: 0.4; }
 .palette-icon { opacity: 0.5; display: flex; }
 .file-icon { opacity: 0.7; display: flex; }
-@import './themes.css';
+
 
 html, body {
   margin: 0; padding: 0; height: 100%; overflow: hidden;

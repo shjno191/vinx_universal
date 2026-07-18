@@ -53,7 +53,7 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   const shortcuts = globalShortcuts.value;
   
   // Settings shortcut
-  if (matchShortcut(e, shortcuts.open_settings || 'ctrl+,')) {
+  if (matchShortcut(e, shortcuts.open_settings || 'ctrl+shift+s')) {
     e.preventDefault();
     showSettingsModal.value = true;
     showSettingsTrigger.value = { category: currentTab.value === 'Translate' ? 'translate' : 'general' };

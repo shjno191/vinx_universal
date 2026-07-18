@@ -88,10 +88,6 @@ watch(showSettingsTrigger, (val) => {
     <main v-if="settings && settings.editor" class="settings-content">
       <!-- GENERAL / APPEARANCE -->
       <div v-show="currentCategory === 'general'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Giao diện & Hệ thống</h2>
-          <p class="section-desc">Cấu hình chủ đề và các cài đặt chung cho toàn bộ ứng dụng.</p>
-        </div>
 
         <div class="settings-grid">
           <div class="setting-card glass">
@@ -144,10 +140,6 @@ watch(showSettingsTrigger, (val) => {
 
       <!-- TRANSLATE / DICTIONARY -->
       <div v-show="currentCategory === 'translate'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Dictionary & Translate</h2>
-          <p class="section-desc">Quản lý từ điển Excel và các nguồn dữ liệu dịch thuật.</p>
-        </div>
 
         <div class="setting-card glass">
           <div class="card-header">
@@ -282,52 +274,46 @@ watch(showSettingsTrigger, (val) => {
         </div>
       </div>
 
-      <!-- EDITOR & GIT -->
-      <div v-show="currentCategory === 'editor-git'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Editor & Source Control</h2>
-          <p class="section-desc">Tối ưu trải nghiệm soạn thảo và tích hợp quản lý mã nguồn Git.</p>
-        </div>
+      <!-- EDITOR -->
+      <div v-show="currentCategory === 'editor'" class="settings-section">
 
-        <!-- Indentation Level 2.0 -->
-        <div class="setting-card glass no-padding">
-          <div class="card-header-filled">
-             <span class="card-label">INDENTATION CONFIGURATION</span>
-          </div>
-          <div class="indentation-selector">
-            <div class="indent-option" :class="{ active: settings.editor.insertSpaces }" @click="settings.editor.insertSpaces = true; saveSettings()">
-              <div class="option-info">
-                <span class="option-title">Spaces</span>
-                <span class="option-desc">Sử dụng khoảng trắng (Khuyên dùng)</span>
-              </div>
-              <div v-if="settings.editor.insertSpaces" class="active-badge">ACTIVE</div>
-            </div>
-            <div class="indent-option" :class="{ active: !settings.editor.insertSpaces }" @click="settings.editor.insertSpaces = false; saveSettings()">
-              <div class="option-info">
-                <span class="option-title">Tabs</span>
-                <span class="option-desc">Sử dụng ký tự Tab vật lý</span>
-              </div>
-              <div v-if="!settings.editor.insertSpaces" class="active-badge">ACTIVE</div>
-            </div>
-          </div>
-          <div class="indent-footer">
-            <div class="indent-size-group">
-              <span class="size-text">Tab Size:</span>
-              <div class="size-pills">
-                <button v-for="s in [2,4,8]" :key="s" class="size-pill" :class="{ active: settings.editor.indentSize === s }" @click="settings.editor.indentSize = s; saveSettings()">{{ s }}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Git Integration -->
-        <div class="setting-card glass">
+        <!-- Syntax Colors -->
+        <div class="setting-card glass" v-if="settings.editor.colors">
           <div class="card-header">
-            <span class="card-icon" v-html="Icons.Branch"></span>
-            <span class="card-label">Git Repository</span>
+            <span class="card-icon" v-html="Icons.Edit3"></span>
+            <span class="card-label">Màu sắc Cú pháp (Syntax)</span>
           </div>
           <div class="card-body">
-            <input v-model="settings.last_git_repo" type="text" class="premium-input" placeholder="Đường dẫn đến thư mục chứa .git" @change="saveSettings" />
+            <div class="color-pickers-grid">
+              <div class="premium-field">
+                <label>Hàm (Function)</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.editor.colors.function" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.editor.colors.function" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+              <div class="premium-field">
+                <label>Biến (Variable)</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.editor.colors.variable" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.editor.colors.variable" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+              <div class="premium-field">
+                <label>Bình luận (Comment)</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.editor.colors.comment" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.editor.colors.comment" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+              <div class="premium-field">
+                <label>Từ khóa (Keyword)</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.editor.colors.keyword" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.editor.colors.keyword" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -384,10 +370,6 @@ watch(showSettingsTrigger, (val) => {
 
       <!-- SHORTCUTS -->
       <div v-show="currentCategory === 'shortcut'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Phím tắt hệ thống</h2>
-          <p class="section-desc">Cấu hình các tổ hợp phím để thao tác nhanh mà không cần dùng chuột.</p>
-        </div>
 
         <div class="setting-item-vertical">
           <label>Phím tắt Editor (Nhấp đúp thay đổi)</label>
@@ -395,16 +377,51 @@ watch(showSettingsTrigger, (val) => {
             <div class="shortcut-row" @click="startRecording('open_file')">
               <span class="shortcut-desc">Mở file (Open File)</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_file' }">
-                {{ isRecording === 'open_file' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file) }}
+                {{ isRecording === 'open_file' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file || 'ctrl+p') }}
               </span>
               <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('new_tab')">
+              <span class="shortcut-desc">Tạo tab mới (New Tab)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'new_tab' }">
+                {{ isRecording === 'new_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.new_tab || 'ctrl+n') }}
+              </span>
+              <input v-if="isRecording === 'new_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('close_tab')">
+              <span class="shortcut-desc">Đóng tab hiện tại (Close Tab)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'close_tab' }">
+                {{ isRecording === 'close_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.close_tab || 'ctrl+w') }}
+              </span>
+              <input v-if="isRecording === 'close_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('close_all_tabs')">
+              <span class="shortcut-desc">Đóng tất cả tab (Close All Tabs)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'close_all_tabs' }">
+                {{ isRecording === 'close_all_tabs' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.close_all_tabs || 'ctrl+shift+w') }}
+              </span>
+              <input v-if="isRecording === 'close_all_tabs'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
             <div class="shortcut-row" @click="startRecording('global_search')">
               <span class="shortcut-desc">Tìm kiếm văn bản toàn cục</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'global_search' }">
-                {{ isRecording === 'global_search' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.global_search) }}
+                {{ isRecording === 'global_search' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.global_search || 'ctrl+shift+f') }}
               </span>
               <input v-if="isRecording === 'global_search'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('move_tab_left')">
+              <span class="shortcut-desc">Chuyển tab sang trái (Move Tab Left)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'move_tab_left' }">
+                {{ isRecording === 'move_tab_left' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.move_tab_left || 'alt+arrowleft') }}
+              </span>
+              <input v-if="isRecording === 'move_tab_left'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('move_tab_right')">
+              <span class="shortcut-desc">Chuyển tab sang phải (Move Tab Right)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'move_tab_right' }">
+                {{ isRecording === 'move_tab_right' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.move_tab_right || 'alt+arrowright') }}
+              </span>
+              <input v-if="isRecording === 'move_tab_right'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
           </div>
         </div>
@@ -415,16 +432,23 @@ watch(showSettingsTrigger, (val) => {
             <div class="shortcut-row" @click="startRecording('prev_tab')">
               <span class="shortcut-desc">Chuyển về Tab phía trước</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'prev_tab' }">
-                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab) }}
+                {{ isRecording === 'prev_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.prev_tab || 'ctrl+shift+[') }}
               </span>
               <input v-if="isRecording === 'prev_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
             <div class="shortcut-row" @click="startRecording('next_tab')">
               <span class="shortcut-desc">Chuyển sang Tab tiếp theo</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'next_tab' }">
-                {{ isRecording === 'next_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab) }}
+                {{ isRecording === 'next_tab' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.next_tab || 'ctrl+shift+]') }}
               </span>
               <input v-if="isRecording === 'next_tab'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('open_settings')">
+              <span class="shortcut-desc">Mở Cài đặt (Open Settings)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_settings' }">
+                {{ isRecording === 'open_settings' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_settings || 'ctrl+shift+s') }}
+              </span>
+              <input v-if="isRecording === 'open_settings'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
           </div>
         </div>
@@ -433,10 +457,6 @@ watch(showSettingsTrigger, (val) => {
 
       <!-- SMOKING / CHILL -->
       <div v-show="currentCategory === 'chill'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Smoking & Relax</h2>
-          <p class="section-desc">Cài đặt cho widget giải lao khi làm việc căng thẳng.</p>
-        </div>
 
         <div class="setting-item-vertical">
           <label>Trạng thái Widget</label>
@@ -450,10 +470,6 @@ watch(showSettingsTrigger, (val) => {
 
       <!-- CONVERT UI -->
       <div v-show="currentCategory === 'convert'" class="settings-section">
-        <div class="section-header-modern">
-          <h2 class="section-title">Tab Convert UI Rules</h2>
-          <p class="section-desc">Các quy tắc định dạng được áp dụng khi thực hiện chuyển đổi JSP sang cấu trúc PDA/Common.</p>
-        </div>
 
         <div class="rules-container">
           <div class="rule-group glass">

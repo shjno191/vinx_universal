@@ -28,8 +28,14 @@ export interface Settings {
     global_search: string;
     open_settings: string;
     open_file: string;
+    new_tab: string;
+    save_file: string;
+    close_tab: string;
+    close_all_tabs: string;
     prev_tab: string;
     next_tab: string;
+    move_tab_left: string;
+    move_tab_right: string;
   };
   editor: {
     middleClickClose: boolean;
@@ -38,6 +44,12 @@ export interface Settings {
     indentSize: number;
     insertSpaces: boolean;
     renderWhitespace: boolean;
+    colors: {
+      function: string;
+      variable: string;
+      comment: string;
+      keyword: string;
+    };
   };
 
 
@@ -67,10 +79,16 @@ export const settings = ref<Settings>({
   shortcuts: {
     focus_search: 'ctrl+f',
     global_search: 'ctrl+shift+f',
-    open_settings: 'ctrl+,',
+    open_settings: 'ctrl+shift+s',
     open_file: 'ctrl+p',
+    new_tab: 'ctrl+n',
+    save_file: 'ctrl+s',
+    close_tab: 'ctrl+w',
+    close_all_tabs: 'ctrl+shift+w',
     prev_tab: 'ctrl+shift+[',
-    next_tab: 'ctrl+shift+]'
+    next_tab: 'ctrl+shift+]',
+    move_tab_left: 'alt+arrowleft',
+    move_tab_right: 'alt+arrowright'
   },
   editor: {
     middleClickClose: true,
@@ -78,7 +96,13 @@ export const settings = ref<Settings>({
     mouseNavHistory: true,
     indentSize: 4,
     insertSpaces: true,
-    renderWhitespace: false
+    renderWhitespace: false,
+    colors: {
+      function: '#000000',
+      variable: '#0000C0',
+      comment: '#3F7F5F',
+      keyword: '#7F0055'
+    }
   },
 
 
@@ -108,7 +132,7 @@ export function useSettings() {
   const categories = [
     { id: 'general', name: 'Appearance', icon: 'Settings' },
     { id: 'translate', name: 'Dictionary', icon: 'Globe' },
-    { id: 'editor-git', name: 'Editor & Git', icon: 'Edit3' },
+    { id: 'editor', name: 'Editor', icon: 'Edit3' },
     { id: 'shortcut', name: 'Shortcuts', icon: 'Keyboard' },
     { id: 'chill', name: 'Relaxing', icon: 'Coffee' },
     { id: 'convert', name: 'Converter', icon: 'RefreshCw' },
@@ -121,6 +145,14 @@ export function useSettings() {
       const s = JSON.parse(raw || '{}');
       if (s && Object.keys(s).length > 0) {
         settings.value = { ...settings.value, ...s };
+        if (settings.value.editor && !settings.value.editor.colors) {
+            settings.value.editor.colors = { function: '#000000', variable: '#0000C0', comment: '#3F7F5F', keyword: '#7F0055' };
+        } else if (settings.value.editor && settings.value.editor.colors && !settings.value.editor.colors.keyword) {
+            settings.value.editor.colors.keyword = '#7F0055';
+            settings.value.editor.colors.function = '#000000';
+            settings.value.editor.colors.variable = '#0000C0';
+            settings.value.editor.colors.comment = '#3F7F5F';
+        }
         globalShortcuts.value = settings.value.shortcuts;
         editorSettings.value = settings.value.editor;
         theme.value = settings.value.theme as 'light' | 'dark' | '95';

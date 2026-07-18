@@ -23,7 +23,7 @@ export function useEditorTabs() {
 
   // --- State ---
   const tabs = ref<Tab[]>([
-    { id: '1', name: 'untitled.txt', content: '', language: 'plaintext', pane: 'left' }
+    { id: '1', name: 'untitled.s', content: '', language: 'boi-script', pane: 'left' }
   ]);
   const activeTabIdLeft = ref('1');
   const activeTabIdRight = ref('');
@@ -50,9 +50,16 @@ export function useEditorTabs() {
   });
 
   // --- Methods ---
-  const addTab = (name = 'untitled.txt', content = '', language = 'plaintext', path?: string, pane: 'left' | 'right' = 'left') => {
+  let untitledCounter = 0;
+  const addTab = (name?: string, content = '', language = 'boi-script', path?: string, pane: 'left' | 'right' = 'left') => {
+    let finalName = name;
+    if (!finalName || finalName === 'untitled.s') {
+        finalName = untitledCounter === 0 ? 'untitled.s' : `untitled${untitledCounter}.s`;
+        untitledCounter++;
+    }
+
     const id = Date.now().toString() + Math.random();
-    tabs.value.push({ id, name, content, language, path, pane });
+    tabs.value.push({ id, name: finalName, content, language, path, pane });
     if (pane === 'left') {
         activeTabIdLeft.value = id;
     } else {
@@ -66,19 +73,23 @@ export function useEditorTabs() {
     const i = tabs.value.findIndex(t => t.id === id);
     if (i === -1) return;
     tabs.value.splice(i, 1);
-    if (tabs.value.length === 0) {
-      addTab();
-    } else if (currentActiveId.value === id) {
+    if (tabs.value.length > 0 && currentActiveId.value === id) {
       const remaining = tabs.value.filter(t => t.pane === (focusedPane.value === 'left' ? 'left' : 'right') || !t.pane);
       currentActiveId.value = remaining.length > 0 ? remaining[Math.max(0, remaining.length - 1)].id : '';
     }
     if (activeTabIdRight.value === id) activeTabIdRight.value = '';
+    
+    // Check if right pane is empty after remove
+    if (tabs.value.filter(t => t.pane === 'right').length === 0) {
+        showSplit.value = false;
+    }
   };
 
   const closeAllTabs = () => {
     tabs.value = [];
-    addTab();
+    activeTabIdLeft.value = '';
     activeTabIdRight.value = '';
+    showSplit.value = false;
   };
 
   const moveToPane = (tabId: string, pane: 'left' | 'right') => {
@@ -101,6 +112,12 @@ export function useEditorTabs() {
       showSplit.value = true;
     }
     focusedPane.value = pane;
+
+    // Check if right pane is empty after move
+    const rightCount = tabs.value.filter(t => t.pane === 'right').length;
+    if (rightCount === 0) {
+        showSplit.value = false;
+    }
   };
 
   const openFileByPath = async (path: string) => {

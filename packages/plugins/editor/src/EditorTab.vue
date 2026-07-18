@@ -318,13 +318,57 @@ const loadVSCodeTheme = async () => {
             activeEditorTheme.value = 'vscode-custom';
 
         } else {
-            activeEditorTheme.value = globalTheme.value === 'dark' ? 'vs-dark' : 'vs-light';
-            monaco.editor.setTheme(globalTheme.value === 'dark' ? 'vs-dark' : 'vs');
+            monaco.editor.defineTheme('vinx-dark', {
+                base: 'vs-dark', inherit: true, colors: {},
+                rules: [
+                    { token: 'function', foreground: (editorSettings.value?.colors?.function || '#DCDCAA').replace('#', '') },
+                    { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#9CDCFE').replace('#', '') },
+                    { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#6A9955').replace('#', '') },
+                    { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
+                    { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
+                    { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
+                ]
+            });
+            monaco.editor.defineTheme('vinx-light', {
+                base: 'vs', inherit: true, colors: {},
+                rules: [
+                    { token: 'function', foreground: (editorSettings.value?.colors?.function || '#795E26').replace('#', '') },
+                    { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#001080').replace('#', '') },
+                    { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#008000').replace('#', '') },
+                    { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
+                    { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
+                    { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
+                ]
+            });
+            activeEditorTheme.value = globalTheme.value === 'dark' ? 'vinx-dark' : 'vinx-light';
+            monaco.editor.setTheme(activeEditorTheme.value);
         }
     } catch (e) {
         // Silently fail if file doesn't exist or JSON is invalid
-        activeEditorTheme.value = globalTheme.value === 'dark' ? 'vs-dark' : 'vs-light';
-        monaco.editor.setTheme(globalTheme.value === 'dark' ? 'vs-dark' : 'vs');
+        monaco.editor.defineTheme('vinx-dark', {
+            base: 'vs-dark', inherit: true, colors: {},
+            rules: [
+                { token: 'function', foreground: (editorSettings.value?.colors?.function || '#DCDCAA').replace('#', '') },
+                { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#9CDCFE').replace('#', '') },
+                { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#6A9955').replace('#', '') },
+                { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
+                { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
+                { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
+            ]
+        });
+        monaco.editor.defineTheme('vinx-light', {
+            base: 'vs', inherit: true, colors: {},
+            rules: [
+                { token: 'function', foreground: (editorSettings.value?.colors?.function || '#795E26').replace('#', '') },
+                { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#001080').replace('#', '') },
+                { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#008000').replace('#', '') },
+                { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
+                { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
+                { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
+            ]
+        });
+        activeEditorTheme.value = globalTheme.value === 'dark' ? 'vinx-dark' : 'vinx-light';
+        monaco.editor.setTheme(activeEditorTheme.value);
     }
 };
 
@@ -428,9 +472,45 @@ const handleKeyDown = (e: KeyboardEvent) => {
     return;
   }
 
-  if (matchShortcut(e, 'ctrl+s')) {
+  if (matchShortcut(e, shortcuts.save_file || 'ctrl+s')) {
     e.preventDefault();
     handleSave();
+    return;
+  }
+
+  if (matchShortcut(e, shortcuts.close_tab || 'ctrl+w')) {
+    e.preventDefault();
+    if (currentActiveId.value) {
+      removeTab(currentActiveId.value);
+    }
+    return;
+  }
+
+  if (matchShortcut(e, shortcuts.close_all_tabs || 'ctrl+shift+w')) {
+    e.preventDefault();
+    closeAllTabs();
+    return;
+  }
+
+  if (matchShortcut(e, shortcuts.new_tab || 'ctrl+n')) {
+    e.preventDefault();
+    addTab(undefined, undefined, undefined, undefined, focusedPane.value);
+    return;
+  }
+
+  if (matchShortcut(e, shortcuts.move_tab_left || 'alt+arrowleft')) {
+    e.preventDefault();
+    if (currentActiveId.value) {
+      moveToPane(currentActiveId.value, 'left');
+    }
+    return;
+  }
+
+  if (matchShortcut(e, shortcuts.move_tab_right || 'alt+arrowright')) {
+    e.preventDefault();
+    if (currentActiveId.value) {
+      moveToPane(currentActiveId.value, 'right');
+    }
     return;
   }
 
@@ -609,10 +689,15 @@ watch(projectRootPath, () => { loadVSCodeTheme(); });
 watch(globalTheme, (nt) => { 
     loadVSCodeTheme(); 
     if (activeEditorTheme.value !== 'vscode-custom') {
-        activeEditorTheme.value = nt === 'dark' ? 'vs-dark' : 'vs-light';
+        activeEditorTheme.value = nt === 'dark' ? 'vinx-dark' : 'vinx-light';
     }
-    monaco.editor.setTheme(nt === 'dark' ? 'vs-dark' : 'vs'); 
+    monaco.editor.setTheme(activeEditorTheme.value); 
 });
+
+watch(() => editorSettings.value?.colors, () => {
+    loadVSCodeTheme();
+    monaco.editor.setTheme(activeEditorTheme.value);
+}, { deep: true });
 
 onMounted(async () => { 
     window.addEventListener('keydown', handleKeyDown); 
@@ -621,6 +706,40 @@ onMounted(async () => {
     if (!monaco.languages.getLanguages().some(lang => lang.id === 'boi-script')) {
         monaco.languages.register({ id: 'boi-script' });
     }
+    
+    // Setup Monarch tokenizer for boi-script syntax highlighting
+    monaco.languages.setMonarchTokensProvider('boi-script', {
+        tokenizer: {
+            root: [
+                // Comments
+                [/\/\/.*$/, 'comment'],
+                
+                // Functions declaration keyword
+                [/\bfunction\b/, 'keyword'],
+                
+                // Function calls and names
+                [/\b[a-zA-Z_]\w*(?=\s*\()/, 'function'],
+                
+                // Variables (starting with $ or #)
+                [/[$\#][a-zA-Z_]\w*/, 'variable'],
+                
+                // Keywords
+                [/\b(if|endif|while|endwhile|return|else)\b/, 'keyword'],
+                
+                // Numbers
+                [/\b\d+\b/, 'number'],
+                
+                // Strings
+                [/"([^"\\]|\\.)*$/, 'string.invalid' ],
+                [/"/, { token: 'string.quote', bracket: '@open', next: '@string' } ],
+            ],
+            string: [
+                [/[^\\"]+/,  'string'],
+                [/\\./,      'string.escape.invalid'],
+                [/"/,        { token: 'string.quote', bracket: '@close', next: '@pop' } ]
+            ],
+        }
+    });
 
     const { refreshSettings } = useSettings();
     await refreshSettings();

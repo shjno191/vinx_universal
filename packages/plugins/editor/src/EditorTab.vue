@@ -221,7 +221,7 @@ const openProject = async () => {
       const toplevel = await invoke<string>('git_execute', { args: ['rev-parse', '--show-toplevel'], cwd: selected });
       gitTabRepoPath.value = toplevel?.trim() || '';
     } catch (_) { gitTabRepoPath.value = ''; }
-    loadVSCodeTheme();
+    setupEditorTheme();
   }
 };
 
@@ -232,144 +232,33 @@ const openFile = async () => {
   for (const p of paths) await openFileByPath(p);
 };
 
-const loadVSCodeTheme = async () => {
-    if (!projectRootPath.value) return;
-    try {
-        const settingsPath = `${projectRootPath.value}/.vscode/settings.json`;
-        const content = await readFile(settingsPath);
-        const settings = JSON.parse(content);
-        const customizations = settings['editor.tokenColorCustomizations'];
-        
-        if (customizations) {
-            const rules: any[] = [];
-            
-            // 1. Basic Colors Mapping (Legacy Support)
-            if (customizations.functions) {
-                rules.push({ token: 'function', foreground: customizations.functions });
-                rules.push({ token: 'entity.name.function', foreground: customizations.functions });
-            }
-            if (customizations.keywords) {
-                rules.push({ token: 'keyword', foreground: customizations.keywords });
-            }
-            if (customizations.variables) {
-                rules.push({ token: 'variable', foreground: customizations.variables });
-            }
-            if (customizations.strings) {
-                rules.push({ token: 'string', foreground: customizations.strings });
-            }
-            if (customizations.comments) {
-                rules.push({ token: 'comment', foreground: customizations.comments });
-            }
-
-            // 2. TextMate Rules Mapping (Advanced Support)
-            if (customizations.textMateRules && Array.isArray(customizations.textMateRules)) {
-                customizations.textMateRules.forEach((rule: any) => {
-                    const scopes = Array.isArray(rule.scope) ? rule.scope : [rule.scope];
-                    const foreground = rule.settings?.foreground;
-                    const fontStyle = rule.settings?.fontStyle;
-                    
-                    if (foreground || fontStyle) {
-                        scopes.forEach((scope: string) => {
-                            if (!scope) return;
-                            
-                            // Map common TM scopes to Monaco tokens
-                            let monacoToken = scope.split('.')[0]; 
-                            
-                            // Advanced mapping for functions to ensure they match Monarch tokens
-                            const functionScopes = [
-                                'entity.name.function', 
-                                'support.function', 
-                                'meta.function-call', 
-                                'variable.function',
-                                'meta.method.declaration',
-                                'meta.function.definition'
-                            ];
-                            
-                            if (functionScopes.some(fs => scope.includes(fs))) {
-                                monacoToken = 'function';
-                            }
-                            
-                            if (scope.includes('entity.name.type')) monacoToken = 'type.identifier';
-                            if (scope.includes('constant.numeric')) monacoToken = 'number';
-                            if (scope.includes('constant.language')) monacoToken = 'keyword';
-                            if (scope.includes('storage.type')) monacoToken = 'keyword';
-
-                            const ruleObj: any = { token: monacoToken };
-                            if (foreground) ruleObj.foreground = foreground;
-                            if (fontStyle) {
-                                if (fontStyle.includes('bold')) ruleObj.fontStyle = 'bold';
-                                if (fontStyle.includes('italic')) ruleObj.fontStyle = (ruleObj.fontStyle || '') + ' italic';
-                                if (fontStyle.includes('underline')) ruleObj.fontStyle = (ruleObj.fontStyle || '') + ' underline';
-                            }
-                            rules.push(ruleObj);
-                        });
-                    }
-                });
-            }
-
-            console.log('[Theme] Generated Rules:', rules);
-            monaco.editor.defineTheme('vscode-custom', {
-                base: globalTheme.value === 'dark' ? 'vs-dark' : 'vs',
-                inherit: true,
-                rules: rules,
-                colors: {}
-            });
-            monaco.editor.setTheme('vscode-custom');
-            activeEditorTheme.value = 'vscode-custom';
-
-        } else {
-            monaco.editor.defineTheme('vinx-dark', {
-                base: 'vs-dark', inherit: true, colors: {},
-                rules: [
-                    { token: 'function', foreground: (editorSettings.value?.colors?.function || '#DCDCAA').replace('#', '') },
-                    { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#9CDCFE').replace('#', '') },
-                    { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#6A9955').replace('#', '') },
-                    { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
-                    { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
-                    { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
-                ]
-            });
-            monaco.editor.defineTheme('vinx-light', {
-                base: 'vs', inherit: true, colors: {},
-                rules: [
-                    { token: 'function', foreground: (editorSettings.value?.colors?.function || '#795E26').replace('#', '') },
-                    { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#001080').replace('#', '') },
-                    { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#008000').replace('#', '') },
-                    { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
-                    { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
-                    { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
-                ]
-            });
-            activeEditorTheme.value = globalTheme.value === 'dark' ? 'vinx-dark' : 'vinx-light';
-            monaco.editor.setTheme(activeEditorTheme.value);
-        }
-    } catch (e) {
-        // Silently fail if file doesn't exist or JSON is invalid
-        monaco.editor.defineTheme('vinx-dark', {
-            base: 'vs-dark', inherit: true, colors: {},
-            rules: [
-                { token: 'function', foreground: (editorSettings.value?.colors?.function || '#DCDCAA').replace('#', '') },
-                { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#9CDCFE').replace('#', '') },
-                { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#6A9955').replace('#', '') },
-                { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
-                { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
-                { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
-            ]
-        });
-        monaco.editor.defineTheme('vinx-light', {
-            base: 'vs', inherit: true, colors: {},
-            rules: [
-                { token: 'function', foreground: (editorSettings.value?.colors?.function || '#795E26').replace('#', '') },
-                { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#001080').replace('#', '') },
-                { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#008000').replace('#', '') },
-                { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#C586C0').replace('#', '') },
-                { token: 'number', foreground: (editorSettings.value?.colors?.number || '#B5CEA8').replace('#', '') },
-                { token: 'string', foreground: (editorSettings.value?.colors?.string || '#CE9178').replace('#', '') }
-            ]
-        });
-        activeEditorTheme.value = globalTheme.value === 'dark' ? 'vinx-dark' : 'vinx-light';
-        monaco.editor.setTheme(activeEditorTheme.value);
-    }
+const setupEditorTheme = async () => {
+    monaco.editor.defineTheme('vinx-dark', {
+        base: 'vs-dark', inherit: true, colors: {},
+        rules: [
+            { token: 'function', foreground: (editorSettings.value?.colors?.function || '#e27a00').replace('#', '') },
+            { token: 'entity.name.function', foreground: (editorSettings.value?.colors?.function || '#e27a00').replace('#', '') },
+            { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#2a2a2a').replace('#', '') },
+            { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#3F7F5F').replace('#', '') },
+            { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#000080').replace('#', '') },
+            { token: 'number', foreground: 'B5CEA8' },
+            { token: 'string', foreground: 'CE9178' }
+        ]
+    });
+    monaco.editor.defineTheme('vinx-light', {
+        base: 'vs', inherit: true, colors: {},
+        rules: [
+            { token: 'function', foreground: (editorSettings.value?.colors?.function || '#e27a00').replace('#', '') },
+            { token: 'entity.name.function', foreground: (editorSettings.value?.colors?.function || '#e27a00').replace('#', '') },
+            { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#2a2a2a').replace('#', '') },
+            { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#3F7F5F').replace('#', '') },
+            { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#000080').replace('#', '') },
+            { token: 'number', foreground: '000000' },
+            { token: 'string', foreground: 'bb5352' }
+        ]
+    });
+    activeEditorTheme.value = globalTheme.value === 'dark' ? 'vinx-dark' : 'vinx-light';
+    monaco.editor.setTheme(activeEditorTheme.value);
 };
 
 
@@ -685,9 +574,9 @@ watch([showExplorer, showSplit, sidebarWidth], () => {
   });
 });
 
-watch(projectRootPath, () => { loadVSCodeTheme(); });
+watch(projectRootPath, () => { setupEditorTheme(); });
 watch(globalTheme, (nt) => { 
-    loadVSCodeTheme(); 
+    setupEditorTheme(); 
     if (activeEditorTheme.value !== 'vscode-custom') {
         activeEditorTheme.value = nt === 'dark' ? 'vinx-dark' : 'vinx-light';
     }
@@ -695,7 +584,7 @@ watch(globalTheme, (nt) => {
 });
 
 watch(() => editorSettings.value?.colors, () => {
-    loadVSCodeTheme();
+    setupEditorTheme();
     monaco.editor.setTheme(activeEditorTheme.value);
 }, { deep: true });
 
@@ -743,7 +632,7 @@ onMounted(async () => {
 
     const { refreshSettings } = useSettings();
     await refreshSettings();
-    await loadVSCodeTheme();
+    await setupEditorTheme();
 });
 
 

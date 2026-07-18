@@ -98,10 +98,10 @@ export const settings = ref<Settings>({
     insertSpaces: true,
     renderWhitespace: false,
     colors: {
-      function: '#000000',
-      variable: '#0000C0',
+      function: '#e27a00',
+      variable: '#2a2a2a',
       comment: '#3F7F5F',
-      keyword: '#7F0055'
+      keyword: '#000080'
     }
   },
 
@@ -146,12 +146,21 @@ export function useSettings() {
       if (s && Object.keys(s).length > 0) {
         settings.value = { ...settings.value, ...s };
         if (settings.value.editor && !settings.value.editor.colors) {
-            settings.value.editor.colors = { function: '#000000', variable: '#0000C0', comment: '#3F7F5F', keyword: '#7F0055' };
-        } else if (settings.value.editor && settings.value.editor.colors && !settings.value.editor.colors.keyword) {
-            settings.value.editor.colors.keyword = '#7F0055';
-            settings.value.editor.colors.function = '#000000';
-            settings.value.editor.colors.variable = '#0000C0';
-            settings.value.editor.colors.comment = '#3F7F5F';
+            settings.value.editor.colors = { function: '#e27a00', variable: '#2a2a2a', comment: '#3F7F5F', keyword: '#000080' };
+        } else if (settings.value.editor && settings.value.editor.colors) {
+            const c = settings.value.editor.colors;
+            if (!c.keyword) {
+                c.keyword = '#000080';
+                c.function = '#e27a00';
+                c.variable = '#2a2a2a';
+                c.comment = '#3F7F5F';
+            } else if ((c.function === '#000080' || c.function === '#DCDCAA' || c.function === '#000000') && (c.keyword === '#C586C0' || c.keyword === '#7F0055' || c.keyword === '#000080')) {
+                // Migrate from previous defaults
+                c.function = '#e27a00';
+                c.variable = '#2a2a2a';
+                c.comment = '#3F7F5F';
+                c.keyword = '#000080';
+            }
         }
         globalShortcuts.value = settings.value.shortcuts;
         editorSettings.value = settings.value.editor;

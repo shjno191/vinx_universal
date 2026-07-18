@@ -240,7 +240,7 @@ const setupEditorTheme = async () => {
             { token: 'entity.name.function', foreground: (editorSettings.value?.colors?.function || '#e27a00').replace('#', '') },
             { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#2a2a2a').replace('#', '') },
             { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#3F7F5F').replace('#', '') },
-            { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#000080').replace('#', '') },
+            { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#000080').replace('#', ''), fontStyle: 'bold' },
             { token: 'number', foreground: 'B5CEA8' },
             { token: 'string', foreground: 'CE9178' }
         ]
@@ -252,7 +252,7 @@ const setupEditorTheme = async () => {
             { token: 'entity.name.function', foreground: (editorSettings.value?.colors?.function || '#e27a00').replace('#', '') },
             { token: 'variable', foreground: (editorSettings.value?.colors?.variable || '#2a2a2a').replace('#', '') },
             { token: 'comment', foreground: (editorSettings.value?.colors?.comment || '#3F7F5F').replace('#', '') },
-            { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#000080').replace('#', '') },
+            { token: 'keyword', foreground: (editorSettings.value?.colors?.keyword || '#000080').replace('#', ''), fontStyle: 'bold' },
             { token: 'number', foreground: '000000' },
             { token: 'string', foreground: 'bb5352' }
         ]
@@ -627,6 +627,84 @@ onMounted(async () => {
                 [/\\./,      'string.escape.invalid'],
                 [/"/,        { token: 'string.quote', bracket: '@close', next: '@pop' } ]
             ],
+        }
+    });
+
+    // Configure language settings for correct word selection
+    monaco.languages.setLanguageConfiguration('boi-script', {
+        wordPattern: /[#$a-zA-Z_]\w*/
+    });
+
+    // Register Go to Definition Provider for Ctrl+Click
+    monaco.languages.registerDefinitionProvider('boi-script', {
+        provideDefinition: (model, position, token) => {
+            const wordInfo = model.getWordAtPosition(position);
+            if (!wordInfo) return null;
+            
+            const word = wordInfo.word;
+            const text = model.getValue();
+            const lines = text.split('\n');
+            
+            let targetLine = -1;
+            let targetCol = -1;
+            
+            // If it's a variable (starts with $ or #)
+            if (word.startsWith('$') || word.startsWith('#')) {
+                // Escape $ for regex
+                const escapedWord = word.replace('$', '\\$').replace('#', '\\#');
+                // Find first assignment or declaration, ignoring equality checks (==)
+                const regex = new RegExp(`(?:int|string|float)\\s+${escapedWord}\\b|${escapedWord}\\s*=(?!=)`);
+                
+                // 1. Search locally upwards from the current line
+                for (let i = position.lineNumber - 1; i >= 0; i--) {
+                    const match = lines[i].match(regex);
+                    if (match) {
+                        targetLine = i + 1;
+                        targetCol = match.index! + 1;
+                        break;
+                    }
+                    // Stop if we hit the function signature (boundary of local scope)
+                    if (/^\s*function\b/.test(lines[i])) {
+                        break;
+                    }
+                }
+                
+                // 2. If not found locally, search globally at the top of the file
+                if (targetLine === -1) {
+                    for (let i = 0; i < lines.length; i++) {
+                        // Stop if we hit the first function (end of global scope)
+                        if (/^\s*function\b/.test(lines[i])) {
+                            break;
+                        }
+                        const match = lines[i].match(regex);
+                        if (match) {
+                            targetLine = i + 1;
+                            targetCol = match.index! + 1;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                // Otherwise assume function name
+                const regex = new RegExp(`\\bfunction\\s+${word}\\b`);
+                for (let i = 0; i < lines.length; i++) {
+                    const match = lines[i].match(regex);
+                    if (match) {
+                        targetLine = i + 1;
+                        targetCol = match.index! + 1;
+                        break;
+                    }
+                }
+            }
+            
+            if (targetLine !== -1) {
+                return {
+                    uri: model.uri,
+                    range: new monaco.Range(targetLine, targetCol, targetLine, targetCol + word.length)
+                };
+            }
+            
+            return null; // Return null so hover underline doesn't show
         }
     });
 

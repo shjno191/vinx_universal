@@ -282,6 +282,15 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
     cursorHistoryIndex.value = cursorHistory.value.length - 1;
   });
 
+  editor.onDidChangeModelContent(() => {
+    if (!editor.hasTextFocus()) return; // Ignore programmatic changes like tab switching
+
+    const curTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
+    if (curTab && curTab.isTemp) {
+      curTab.isTemp = false;
+    }
+  });
+
   editor.onDidScrollChange((e: any) => {
     if (!syncScroll.value) return;
     const other = editors[pane === 'left' ? 'right' : 'left'];
@@ -569,6 +578,64 @@ watch(hiddenExplorerPaths, () => {
     saveSettings();
 }, { deep: true });
 
+const currentActiveTabPath = computed(() => {
+  return lastSelectedPath.value;
+});
+
+watch([currentActiveId, projectRoot], ([newId, newRoot]) => {
+  if (!newId || !newRoot) return;
+  const tab = tabs.value.find(t => t.id === newId);
+  if (tab && tab.path) {
+    const targetPath = tab.path.replace(/\\/g, '/').toLowerCase();
+    
+    const pathStack: string[] = [];
+    let foundNodePath = '';
+    
+    const traverse = (node: any, currentStack: string[]) => {
+      if (foundNodePath) return;
+      const nodePathNormal = node.path.replace(/\\/g, '/').toLowerCase();
+      
+      if (nodePathNormal === targetPath) {
+        foundNodePath = node.path;
+        pathStack.push(...currentStack);
+        return;
+      }
+      
+      if (node.is_dir && node.children && targetPath.startsWith(nodePathNormal + '/')) {
+        currentStack.push(node.path);
+        for (const child of node.children) {
+          traverse(child, currentStack);
+          if (foundNodePath) return;
+        }
+        currentStack.pop();
+      }
+    };
+    
+    traverse(newRoot, []);
+    
+    if (foundNodePath) {
+      let added = false;
+      for (const p of pathStack) {
+        if (!expandedPaths.value.has(p)) {
+          expandedPaths.value.add(p);
+          added = true;
+        }
+      }
+      if (added) {
+        expandedPaths.value = new Set(expandedPaths.value);
+      }
+      
+      selectedExplorerPaths.value.clear();
+      selectedExplorerPaths.value.add(foundNodePath);
+      lastSelectedPath.value = foundNodePath;
+    } else {
+      selectedExplorerPaths.value.clear();
+      selectedExplorerPaths.value.add(tab.path);
+      lastSelectedPath.value = tab.path;
+    }
+  }
+}, { immediate: true });
+
 // Layout refresh for Monaco when UI layout changes
 watch([showExplorer, showSplit, sidebarWidth], () => {
   nextTick(() => {
@@ -789,8 +856,8 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               :expanded-paths="expandedPaths"
               :depth="1"
               :search-query="searchQuery"
-              :active-path="activeTabLeft?.path || activeTabRight?.path"
-              @open="(node) => node.is_dir ? toggleFolder(node) : openFileByPath(node.path)"
+              :active-path="currentActiveTabPath"
+              @open="(node, isTemp) => node.is_dir ? toggleFolder(node) : openFileByPath(node.path, isTemp)"
               @toggle="toggleFolder"
               @select="handleExplorerSelect"
             />
@@ -804,7 +871,7 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
             <div v-if="isHiddenGroupExpanded" class="hidden-content">
               <div v-for="node in hiddenNodes" :key="node.path" class="hidden-item">
                 <span class="node-icon" :class="node.is_dir ? 'icon-folder' : 'icon-file'" v-html="node.is_dir ? Icons.Folder : Icons.File"></span>
-                <span class="hidden-name" @click="node.is_dir ? toggleFolder(node) : openFileByPath(node.path)">{{ node.name }}</span>
+                <span class="hidden-name" @click="node.is_dir ? toggleFolder(node) : openFileByPath(node.path, true)">{{ node.name }}</span>
                 <button class="unhide-btn" title="Unhide" @click.stop="handleUnhide(node.path)">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 </button>
@@ -933,8 +1000,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
                @dragenter.prevent 
                @drop="(e) => moveToPane(e.dataTransfer?.getData('text/plain') || '', 'left')">
             <div class="tabs-scroll-area">
-              <div v-for="tab in tabsLeft" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdLeft, 'is-diff': tab.isDiff }" 
+              <div v-for="tab in tabsLeft" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdLeft, 'is-diff': tab.isDiff, 'is-temp': tab.isTemp }" 
                    @click="currentActiveId = tab.id" @mouseup.middle.prevent="removeTab(tab.id)" @contextmenu.prevent.stop="showTabContextMenu($event, tab)"
+                   @dblclick.stop="tab.isTemp = false"
                    draggable="true"
                    @dragstart="(e) => e.dataTransfer?.setData('text/plain', tab.id)">
                 <span class="tab-name">{{ tab.name }}</span>
@@ -981,8 +1049,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
                @dragenter.prevent 
                @drop="(e) => moveToPane(e.dataTransfer?.getData('text/plain') || '', 'right')">
             <div class="tabs-scroll-area">
-              <div v-for="tab in tabsRight" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdRight, 'is-diff': tab.isDiff }" 
+              <div v-for="tab in tabsRight" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdRight, 'is-diff': tab.isDiff, 'is-temp': tab.isTemp }" 
                    @click="currentActiveId = tab.id" @mouseup.middle.prevent="removeTab(tab.id)" @contextmenu.prevent.stop="showTabContextMenu($event, tab)"
+                   @dblclick.stop="tab.isTemp = false"
                    draggable="true"
                    @dragstart="(e) => e.dataTransfer?.setData('text/plain', tab.id)">
                 <span class="tab-name">{{ tab.name }}</span>
@@ -1125,5 +1194,10 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
 .custom-jump-highlight {
     background-color: rgba(99, 102, 241, 0.35) !important;
     transition: background-color 0.5s ease-out;
+}
+
+.editor-tab.is-temp .tab-name {
+  font-style: italic;
+  opacity: 0.8;
 }
 </style>

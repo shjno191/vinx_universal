@@ -16,6 +16,7 @@ export interface Tab {
   isDiff?: boolean;
   diffData?: { original: string; modified: string };
   pane?: 'left' | 'right';
+  isTemp?: boolean;
 }
 
 export function useEditorTabs() {
@@ -51,7 +52,7 @@ export function useEditorTabs() {
 
   // --- Methods ---
   let untitledCounter = 0;
-  const addTab = (name?: string, content = '', language = 'boi-script', path?: string, pane: 'left' | 'right' = 'left') => {
+  const addTab = (name?: string, content = '', language = 'boi-script', path?: string, pane: 'left' | 'right' = 'left', isTemp: boolean = false) => {
     let finalName = name;
     if (!finalName || finalName === 'untitled.s') {
         finalName = untitledCounter === 0 ? 'untitled.s' : `untitled${untitledCounter}.s`;
@@ -59,7 +60,7 @@ export function useEditorTabs() {
     }
 
     const id = Date.now().toString() + Math.random();
-    tabs.value.push({ id, name: finalName, content, language, path, pane });
+    tabs.value.push({ id, name: finalName, content, language, path, pane, isTemp });
     if (pane === 'left') {
         activeTabIdLeft.value = id;
     } else {
@@ -120,10 +121,11 @@ export function useEditorTabs() {
     }
   };
 
-  const openFileByPath = async (path: string) => {
+  const openFileByPath = async (path: string, isTemp: boolean = false) => {
     try {
       const existing = tabs.value.find(t => t.path === path);
       if (existing) {
+        if (!isTemp) existing.isTemp = false;
         currentActiveId.value = existing.id;
         return;
       }
@@ -131,8 +133,23 @@ export function useEditorTabs() {
       const content = await readFile(path);
       const name = path.split(/[/\\]/).pop() || path;
       const ext = path.split('.').pop() || '';
+      
+      // Second check to prevent race conditions on double-click
+      const existingAfterRead = tabs.value.find(t => t.path === path);
+      if (existingAfterRead) {
+        if (!isTemp) existingAfterRead.isTemp = false;
+        currentActiveId.value = existingAfterRead.id;
+        return existingAfterRead.id;
+      }
+      
+      if (isTemp) {
+        const existingTemp = tabs.value.find(t => t.isTemp && t.pane === focusedPane.value);
+        if (existingTemp) {
+           removeTab(existingTemp.id);
+        }
+      }
 
-      const id = addTab(name, content, getFileLanguage(ext), path, focusedPane.value);
+      const id = addTab(name, content, getFileLanguage(ext), path, focusedPane.value, isTemp);
       return id;
     } catch (e) {
       console.error('[EditorTabs] Failed to open file:', e);

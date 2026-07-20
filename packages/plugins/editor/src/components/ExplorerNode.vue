@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch, nextTick, onMounted } from 'vue';
 import { Icons, activeContextMenu, selectedExplorerPaths } from '@vinx/sdk';
 
 
@@ -20,7 +20,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'open', node: FileNode): void;
+  (e: 'open', node: FileNode, isTemp?: boolean): void;
   (e: 'toggle', node: FileNode): void;
   (e: 'select', node: FileNode, event: MouseEvent): void;
 }>();
@@ -30,13 +30,42 @@ const isExpanded = () => props.expandedPaths.has(props.node.path);
 const isActive = computed(() => !props.node.is_dir && props.activePath === props.node.path);
 const isSelected = computed(() => selectedExplorerPaths.value.has(props.node.path));
 
+const explorerItemRef = ref<HTMLElement | null>(null);
+
+const scrollToCenter = () => {
+  if (explorerItemRef.value) {
+    explorerItemRef.value.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+};
+
+onMounted(() => {
+  if (isActive.value) {
+    setTimeout(() => {
+      scrollToCenter();
+    }, 100);
+  }
+});
+
+watch(isActive, (val) => {
+  if (val) {
+    nextTick(() => {
+      scrollToCenter();
+    });
+  }
+});
+
 
 const handleClick = (e: MouseEvent) => {
   emit('select', props.node, e);
   if (e.ctrlKey || e.metaKey || e.shiftKey) return; // Don't open if multi-selecting
   
   if (props.node.is_dir) emit('toggle', props.node);
-  else emit('open', props.node);
+  else emit('open', props.node, true);
+};
+
+const handleDblClick = (e: MouseEvent) => {
+  if (props.node.is_dir) return; 
+  emit('open', props.node, false);
 };
 
 
@@ -74,6 +103,7 @@ const getIcon = () => {
 <template>
   <div v-if="shouldRender" class="explorer-node">
     <div
+      ref="explorerItemRef"
       class="explorer-item"
       :class="{ 
         'is-dir': node.is_dir, 
@@ -84,6 +114,7 @@ const getIcon = () => {
       }"
       :style="{ paddingLeft: (depth * 14 + 10) + 'px' }"
       @click="handleClick($event)"
+      @dblclick="handleDblClick($event)"
       @contextmenu="handleRightClick"
 
       :title="node.path"
@@ -103,7 +134,7 @@ const getIcon = () => {
         :depth="depth + 1"
         :search-query="searchQuery"
         :active-path="activePath"
-        @open="emit('open', $event)"
+        @open="(node, isTemp) => emit('open', node, isTemp)"
         @toggle="emit('toggle', $event)"
         @select="(n, ev) => emit('select', n, ev)"
       />

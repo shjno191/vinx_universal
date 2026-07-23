@@ -283,7 +283,7 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
             <span class="pane-label">FILES LIST</span>
           </div>
           <div class="header-right">
-            <button @click="emit('refreshFiles')" class="icon-btn-ghost" title="Refresh Base Dictionary" v-html="Icons.RefreshCw"></button>
+
             <button @click="emit('refreshTechnical')" class="icon-btn-ghost icon-btn-tech" title="Rebuild Technical Cache" v-html="Icons.Database"></button>
             <button @click="emit('selectFolder')" class="icon-btn-ghost" title="Select Folder" v-html="Icons.Folder"></button>
           </div>
@@ -638,7 +638,7 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
 .sheet-item input { cursor: pointer; accent-color: var(--accent-color); width: 14px; height: 14px; }
 .sheet-name-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-weight: 750; }
 .sheet-meta-sub { display: flex; align-items: center; gap: 6px; }
-.table-logical { font-size: 0.55rem; opacity: 0.6; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.table-logical { font-size: 0.6rem; font-weight: 700; color: #10b981; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
 .sheet-count { font-size: 0.65rem; font-weight: 950; color: var(--accent-color); background: rgba(99, 102, 241, 0.1); padding: 2px 8px; border-radius: 20px; border: 1px solid rgba(99,102,241,0.2); }
 .empty-hint { font-size: 0.7rem; opacity: 0.3; text-align: center; padding: 40px 10px; font-style: italic; }
 

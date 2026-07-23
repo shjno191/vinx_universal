@@ -842,6 +842,8 @@ export function useTranslateManager() {
     const baseInfo: WordSourceInfo = { type: 'base', source: 'Base Dictionary' };
     
     baseLookupPart.value.forEach((target, source) => {
+      const isJpText = (text: string) => /[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFFEF\u4E00-\u9FAF]/.test(text || '');
+      if (sharedTargetLang.value === 'jp' && isJpText(source)) return;
       const exists = lookup.has(source);
       if (exists) {
         // It's in both tech and base -> mark as composed

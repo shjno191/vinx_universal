@@ -1,8 +1,8 @@
 import * as XLSX from 'xlsx';
 
 export interface SheetMetadata {
-  logical: string;
-  physical: string;
+  logicalName: string;
+  physicalName: string;
   rowCount: number;
 }
 
@@ -10,6 +10,8 @@ export interface SheetConfig {
   jpCol?: string;
   physCol?: string;
   startRow?: number;
+  jpNameCell?: string;
+  enNameCell?: string;
 }
 
 
@@ -35,16 +37,21 @@ export function parseTechnicalSheet(worksheet: XLSX.WorkSheet, config?: SheetCon
   if (config?.jpCol && config?.physCol) {
     const jpCol = config.jpCol.trim().toUpperCase();
     const physCol = config.physCol.trim().toUpperCase();
-    const startRow = (config.startRow || 1) - 1;
+    const startRow = config.startRow || 1;
 
-    // Use header: "A" to get literal column labels (A, B, C...) regardless of !ref shift
-    const jsonA = XLSX.utils.sheet_to_json(worksheet, { header: "A" }) as Record<string, any>[];
+    const rangeStr = worksheet['!ref'];
+    if (!rangeStr) return mapping;
     
-    for (let i = Math.max(0, startRow); i < jsonA.length; i++) {
-      const row = jsonA[i];
-      if (!row) continue;
-      const logical = String(row[jpCol] || '').trim();
-      const physical = String(row[physCol] || '').trim();
+    const range = XLSX.utils.decode_range(rangeStr);
+    const endRow = range.e.r + 1; // 1-indexed (decode_range gives 0-indexed)
+
+    for (let r = startRow; r <= endRow; r++) {
+      const jpCell = worksheet[`${jpCol}${r}`];
+      const enCell = worksheet[`${physCol}${r}`];
+      
+      const logical = jpCell && jpCell.v ? String(jpCell.v).trim() : '';
+      const physical = enCell && enCell.v ? String(enCell.v).trim() : '';
+      
       if (logical && physical && logical !== physical && logical.length < 200) {
         mapping.set(logical, physical);
       }
@@ -183,66 +190,31 @@ export function parseTechnicalSheet(worksheet: XLSX.WorkSheet, config?: SheetCon
 /**
  * Extracts basic metadata (logical/physical names) from a technical sheet.
  */
-export function extractSheetMetadata(worksheet: XLSX.WorkSheet): SheetMetadata {
-  const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-  
-  let logical = '';
-  let physical = '';
+export function extractSheetMetadata(worksheet: XLSX.WorkSheet, config?: SheetConfig): SheetMetadata {
+  let logicalName = '';
+  let physicalName = '';
+
+  const getCellValue = (cellAddress: string) => {
+    const cell = worksheet[cellAddress];
+    return cell ? (cell.v ? cell.v.toString().trim() : '') : '';
+  };
+
+  // Default to A2 for logical (JP) and D2 for physical (EN) if not provided
+  const logicalCell = config?.jpNameCell || 'A2';
+  const physicalCell = config?.enNameCell || 'D2';
+
+  logicalName = getCellValue(logicalCell);
+  physicalName = getCellValue(physicalCell);
+
   let rowCount = 0;
-
-  // Search for table names in the first 30 rows
-  for (let i = 0; i < Math.min(jsonData.length, 30); i++) {
-    const row = jsonData[i] || [];
-    for (let j = 0; j < row.length; j++) {
-      const cell = String(row[j] || '').trim();
-      // Look for typical table name declarations
-      if (cell.includes('テーブル') || cell.includes('Table') || cell.includes('表名') || cell.includes('エンティティ') || cell.includes('論理') || cell.includes('物理')) {
-        // Search next cells in the same row
-        for (let k = j + 1; k < row.length; k++) {
-           const val = String(row[k] || '').trim();
-           if (val) {
-             if (!logical && /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(val)) logical = val;
-             else if (!physical && isPhysicalLike(val)) physical = val;
-           }
-        }
-      }
-    }
-    if (logical && physical) break;
+  if (worksheet['!ref']) {
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    rowCount = range.e.r + 1;
   }
 
-  // Fallback: Guess from the first valid JP/EN pair we find
-  if (!logical || !physical) {
-    for (let i = 0; i < Math.min(jsonData.length, 30); i++) {
-      const row = jsonData[i] || [];
-      let tempJp = '';
-      let tempEn = '';
-      for (const cell of row) {
-        const s = String(cell || '').trim();
-        if (s.length > 0 && s.length < 100) {
-          if (!tempJp && /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s)) tempJp = s;
-          else if (!tempEn && isPhysicalLike(s)) tempEn = s;
-        }
-      }
-      if (tempJp && tempEn) {
-        if (!logical) logical = tempJp;
-        if (!physical) physical = tempEn;
-        break;
-      }
-    }
-  }
-
-  // Count rows starting from Row 5
-  if (jsonData.length >= 5) {
-    for (let i = 4; i < jsonData.length; i++) {
-      const row = jsonData[i];
-      // A row is valid if it has at least one string cell
-      if (row && row.some((c: any) => String(c || '').trim())) {
-        rowCount++;
-      }
-    }
-  } else {
-    rowCount = Math.max(0, jsonData.length - 1);
-  }
-
-  return { logical, physical, rowCount };
+  return {
+    logicalName,
+    physicalName,
+    rowCount
+  };
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { sanitize, Icons } from '@vinx/sdk';
+import { invoke } from '@tauri-apps/api/core';
 
 const props = defineProps<{
   input: string;
@@ -48,6 +49,7 @@ const emit = defineEmits<{
   (e: 'deepSearch', query: string): void;
   (e: 'update:isOnlySelectedSheets', val: boolean): void;
   (e: 'refreshFiles'): void;
+  (e: 'refreshTechnical'): void;
   (e: 'clearSheets'): void;
   (e: 'contextAdd', text: string): void;
 }>();
@@ -253,6 +255,20 @@ const copyFromSheetContext = (type: 'logical' | 'physical') => {
   closeContextMenu();
 };
 
+const openSheetInExcel = async () => {
+  if (sheetContextMenu.value?.fullKey) {
+    const file = sheetContextMenu.value.fullKey.split('::').slice(0, -1).join('::');
+    const sheetName = sheetContextMenu.value.fullKey.split('::').pop();
+    try {
+      // Call the rust command silently to avoid overwriting the user's clipboard
+      await invoke('open_excel_at_sheet', { path: file, sheetName });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  closeContextMenu();
+};
+
 onMounted(() => document.addEventListener('click', closeContextMenu));
 onUnmounted(() => document.removeEventListener('click', closeContextMenu));
 </script>
@@ -267,7 +283,8 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
             <span class="pane-label">FILES LIST</span>
           </div>
           <div class="header-right">
-            <button @click="emit('refreshFiles')" class="icon-btn-ghost" title="Refresh Files" v-html="Icons.RefreshCw"></button>
+            <button @click="emit('refreshFiles')" class="icon-btn-ghost" title="Refresh Base Dictionary" v-html="Icons.RefreshCw"></button>
+            <button @click="emit('refreshTechnical')" class="icon-btn-ghost icon-btn-tech" title="Rebuild Technical Cache" v-html="Icons.Database"></button>
             <button @click="emit('selectFolder')" class="icon-btn-ghost" title="Select Folder" v-html="Icons.Folder"></button>
           </div>
         </div>
@@ -551,6 +568,10 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
           <span v-html="Icons.Copy || '📋'"></span> Copy JP name 
           <span class="context-preview">{{ sheetContextMenu.logical }}</span>
         </div>
+        <div class="menu-divider" style="height: 1px; background: rgba(128,128,128,0.2); margin: 4px 0;"></div>
+        <div class="menu-item" @click="openSheetInExcel">
+          <span v-html="Icons.ExternalLink || '↗'"></span> Open Excel Here
+        </div>
       </div>
     </Teleport>
   </div>
@@ -622,7 +643,7 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
 .empty-hint { font-size: 0.7rem; opacity: 0.3; text-align: center; padding: 40px 10px; font-style: italic; }
 
 .icon-btn-ghost { background: transparent; border: 1px solid rgba(128,128,128,0.15); color: var(--text-color); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-.icon-btn-ghost:hover { background: rgba(99, 102, 241, 0.05); border-color: var(--accent-color); color: var(--accent-color); transform: translateY(-1px); }
+.icon-btn-ghost:hover { background: rgba(99, 102, 241, 0.05); border-color: var(--accent-color); color: var(--accent-color); transform: translateY(-1px); }\n.icon-btn-tech { border-color: rgba(245, 158, 11, 0.3); color: rgba(245, 158, 11, 0.8); }\n.icon-btn-tech:hover { background: rgba(245, 158, 11, 0.08) !important; border-color: rgb(245, 158, 11) !important; color: rgb(245, 158, 11) !important; }
 .file-icon { display: flex; align-items: center; justify-content: center; opacity: 0.5; color: var(--text-color); }
 .lang-segmented { display: flex; background: rgba(128, 128, 128, 0.08); padding: 3px; border-radius: 10px; border: 1px solid rgba(128,128,128,0.1); }
 .lang-segmented button { padding: 4px 12px; font-size: 0.65rem; border: none; background: transparent; font-weight: 850; border-radius: 8px; cursor: pointer; opacity: 0.4; color: var(--text-color); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }

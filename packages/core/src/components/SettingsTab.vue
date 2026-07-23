@@ -207,18 +207,37 @@ watch(showSettingsTrigger, (val) => {
                     <span class="chip-text" :title="p.path">{{ p.path }}</span>
                     <span class="chip-remove" @click="removePathFromGroup(group.id, pIdx)" v-html="Icons.Close"></span>
                   </div>
-                  <div class="path-chip-config">
-                    <div class="config-input-group">
-                      <label>Phys Col</label>
-                      <input type="text" v-model="p.physCol" class="mini-input" placeholder="A" @change="saveSettings" />
+                  <div class="path-chip-config-container">
+                    <div class="path-config-section">
+                      <div class="section-title">1. Tên Bảng (Table Name)</div>
+                      <div class="config-row">
+                        <div class="config-input-group">
+                          <label>Ô Tên JP (Logic)</label>
+                          <input type="text" v-model="p.jpNameCell" class="mini-input" placeholder="VD: A2" @change="saveSettings" />
+                        </div>
+                        <div class="config-input-group">
+                          <label>Ô Tên EN (Vật lý)</label>
+                          <input type="text" v-model="p.enNameCell" class="mini-input" placeholder="VD: D2" @change="saveSettings" />
+                        </div>
+                      </div>
                     </div>
-                    <div class="config-input-group">
-                      <label>JP Col</label>
-                      <input type="text" v-model="p.jpCol" class="mini-input" placeholder="B" @change="saveSettings" />
-                    </div>
-                    <div class="config-input-group">
-                      <label>Start Row</label>
-                      <input type="number" v-model="p.startRow" class="mini-input" placeholder="1" @change="saveSettings" />
+                    
+                    <div class="path-config-section">
+                      <div class="section-title">2. Dữ liệu Cột (Columns)</div>
+                      <div class="config-row">
+                        <div class="config-input-group">
+                          <label>Cột JP (Logic)</label>
+                          <input type="text" v-model="p.jpCol" class="mini-input" placeholder="VD: B" @change="saveSettings" />
+                        </div>
+                        <div class="config-input-group">
+                          <label>Cột EN (Vật lý)</label>
+                          <input type="text" v-model="p.physCol" class="mini-input" placeholder="VD: C" @change="saveSettings" />
+                        </div>
+                        <div class="config-input-group">
+                          <label>Dòng bắt đầu</label>
+                          <input type="number" v-model="p.startRow" class="mini-input" placeholder="VD: 5" @change="saveSettings" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -778,11 +797,36 @@ watch(showSettingsTrigger, (val) => {
   width: 100%;
 }
 
-.path-chip-config {
+.path-chip-config-container {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  padding-top: 6px;
+  padding-top: 10px;
   border-top: 1px dashed rgba(128, 128, 128, 0.1);
+}
+
+.path-config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.1);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.05);
+}
+
+.section-title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--accent-color);
+  opacity: 0.9;
+  margin-bottom: 2px;
+}
+
+.config-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .config-input-group {

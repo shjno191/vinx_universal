@@ -123,6 +123,8 @@ export interface AdvancedTranslatePath {
     physCol?: string;
     jpCol?: string;
     startRow?: number;
+    jpNameCell?: string;
+    enNameCell?: string;
 }
 
 export interface AdvancedTranslateGroup {

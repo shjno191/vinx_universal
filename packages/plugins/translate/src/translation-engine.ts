@@ -18,7 +18,7 @@ export function buildTranslationRegex(lookup: Map<string, string>): RegExp | nul
     const pattern = sortedKeys
       .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       .join('|');
-    return new RegExp(`(${pattern})`, 'g');
+    return new RegExp(`(${pattern})`, 'gi');
   } catch (e) {
     console.error('Failed to create translation regex:', e);
     return null;
@@ -32,8 +32,13 @@ export function translateText(input: string, regex: RegExp | null, lookup: Map<s
   if (!input) return '';
   if (!regex) return input;
   
+  // Case insensitive lookup
   return input.replace(regex, (match) => {
-    return lookup.get(match) || match;
+    const lowerMatch = match.toLowerCase();
+    for (const [key, val] of lookup.entries()) {
+      if (key.toLowerCase() === lowerMatch) return val;
+    }
+    return match;
   });
 }
 

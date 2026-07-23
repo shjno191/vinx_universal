@@ -285,8 +285,10 @@ onMounted(async () => {
   // If we already have paths but no files listed, trigger a scan
   if (advancedTranslatePaths.value.length > 0 && excelFilesInFolder.value.length === 0) {
     console.log('[TranslateTab] Initial scan for files...');
-    loadFilesFromMultipleFolders(advancedTranslatePaths.value);
+    await loadFilesFromMultipleFolders(advancedTranslatePaths.value);
   }
+  // Smart init: Only load tech cache if it already exists (don't rebuild on startup)
+  loadTechDictionaryCache();
 
   window.addEventListener('keydown', handleGlobalKeyDown);
 });
@@ -317,6 +319,18 @@ const handleRefreshBase = async () => {
     } catch (e) {
       showToast(`Refreshed, but failed to clean Base Dictionary file.`);
     }
+  }
+};
+
+const handleRefreshTechnical = async () => {
+  isRefreshingTech.value = true;
+  try {
+    await rebuildTechDictionaryCache();
+    showToast('Technical Dictionary cache rebuilt!');
+  } catch (e) {
+    showToast('Failed to rebuild Technical Dictionary cache.');
+  } finally {
+    isRefreshingTech.value = false;
   }
 };
 
@@ -445,12 +459,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         </button>
         <button v-if="subTab === 'dictionary'" class="action-btn-circle" @click="openAddModal" title="Add Entry" v-html="Icons.Plus"></button>
         <button v-if="subTab === 'dictionary'" class="action-btn-circle" @click="handleRefresh" title="Refresh" v-html="Icons.RefreshCw"></button>
-
-        <button v-if="subTab === 'quick-translate'" class="action-btn-rect" @click="handleRefreshBase" title="Refresh & Clean Base Dictionary">
-          <span v-html="Icons.RefreshCw" class="btn-icon"></span>
-          REFRESH BASE
-        </button>
-      </div>
+      </div>
     </header>
 
     <Teleport to="body">
@@ -508,6 +517,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
         v-model:isOnlySelectedSheets="isOnlySelectedSheets"
         @selectFolder="pickQuickTranslateFolder"
         @refreshFiles="() => loadFilesFromMultipleFolders(advancedTranslatePaths, true)"
+        @refreshTechnical="handleRefreshTechnical"
         @clearSheets="() => { selectedSheets.clear(); activeSheets.clear(); updateCachedWords(); }"
         @toggleFile="toggleExcelFile"
         @deepSearch="searchAllSheetsForText"

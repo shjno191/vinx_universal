@@ -80,7 +80,7 @@ export function usePluginManager() {
     }
 
     // Sort plugins by predefined order
-    const order = ['SQL-Helper', 'Translate', 'Compare', 'Convert', 'Editor', 'Chill'];
+    const order = ['SQL-Helper', 'Translate', 'Compare', 'RevertTK', 'Editor', 'Chill'];
     plugins.value.sort((a, b) => {
       const idxA = order.indexOf(a.name);
       const idxB = order.indexOf(b.name);

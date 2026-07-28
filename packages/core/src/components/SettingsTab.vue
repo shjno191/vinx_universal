@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, watch } from 'vue';
 import { useSettings, useGlobalLoading, Icons, showSettingsTrigger, theme, useFileSystem } from '@vinx/sdk';
 import { invoke } from '@tauri-apps/api/core';
@@ -494,21 +494,7 @@ watch(showSettingsTrigger, (val) => {
         </div>
       </div>
 
-      <!-- CONVERT UI -->
-      <div v-show="currentCategory === 'convert'" class="settings-section">
 
-        <div class="rules-container">
-          <div class="rule-group glass">
-            <h4 class="rule-title">Định dạng tập tin: PDA JSP</h4>
-            <div class="rule-list">
-              <div class="rule-item"><span class="rule-tag">CSS</span><p>Tự động thay bằng <code>common_pda.css</code>.</p></div>
-              <div class="rule-item"><span class="rule-tag">LAYOUT</span><p>Bọc trang trong thẻ <code>div.pda_list</code>.</p></div>
-              <div class="rule-item"><span class="rule-tag">STYLE</span><p>Tách CSS ra khỏi mã JSP và đưa lên phần đầu.</p></div>
-              <div class="rule-item"><span class="rule-tag">INDENT</span><p>Sử dụng 4 khoảng trắng cho thụt dòng.</p></div>
-            </div>
-          </div>
-        </div>
-      </div>
     </main>
   </div>
 </template>
@@ -947,61 +933,4 @@ watch(showSettingsTrigger, (val) => {
   100% { opacity: 1; }
 }
 
-/* Converter UI Rules */
-.rules-container {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.rule-group {
-  padding: 20px;
-  background: rgba(128, 128, 128, 0.05);
-  border: 1px solid rgba(128, 128, 128, 0.1);
-  border-radius: 16px;
-}
-.rule-title {
-  margin: 0 0 15px 0;
-  font-size: 0.9rem;
-  font-weight: 900;
-  color: var(--accent-color);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.rule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.rule-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.1);
-  padding: 10px 14px;
-  border-radius: 8px;
-}
-.rule-tag {
-  font-size: 0.65rem;
-  font-weight: 900;
-  background: var(--accent-color);
-  color: #fff;
-  padding: 2px 6px;
-  border-radius: 4px;
-  min-width: 50px;
-  text-align: center;
-}
-.rule-item p {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  color: var(--text-color);
-  opacity: 0.8;
-}
-.rule-item code {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 2px 4px;
-  border-radius: 4px;
-  color: var(--accent-color);
-  font-family: 'JetBrains Mono', monospace;
-}
 </style>

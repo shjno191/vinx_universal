@@ -137,7 +137,6 @@ export function useSettings() {
     { id: 'editor', name: 'Editor', icon: 'Edit3' },
     { id: 'shortcut', name: 'Shortcuts', icon: 'Keyboard' },
     { id: 'chill', name: 'Relaxing', icon: 'Coffee' },
-    { id: 'convert', name: 'Converter', icon: 'RefreshCw' },
   ];
 
 

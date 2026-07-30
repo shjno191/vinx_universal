@@ -11,7 +11,7 @@ const copyPos = ref({ x: 0, y: 0 });
 
 // Layout and Resize state
 const layoutMode = ref<'vertical' | 'horizontal'>('horizontal'); // Default horizontal
-const splitRatio = ref(30); // 3/7 ratio
+const splitRatio = ref(10); // 10/90 ratio
 const isDraggingPane = ref(false);
 const splitContainerRef = ref<HTMLElement | null>(null);
 
@@ -23,8 +23,8 @@ const headers = ['No.', 'Item Name', 'Type', 'Status', 'Req', 'Max Length', 'Tab
 
 const toggleLayout = () => {
   layoutMode.value = layoutMode.value === 'vertical' ? 'horizontal' : 'vertical';
-  // Reset ratio to default 30% for horizontal, 50% for vertical
-  splitRatio.value = layoutMode.value === 'horizontal' ? 30 : 50;
+  // Reset ratio to default 10% for horizontal, 50% for vertical
+  splitRatio.value = layoutMode.value === 'horizontal' ? 10 : 50;
 };
 
 const startPaneResize = () => {

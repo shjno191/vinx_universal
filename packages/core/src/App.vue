@@ -9,6 +9,7 @@ import {
   isGlobalSmoking,
   chillSettings,
   globalShortcuts,
+  requestNavigateTab,
   matchShortcut,
   Icons
 } from "@vinx/sdk";
@@ -99,6 +100,7 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   // Settings shortcut
   if (matchShortcut(e, shortcuts.open_settings || 'ctrl+shift+s')) {
     e.preventDefault();
+    e.stopPropagation();
     showSettingsModal.value = true;
     showSettingsTrigger.value = { category: currentTab.value === 'Translate' ? 'translate' : 'general' };
     return;
@@ -107,6 +109,7 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   // Quick Open App Tabs
   if (matchShortcut(e, shortcuts.quick_open_tabs || 'ctrl+~')) {
     e.preventDefault();
+    e.stopPropagation();
     showTabsPalette.value = true;
     return;
   }
@@ -114,12 +117,14 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   // Tab switching shortcuts (Global)
   if (matchShortcut(e, shortcuts.prev_tab || 'ctrl+shift+[')) {
     e.preventDefault();
+    e.stopPropagation();
     const idx = allTabs.value.indexOf(currentTab.value);
     currentTab.value = allTabs.value[(idx - 1 + allTabs.value.length) % allTabs.value.length];
     return;
   }
   if (matchShortcut(e, shortcuts.next_tab || 'ctrl+shift+]')) {
     e.preventDefault();
+    e.stopPropagation();
     const idx = allTabs.value.indexOf(currentTab.value);
     currentTab.value = allTabs.value[(idx + 1) % allTabs.value.length];
     return;
@@ -154,6 +159,12 @@ watch([projectRootPath, gitTabRepoPath], async ([root, git]) => {
 watch(showSettingsTrigger, (val) => {
   if (val?.category) showSettingsModal.value = true;
 });
+watch(requestNavigateTab, (tab) => {
+  if (tab && allTabs.value.includes(tab)) {
+    currentTab.value = tab;
+    requestNavigateTab.value = '';
+  }
+});
 
 onMounted(async () => {
   // Load plugins dynamically
@@ -169,15 +180,15 @@ onMounted(async () => {
   
   loadSettings();
   checkForUpdates();
-  window.addEventListener("keydown", handleGlobalKeyDown);
-  window.addEventListener("keyup", handleGlobalKeyUp);
-  window.addEventListener("mouseup", handleMouseUp);
+  window.addEventListener("keydown", handleGlobalKeyDown, true);
+  window.addEventListener("keyup", handleGlobalKeyUp, true);
+  window.addEventListener("mouseup", handleMouseUp, true);
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", handleGlobalKeyDown);
-  window.removeEventListener("keyup", handleGlobalKeyUp);
-  window.removeEventListener("mouseup", handleMouseUp);
+  window.removeEventListener("keydown", handleGlobalKeyDown, true);
+  window.removeEventListener("keyup", handleGlobalKeyUp, true);
+  window.removeEventListener("mouseup", handleMouseUp, true);
 });
 </script>
 

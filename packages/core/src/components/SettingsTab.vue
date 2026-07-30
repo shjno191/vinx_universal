@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { onMounted, watch } from 'vue';
 import { useSettings, useGlobalLoading, Icons, showSettingsTrigger, theme, useFileSystem } from '@vinx/sdk';
 import { invoke } from '@tauri-apps/api/core';
@@ -441,6 +441,27 @@ watch(showSettingsTrigger, (val) => {
                 {{ isRecording === 'move_tab_right' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.move_tab_right || 'alt+arrowright') }}
               </span>
               <input v-if="isRecording === 'move_tab_right'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('format_code')">
+              <span class="shortcut-desc">Định dạng Code (Format Code)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'format_code' }">
+                {{ isRecording === 'format_code' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.format_code || 'ctrl+alt+f') }}
+              </span>
+              <input v-if="isRecording === 'format_code'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('comment_code')">
+              <span class="shortcut-desc">Ghi chú Code (Comment Code)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'comment_code' }">
+                {{ isRecording === 'comment_code' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.comment_code || 'ctrl+shift+/') }}
+              </span>
+              <input v-if="isRecording === 'comment_code'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('move_to_translate')">
+              <span class="shortcut-desc">Chuyển sang Translate (Move to Translate)</span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'move_to_translate' }">
+                {{ isRecording === 'move_to_translate' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.move_to_translate || 'ctrl+t') }}
+              </span>
+              <input v-if="isRecording === 'move_to_translate'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
           </div>
         </div>

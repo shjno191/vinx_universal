@@ -252,6 +252,7 @@ const showToast = (message: string) => {
 
 const formatInputText = () => {
   if (!translateInput.value) return;
+  translateInput.value = translateInput.value.replace(/\t/g, '');
   translateInput.value = cleanAndFormatSql(translateInput.value);
   nextTick(() => performQuickTranslate());
 };

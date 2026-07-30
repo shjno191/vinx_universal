@@ -23,23 +23,14 @@ const emit = defineEmits<{
 }>();
 
 const { copyToClipboard } = useClipboard();
-const copiedCell = ref<{ row: number, col: string } | null>(null);
-let copyTimer: any = null;
-
-const handleCellClick = async (text: string, rowIdx: number, colKey: string, event: MouseEvent) => {
-  const cleanText = text ? text.trim() : '';
+const handleCellClick = async (text: string | number, event: MouseEvent) => {
+  const cleanText = text !== undefined && text !== null ? String(text).trim() : '';
   if (!cleanText) return;
 
   console.log(`[DictionaryTable] Attempting to copy: "${cleanText}"`);
   const success = await copyToClipboard(cleanText);
   if (success) {
-    console.log(`[DictionaryTable] Copy successful for row ${rowIdx}, col ${colKey}`);
-    if (copyTimer) clearTimeout(copyTimer);
-    copiedCell.value = { row: rowIdx, col: colKey };
-    copyTimer = setTimeout(() => {
-      copiedCell.value = null;
-    }, 2000);
-    
+    console.log(`[DictionaryTable] Copy successful for: "${cleanText}"`);
     emit('copy', cleanText, event);
   } else {
     console.warn(`[DictionaryTable] Copy failed for: "${cleanText}"`);
@@ -57,14 +48,14 @@ const filteredData = computed(() => {
   
   return props.data.filter(item => {
     return keywords.some(q => {
+      const jp = String(item.jp || '').toLowerCase();
+      const en = String(item.en || '').toLowerCase();
+      const vi = String(item.vi || '').toLowerCase();
+      
       if (props.isStrict) {
-        return item.jp.toLowerCase() === q || 
-               item.en.toLowerCase() === q || 
-               item.vi.toLowerCase() === q;
+        return jp === q || en === q || vi === q;
       }
-      return item.jp.toLowerCase().includes(q) || 
-             item.en.toLowerCase().includes(q) || 
-             item.vi.toLowerCase().includes(q);
+      return jp.includes(q) || en.includes(q) || vi.includes(q);
     });
   });
 });
@@ -80,11 +71,12 @@ const highlightMatch = (text: string) => {
       .filter(k => k !== '')
       .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); // Escape regex chars
     
-    if (keywords.length === 0) return text;
+    if (keywords.length === 0) return String(text || '');
     
+    const safeText = String(text || '');
     const pattern = `(${keywords.join('|')})`;
     const regex = new RegExp(pattern, 'gi');
-    const highlighted = text.replace(regex, '<mark class="local-match">$1</mark>');
+    const highlighted = safeText.replace(regex, '<mark class="local-match">$1</mark>');
     return sanitize(highlighted);
   } catch { 
     return text; 
@@ -117,25 +109,16 @@ const highlightMatch = (text: string) => {
           <tr v-for="(item, idx) in filteredData.slice(0, 100)" 
               :key="idx" 
               v-else
-              v-memo="[item.jp, item.en, item.vi, props.searchQuery, props.isStrict, copiedCell?.row === idx]">
+              v-memo="[item.jp, item.en, item.vi, props.searchQuery, props.isStrict]">
             <td class="col-index">{{ idx + 1 }}</td>
-            <td @click="handleCellClick(item.jp, idx, 'jp', $event)" class="clickable-cell">
+            <td @click="handleCellClick(item.jp, $event)" class="clickable-cell">
               <span v-html="highlightMatch(item.jp)"></span>
-              <transition name="badge">
-                <span v-if="copiedCell?.row === idx && copiedCell?.col === 'jp'" class="copy-badge">COPIED!</span>
-              </transition>
             </td>
-            <td @click="handleCellClick(item.en, idx, 'en', $event)" class="clickable-cell code-text">
+            <td @click="handleCellClick(item.en, $event)" class="clickable-cell code-text">
               <span v-html="highlightMatch(item.en)"></span>
-              <transition name="badge">
-                <span v-if="copiedCell?.row === idx && copiedCell?.col === 'en'" class="copy-badge">COPIED!</span>
-              </transition>
             </td>
-            <td @click="handleCellClick(item.vi, idx, 'vi', $event)" class="clickable-cell">
+            <td @click="handleCellClick(item.vi, $event)" class="clickable-cell">
               <span v-html="highlightMatch(item.vi || '-')"></span>
-              <transition name="badge">
-                <span v-if="copiedCell?.row === idx && copiedCell?.col === 'vi'" class="copy-badge">COPIED!</span>
-              </transition>
             </td>
             <td class="col-actions">
               <div class="action-icons">
@@ -183,33 +166,5 @@ const highlightMatch = (text: string) => {
 .code-text { font-family: 'Consolas', monospace; color: var(--accent-color); }
 :deep(.local-match) { background: #6366f1; color: white; border-radius: 2px; padding: 0 2px; }
 
-/* Copy Badge */
-.copy-badge {
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
-  background: #10b981;
-  color: #fff;
-  font-size: 0.6rem;
-  font-weight: 900;
-  padding: 2px 6px;
-  border-radius: 4px;
-  pointer-events: none;
-  z-index: 10;
-  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
-}
 
-.badge-enter-active { animation: badge-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.badge-leave-active { animation: badge-out 0.4s ease-in forwards; }
-
-@keyframes badge-in {
-  0% { opacity: 0; transform: translateY(-50%) scale(0.5); }
-  100% { opacity: 1; transform: translateY(-50%) scale(1); }
-}
-
-@keyframes badge-out {
-  0% { opacity: 1; transform: translateY(-50%) scale(1); }
-  100% { opacity: 0; transform: translateY(-70%) scale(0.8); }
-}
 </style>

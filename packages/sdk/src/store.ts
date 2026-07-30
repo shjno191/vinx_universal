@@ -56,8 +56,13 @@ export const globalShortcuts = ref({
     close_all_tabs: 'ctrl+shift+w',
     move_tab_left: 'alt+arrowleft',
     move_tab_right: 'alt+arrowright',
-    quick_open_tabs: 'ctrl+~'
+    quick_open_tabs: 'ctrl+~',
+    format_code: 'ctrl+alt+f',
+    comment_code: 'ctrl+shift+/',
+    move_to_translate: 'ctrl+t'
 });
+
+export const requestNavigateTab = ref<string>('');
 
 
 // Git / Source Control State

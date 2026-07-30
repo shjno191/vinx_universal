@@ -38,7 +38,9 @@ import {
   globalShortcuts,
   matchShortcut,
   useSettings,
-  useFileSystem
+  useFileSystem,
+  requestNavigateTab,
+  translateInput
 } from '@vinx/sdk';
 
 const { searchRepoFiles } = useGit();
@@ -263,7 +265,47 @@ const setupEditorTheme = async () => {
     monaco.editor.setTheme(activeEditorTheme.value);
 };
 
+const formatRemoveTabs = (editor: any) => {
+    if (!editor) return;
+    const model = editor.getModel();
+    if (!model) return;
+    
+    const selection = editor.getSelection();
+    if (selection && !selection.isEmpty()) {
+        const text = model.getValueInRange(selection);
+        const newText = text.replace(/\t/g, '');
+        editor.executeEdits('format-tabs', [{range: selection, text: newText, forceMoveMarkers: true}]);
+    } else {
+        const text = model.getValue();
+        const newText = text.replace(/\t/g, '');
+        const fullRange = model.getFullModelRange();
+        editor.executeEdits('format-tabs', [{range: fullRange, text: newText, forceMoveMarkers: true}]);
+    }
+};
 
+const handleFormat = (pane: 'left' | 'right') => {
+    if (editors[pane]) {
+        formatRemoveTabs(editors[pane]);
+    }
+};
+
+
+
+const handleMoveToTranslate = (editor: any) => {
+  const model = editor.getModel();
+  const selection = editor.getSelection();
+  if (!model) return;
+
+  let text = '';
+  if (selection && !selection.isEmpty()) {
+    text = model.getValueInRange(selection);
+  } else {
+    text = model.getValue();
+  }
+
+  translateInput.value = text;
+  requestNavigateTab.value = 'Translate';
+};
 
 const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   editors[pane] = editor;
@@ -298,6 +340,16 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   });
 
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => handleSave());
+  
+  editor.addAction({
+    id: 'move-to-translate',
+    label: 'Move to Translate',
+    contextMenuGroupId: 'navigation',
+    contextMenuOrder: 1.5,
+    run: function (ed: any) {
+      handleMoveToTranslate(ed);
+    }
+  });
 };
 
 const handleSave = async () => {
@@ -368,18 +420,21 @@ const handleKeyDown = (e: KeyboardEvent) => {
 
   if (matchShortcut(e, shortcuts.open_file || 'ctrl+p')) {
     e.preventDefault();
+    e.stopPropagation();
     showFilePalette.value = true;
     return;
   }
 
   if (matchShortcut(e, shortcuts.save_file || 'ctrl+s')) {
     e.preventDefault();
+    e.stopPropagation();
     handleSave();
     return;
   }
 
   if (matchShortcut(e, shortcuts.close_tab || 'ctrl+w')) {
     e.preventDefault();
+    e.stopPropagation();
     if (currentActiveId.value) {
       removeTab(currentActiveId.value);
     }
@@ -388,26 +443,57 @@ const handleKeyDown = (e: KeyboardEvent) => {
 
   if (matchShortcut(e, shortcuts.close_all_tabs || 'ctrl+shift+w')) {
     e.preventDefault();
+    e.stopPropagation();
     closeAllTabs();
     return;
   }
 
   if (matchShortcut(e, shortcuts.new_tab || 'ctrl+n')) {
     e.preventDefault();
+    e.stopPropagation();
     addTab(undefined, undefined, undefined, undefined, focusedPane.value);
     return;
   }
 
   if (matchShortcut(e, shortcuts.move_tab_left || 'alt+arrowleft')) {
     e.preventDefault();
+    e.stopPropagation();
     if (currentActiveId.value) {
       moveToPane(currentActiveId.value, 'left');
     }
     return;
   }
 
+  if (matchShortcut(e, shortcuts.format_code || 'ctrl+alt+f')) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (focusedPane.value && editors[focusedPane.value]) {
+        formatRemoveTabs(editors[focusedPane.value]);
+    }
+    return;
+  }
+
+  if (matchShortcut(e, shortcuts.comment_code || 'ctrl+shift+/')) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (focusedPane.value && editors[focusedPane.value]) {
+        editors[focusedPane.value].trigger('keyboard', 'editor.action.commentLine', null);
+    }
+    return;
+  }
+
+  if (matchShortcut(e, shortcuts.move_to_translate || 'ctrl+t')) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (focusedPane.value && editors[focusedPane.value]) {
+        handleMoveToTranslate(editors[focusedPane.value]);
+    }
+    return;
+  }
+
   if (matchShortcut(e, shortcuts.move_tab_right || 'alt+arrowright')) {
     e.preventDefault();
+    e.stopPropagation();
     if (currentActiveId.value) {
       moveToPane(currentActiveId.value, 'right');
     }
@@ -417,6 +503,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   // Global Search
   if (matchShortcut(e, shortcuts.global_search || 'ctrl+shift+f')) {
     e.preventDefault();
+    e.stopPropagation();
     activeSidebar.value = 'search';
     showExplorer.value = true;
     nextTick(() => {
@@ -429,6 +516,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   if (e.ctrlKey || e.metaKey) {
     if (e.shiftKey && e.key.toLowerCase() === 'e') { 
       e.preventDefault(); 
+      e.stopPropagation();
       activeSidebar.value = 'explorer'; 
       showExplorer.value = true; 
     }
@@ -659,7 +747,7 @@ watch(() => editorSettings.value?.colors, () => {
 }, { deep: true });
 
 onMounted(async () => { 
-    window.addEventListener('keydown', handleKeyDown); 
+    window.addEventListener('keydown', handleKeyDown, true); 
 
     // Register BOI Script language if not already registered
     if (!monaco.languages.getLanguages().some(lang => lang.id === 'boi-script')) {
@@ -813,7 +901,7 @@ onMounted(async () => {
 });
 
 
-onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
+onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown, true); });
 </script>
 
 <template>
@@ -1010,6 +1098,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               </div>
             </div>
             <div class="tab-bar-actions" v-if="!showSplit">
+              <button class="action-btn" @click="handleFormat('left')" :title="`Format (${globalShortcuts.format_code || 'Ctrl+Alt+F'})`">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
+              </button>
               <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
               <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
               <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Explorer" v-html="Icons.Project"></button>
@@ -1059,6 +1150,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown); });
               </div>
             </div>
             <div class="tab-bar-actions">
+              <button class="action-btn" @click="handleFormat('right')" :title="`Format (${globalShortcuts.format_code || 'Ctrl+Alt+F'})`">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
+              </button>
               <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
               <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
               <button class="action-btn folder-btn" @click="showExplorer = !showExplorer" :class="{ active: showExplorer }" title="Explorer" v-html="Icons.Project"></button>

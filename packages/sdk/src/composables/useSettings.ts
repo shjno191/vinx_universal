@@ -37,6 +37,9 @@ export interface Settings {
     move_tab_left: string;
     move_tab_right: string;
     quick_open_tabs: string;
+    format_code: string;
+    comment_code: string;
+    move_to_translate: string;
   };
   editor: {
     middleClickClose: boolean;
@@ -90,7 +93,10 @@ export const settings = ref<Settings>({
     next_tab: 'ctrl+shift+]',
     move_tab_left: 'alt+arrowleft',
     move_tab_right: 'alt+arrowright',
-    quick_open_tabs: 'ctrl+~'
+    quick_open_tabs: 'ctrl+~',
+    format_code: 'ctrl+alt+f',
+    comment_code: 'ctrl+shift+/',
+    move_to_translate: 'ctrl+t'
   },
   editor: {
     middleClickClose: true,

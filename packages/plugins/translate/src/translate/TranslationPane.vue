@@ -131,7 +131,7 @@ const stopGlobalResizing = () => {
 const gridStyle = computed(() => {
   return {
     display: 'grid',
-    gridTemplateColumns: `${colWidths.value[0]}% 6px ${colWidths.value[1]}% 6px ${colWidths.value[2]}% 6px ${colWidths.value[3]}%`
+    gridTemplateColumns: `${colWidths.value[0]}% 0px ${colWidths.value[1]}% 0px ${colWidths.value[2]}% 0px ${colWidths.value[3]}%`
   };
 });
 
@@ -177,22 +177,71 @@ const filteredFiles = computed(() => {
 
 const filteredSheets = computed(() => {
   if (!props.aggregatedSheets) return [];
-  const query = (props.sheetSearch || '').trim().toLowerCase();
+  const rawQuery = (props.sheetSearch || '').trim().toLowerCase();
   
   const base = props.aggregatedSheets;
-  if (!query) return base;
+  if (!rawQuery) return base;
 
-  return base.filter(s => {
+  const queries = rawQuery.split('|').map(q => q.trim()).filter(q => q);
+  if (queries.length === 0) return base;
+
+  const matched = base.map(s => {
     const fullKey = `${s.file}::${s.name}`;
-    const isNameMatch = s.name.toLowerCase().includes(query);
     const metadata = props.sheetMetadata[fullKey];
-    const isLogicalMatch = metadata?.logical?.toLowerCase().includes(query);
-    const isPhysicalMatch = metadata?.physical?.toLowerCase().includes(query);
-    const isFileMatch = s.file.toLowerCase().includes(query);
-    const isContentMatch = props.contentSearchMatches?.has(fullKey);
     
-    return isNameMatch || isLogicalMatch || isPhysicalMatch || isFileMatch || isContentMatch;
+    const nameLower = s.name.toLowerCase();
+    const logicalLower = metadata?.logical?.toLowerCase() || '';
+    const physicalLower = metadata?.physical?.toLowerCase() || '';
+    const fileLower = s.file.toLowerCase();
+    const isContentMatch = props.contentSearchMatches?.has(fullKey);
+
+    let maxScore = 0;
+
+    for (const query of queries) {
+      let score = 0;
+
+      if (nameLower === query || logicalLower === query || physicalLower === query) {
+        score = 100;
+      } else if (nameLower.startsWith(query) || logicalLower.startsWith(query) || physicalLower.startsWith(query)) {
+        const minLen = Math.min(
+          nameLower.startsWith(query) ? nameLower.length : Infinity,
+          logicalLower.startsWith(query) ? logicalLower.length : Infinity,
+          physicalLower.startsWith(query) ? physicalLower.length : Infinity
+        );
+        score = Math.max(51, 80 - (minLen - query.length)); 
+      } else if (nameLower.includes(query) || logicalLower.includes(query) || physicalLower.includes(query)) {
+        const minLen = Math.min(
+          nameLower.includes(query) ? nameLower.length : Infinity,
+          logicalLower.includes(query) ? logicalLower.length : Infinity,
+          physicalLower.includes(query) ? physicalLower.length : Infinity
+        );
+        score = Math.max(21, 50 - (minLen - query.length));
+      } else if (fileLower.includes(query) || isContentMatch) {
+        score = 20;
+      }
+
+      if (score > maxScore) {
+        maxScore = score;
+      }
+    }
+
+    return { sheet: s, score: maxScore };
+  }).filter(item => item.score > 0);
+
+  // Sort by score descending, then by file name, then by sheet name
+  matched.sort((a, b) => {
+    if (a.score !== b.score) {
+      return b.score - a.score;
+    }
+    const fileA = a.sheet.file.toLowerCase();
+    const fileB = b.sheet.file.toLowerCase();
+    if (fileA !== fileB) {
+      return fileA.localeCompare(fileB);
+    }
+    return a.sheet.name.localeCompare(b.sheet.name);
   });
+
+  return matched.map(item => item.sheet);
 });
 
 const groupedSelectedSheets = computed(() => {
@@ -445,16 +494,6 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
       <div class="pane-group sheet-panel-group">
         <div class="pane-header">
           <div class="header-left">
-            <span class="pane-label">SHEETS LIST</span>
-            <label class="only-checkbox" 
-                   :class="{ 'disabled-checkbox': activeSheets.size === 0 }"
-                   title="Only use selected sheets (Requires at least one active sheet in the list)">
-              <input type="checkbox" 
-                     :disabled="activeSheets.size === 0"
-                     :checked="isOnlySelectedSheets && activeSheets.size > 0"
-                     @change="emit('update:isOnlySelectedSheets', ($event.target as HTMLInputElement).checked)" />
-              <span>ONLY</span>
-            </label>
           </div>
           <div class="header-right">
             <button v-if="selectedSheets.size > 0" 
@@ -468,7 +507,19 @@ onUnmounted(() => document.removeEventListener('click', closeContextMenu));
           <div class="sheet-split-container">
             <!-- PART 1: Selected Sheets (Top) -->
             <div class="selected-sheets-zone" :style="{ height: selectedSheetsHeight + 'px' }">
-              <div class="zone-label">ENABLED IN TRANSLATOR ({{ selectedSheets.size }})</div>
+              <div class="zone-label" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>ENABLED IN TRANSLATOR ({{ selectedSheets.size }})</span>
+                <label class="only-checkbox" 
+                       :class="{ 'disabled-checkbox': activeSheets.size === 0 }"
+                       title="Only use selected sheets (Requires at least one active sheet in the list)"
+                       style="margin-left: auto;">
+                  <input type="checkbox" 
+                         :disabled="activeSheets.size === 0"
+                         :checked="isOnlySelectedSheets && activeSheets.size > 0"
+                         @change="emit('update:isOnlySelectedSheets', ($event.target as HTMLInputElement).checked)" />
+                  <span>ONLY</span>
+                </label>
+              </div>
               <div class="sheet-list-scroll">
                 <div v-if="selectedSheets.size === 0" class="empty-hint-small">No sheets enabled</div>
                 

@@ -474,7 +474,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
 
     <div class="tab-body">
       <DictionaryTable 
-        v-if="subTab === 'dictionary'"
+        v-show="subTab === 'dictionary'"
         :data="dictionaryData"
         :isLoading="isLoading"
         :searchQuery="localSearchQuery"
@@ -486,7 +486,7 @@ watch(dictionaryData, () => { rebuildBaseDictionaryCache(); updateCachedWords();
       />
 
       <TranslationPane
-        v-if="subTab === 'quick-translate'"
+        v-show="subTab === 'quick-translate'"
         ref="paneRef"
         v-model:input="translateInput"
         v-model:targetLang="sharedTargetLang"

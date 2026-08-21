@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { Icons, useClipboard } from '@vinx/sdk';
+import { ref, computed, onMounted, onUnmounted, shallowRef, watch } from 'vue';
+import { Icons, useClipboard, theme as globalTheme, revertTKSettings } from '@vinx/sdk';
+import { VueMonacoEditor, loader } from '@guolao/vue-monaco-editor';
+import * as monaco from 'monaco-editor';
+import { invoke } from '@tauri-apps/api/core';
+import * as XLSX from 'xlsx';
+
+loader.config({ monaco });
 
 const props = defineProps<{ theme?: string }>();
 const { copyToClipboard } = useClipboard();
@@ -8,10 +14,12 @@ const { copyToClipboard } = useClipboard();
 const htmlInput = ref('');
 const showCopyToast = ref(false);
 const copyPos = ref({ x: 0, y: 0 });
+const editorRef = shallowRef<any>(null);
+const decorations = ref<string[]>([]);
 
 // Layout and Resize state
-const layoutMode = ref<'vertical' | 'horizontal'>('horizontal'); // Default horizontal
-const splitRatio = ref(10); // 10/90 ratio
+const layoutMode = ref<'vertical' | 'horizontal'>('horizontal'); // horizontal = side-by-side
+const splitRatio = ref(20); // 20% HTML Source by default
 const isDraggingPane = ref(false);
 const splitContainerRef = ref<HTMLElement | null>(null);
 
@@ -21,10 +29,55 @@ const startX = ref(0);
 const startWidth = ref(0);
 const headers = ['No.', 'Item Name', 'Type', 'Status', 'Req', 'Max Length', 'Tab Index', 'Note'];
 
+const activeSubTab = ref<'extracted' | 'length'>('extracted');
+const lengthItems = ref<any[]>([]);
+const isLoadingLength = ref(false);
+
+const loadLengthExcel = async () => {
+  if (!revertTKSettings.value?.lengthExcelPath) return;
+  isLoadingLength.value = true;
+  try {
+    const data = await invoke<number[]>('read_file_binary', { path: revertTKSettings.value.lengthExcelPath });
+    const wb = XLSX.read(new Uint8Array(data), { type: 'array' });
+    const wsName = wb.SheetNames[0];
+    const ws = wb.Sheets[wsName];
+    const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    if (json.length > 1) {
+      // Map to object assuming fixed structure
+      lengthItems.value = json.slice(1).filter((r: any) => r && r.length > 0).map((r: any) => ({
+        subsystemId: r[0] || '',
+        parameterId: r[1] || '',
+        parameterTx: r[2] || '',
+        explanation: r[3] || ''
+      }));
+    } else {
+      lengthItems.value = [];
+    }
+  } catch (err) {
+    console.error('Failed to load Length Item excel:', err);
+    lengthItems.value = [];
+  } finally {
+    isLoadingLength.value = false;
+  }
+};
+
+watch(activeSubTab, (val) => {
+  if (val === 'length' && lengthItems.value.length === 0) {
+    loadLengthExcel();
+  }
+});
+
+watch(() => revertTKSettings.value?.lengthExcelPath, () => {
+  lengthItems.value = [];
+  if (activeSubTab.value === 'length') {
+    loadLengthExcel();
+  }
+});
+
 const toggleLayout = () => {
   layoutMode.value = layoutMode.value === 'vertical' ? 'horizontal' : 'vertical';
-  // Reset ratio to default 10% for horizontal, 50% for vertical
-  splitRatio.value = layoutMode.value === 'horizontal' ? 10 : 50;
+  // Reset ratio to default 20% for horizontal, 50% for vertical
+  splitRatio.value = layoutMode.value === 'horizontal' ? 20 : 50;
 };
 
 const startPaneResize = () => {
@@ -37,9 +90,11 @@ const startPaneResize = () => {
 const onPaneResize = (e: MouseEvent) => {
   if (!isDraggingPane.value || !splitContainerRef.value) return;
   const rect = splitContainerRef.value.getBoundingClientRect();
-  if (layoutMode.value === 'vertical') {
-    splitRatio.value = ((e.clientX - rect.left) / rect.width) * 100;
+  if (layoutMode.value === 'horizontal') {
+    // horizontal uses row-reverse, HTML Source (left-pane) is on the right
+    splitRatio.value = ((rect.right - e.clientX) / rect.width) * 100;
   } else {
+    // vertical uses column, HTML Source is on top
     splitRatio.value = ((e.clientY - rect.top) / rect.height) * 100;
   }
   if (splitRatio.value < 10) splitRatio.value = 10;
@@ -93,6 +148,37 @@ interface ParsedItem {
   maxLength: string;
   tabIndex: string;
   note: string;
+  searchToken?: string;
+}
+
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function generateSearchRegex(el: Element | undefined, labelEl: Element | undefined, baseLabel: string): string {
+  if (el) {
+    const tag = el.tagName.toLowerCase();
+    const id = el.getAttribute('id');
+    const name = el.getAttribute('name');
+    const value = el.getAttribute('value');
+    
+    if (id) return `<${tag}[^>]*id=["']?${escapeRegExp(id)}["']?[^>]*>`;
+    if (name) return `<${tag}[^>]*name=["']?${escapeRegExp(name)}["']?[^>]*>`;
+    if (value) return `<${tag}[^>]*value=["']?${escapeRegExp(value)}["']?[^>]*>`;
+    
+    const text = el.textContent?.trim();
+    if (text) {
+      return `<${tag}[^>]*>[\\s\\S]*?${escapeRegExp(text)}[\\s\\S]*?<\\/${tag}>`;
+    }
+    return `<${tag}`;
+  }
+  
+  if (labelEl) {
+    const tag = labelEl.tagName.toLowerCase();
+    return `<${tag}[^>]*>[\\s\\S]*?${escapeRegExp(baseLabel)}[\\s\\S]*?<\\/${tag}>`;
+  }
+  
+  return escapeRegExp(baseLabel);
 }
 
 function extractItemsFromCell(labelEl: Element, inputContainerEl: Element): ParsedItem[] {
@@ -186,7 +272,8 @@ function extractItemsFromCell(labelEl: Element, inputContainerEl: Element): Pars
       type,
       maxLength,
       tabIndex,
-      note
+      note,
+      searchToken: generateSearchRegex(item.el, labelEl, baseLabel)
     };
   });
 }
@@ -283,7 +370,8 @@ const parsedData = computed<ParsedItem[]>(() => {
         type,
         maxLength: '',
         tabIndex,
-        note
+        note,
+        searchToken: generateSearchRegex(el, el, name)
       });
     });
   });
@@ -314,7 +402,23 @@ const showToast = (e: MouseEvent) => {
 
 const handleCopyFeedback = async (event: MouseEvent) => {
   if (parsedData.value.length === 0) return;
-  const textToCopy = parsedData.value.filter(i => !i.isSeparator).map(item => item.itemName).join('\n');
+  
+  const rows = parsedData.value.filter(i => !i.isSeparator).map(row => {
+    return [
+      row.no,
+      row.itemName,
+      row.type,
+      row.status,
+      row.req,
+      row.maxLength,
+      row.tabIndex,
+      row.note
+    ].join('\t');
+  });
+  
+  const header = headers.join('\t');
+  const textToCopy = [header, ...rows].join('\n');
+  
   if (await copyToClipboard(textToCopy)) showToast(event);
 };
 
@@ -322,26 +426,90 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
   if (!note) return;
   if (await copyToClipboard(note)) showToast(event);
 };
+
+const handleEditorMount = (editor: any) => {
+  editorRef.value = editor;
+};
+
+const handleFormatHTML = () => {
+  if (editorRef.value) {
+    editorRef.value.getAction('editor.action.formatDocument')?.run();
+  }
+};
+
+const highlightItem = (row: ParsedItem) => {
+  const editor = editorRef.value;
+  if (!editor || !row.searchToken || row.isSeparator) return;
+  
+  const model = editor.getModel();
+  if (!model) return;
+  
+  // Search for the token using regex
+  const matches = model.findMatches(row.searchToken, false, true, false, null, true);
+  
+  if (matches.length > 0) {
+    editor.revealLineInCenterIfOutsideViewport(matches[0].range.startLineNumber);
+    
+    decorations.value = editor.deltaDecorations(decorations.value, matches.map((m: any) => ({
+      range: m.range,
+      options: {
+        isWholeLine: false,
+        className: 'revert-tk-highlight',
+        stickiness: 1
+      }
+    })));
+  }
+};
+
+const clearHighlight = () => {
+  const editor = editorRef.value;
+  if (editor) {
+    decorations.value = editor.deltaDecorations(decorations.value, []);
+  }
+};
 </script>
 
 <template>
   <div class="revert-tk-plugin" :class="[{ 'win95': props.theme === '95' }, `layout-${layoutMode}`]">
     
+    <component :is="'style'">
+      .revert-tk-highlight {
+        background-color: {{ revertTKSettings?.highlightColor || '#ffff00' }} !important;
+        color: #000;
+      }
+    </component>
+
     <div class="split-container" ref="splitContainerRef">
       
       <!-- LPane: HTML Source Input -->
       <div class="pane left-pane" :style="{ flexBasis: splitRatio + '%' }">
         <div class="pane-header glass">
-          <span class="header-icon" v-html="Icons.Code"></span>
-          <h3>HTML Source Input</h3>
+          <div class="header-title">
+            <span class="header-icon" v-html="Icons.Code"></span>
+            <h3>HTML Source Input</h3>
+          </div>
+          <div class="header-actions">
+            <button class="action-btn" @click="handleFormatHTML" title="Format HTML">
+              Format Code
+            </button>
+          </div>
         </div>
-        <div class="pane-content glass-content">
-          <textarea
-            v-model="htmlInput"
-            class="code-editor"
-            placeholder="Paste your HTML here (e.g. table.term or table.list1_search)..."
-            spellcheck="false"
-          ></textarea>
+        <div class="pane-content glass-content" style="position: relative;">
+          <VueMonacoEditor
+            v-model:value="htmlInput"
+            language="html"
+            :theme="globalTheme === 'dark' ? 'vs-dark' : 'vs-light'"
+            :options="{
+              minimap: { enabled: false },
+              wordWrap: 'on',
+              fontSize: 13,
+              fontFamily: 'JetBrains Mono',
+              formatOnPaste: true,
+              automaticLayout: true
+            }"
+            @mount="handleEditorMount"
+            class="code-editor monaco-wrapper"
+          />
         </div>
       </div>
 
@@ -350,10 +518,17 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
       <!-- RPane: Data Table -->
       <div class="pane right-pane" :style="{ flexBasis: (100 - splitRatio) + '%' }">
         <div class="pane-header glass">
-          <div class="header-title">
-            <span class="header-icon" v-html="Icons.Database"></span>
-            <h3>Extracted Data</h3>
-            <span class="count-badge" v-if="parsedData.length > 0">{{ parsedData.length }}</span>
+          <div class="header-title" style="flex: 1; display: flex; align-items: center; gap: 12px;">
+            <div class="sub-tabs">
+              <button class="sub-tab-btn" :class="{ active: activeSubTab === 'extracted' }" @click="activeSubTab = 'extracted'">
+                <span v-html="Icons.Database"></span> Extracted Data
+                <span class="count-badge" v-if="parsedData.length > 0">{{ parsedData.length }}</span>
+              </button>
+              <button class="sub-tab-btn" :class="{ active: activeSubTab === 'length' }" @click="activeSubTab = 'length'">
+                <span v-html="Icons.File"></span> Length Item
+                <span class="count-badge" v-if="lengthItems.length > 0">{{ lengthItems.length }}</span>
+              </button>
+            </div>
           </div>
           
           <div class="header-actions">
@@ -367,14 +542,14 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
                 <line x1="3" y1="12" x2="21" y2="12"></line>
               </svg>
             </button>
-            <button class="action-btn" @click="handleCopyFeedback" :disabled="parsedData.length === 0">
+            <button class="action-btn" @click="handleCopyFeedback" :disabled="parsedData.length === 0" v-if="activeSubTab === 'extracted'">
               <span v-html="Icons.Copy" class="btn-icon"></span>
-              Copy Item Names
+              Copy Result
             </button>
           </div>
         </div>
         
-        <div class="pane-content glass-content table-container">
+        <div class="pane-content glass-content table-container" v-show="activeSubTab === 'extracted'">
           <table class="data-table">
             <thead>
               <tr>
@@ -392,7 +567,7 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
                 <tr v-if="row.isSeparator" class="separator-row">
                   <td :colspan="headers.length" class="separator-cell">{{ row.itemName }}</td>
                 </tr>
-                <tr v-else>
+                <tr v-else @mouseenter="highlightItem(row)" @mouseleave="clearHighlight">
                   <td class="center-col no-col">{{ row.no }}</td>
                   <td class="item-name-col cell-truncate" :title="row.itemName">{{ row.itemName }}</td>
                   <td class="cell-truncate">{{ row.type }}</td>
@@ -403,6 +578,38 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
                   <td class="cell-truncate red-ellipsis" :title="row.note" @click="handleNoteCopy(row.note, $event)">
                     <span class="note-text">{{ row.note }}</span>
                   </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pane-content glass-content table-container" v-show="activeSubTab === 'length'">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 25%">SUBSYSTEM_ID</th>
+                <th style="width: 25%">PARAMETER_ID</th>
+                <th style="width: 15%" class="center-col">PARAMETER_TX</th>
+                <th style="width: 35%">EXPLANATION</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="isLoadingLength">
+                <td colspan="4" class="empty-state">Loading Excel data...</td>
+              </tr>
+              <tr v-else-if="!revertTKSettings?.lengthExcelPath">
+                <td colspan="4" class="empty-state">No Excel path configured. Please configure it in Settings -> Revert TK.</td>
+              </tr>
+              <tr v-else-if="lengthItems.length === 0">
+                <td colspan="4" class="empty-state">No data found in the Excel file.</td>
+              </tr>
+              <template v-else>
+                <tr v-for="(row, idx) in lengthItems" :key="idx">
+                  <td class="cell-truncate" :title="row.subsystemId">{{ row.subsystemId }}</td>
+                  <td class="item-name-col cell-truncate" :title="row.parameterId">{{ row.parameterId }}</td>
+                  <td class="center-col">{{ row.parameterTx }}</td>
+                  <td class="cell-truncate" :title="row.explanation"><span class="note-text">{{ row.explanation }}</span></td>
                 </tr>
               </template>
             </tbody>
@@ -448,11 +655,11 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
 }
 
 /* Layout Modes */
-.layout-vertical .split-container {
-  flex-direction: row;
+.layout-horizontal .split-container {
+  flex-direction: row-reverse;
 }
 
-.layout-horizontal .split-container {
+.layout-vertical .split-container {
   flex-direction: column;
 }
 
@@ -481,29 +688,29 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
   border-radius: 4px;
 }
 
-.layout-vertical .pane-splitter {
-  width: 12px;
+.layout-horizontal .pane-splitter {
+  width: 6px;
   cursor: col-resize;
-  margin: 0 4px;
+  margin: 0 2px;
 }
-.layout-vertical .pane-splitter::after {
-  width: 4px;
+.layout-horizontal .pane-splitter::after {
+  width: 2px;
   height: 24px;
 }
-.layout-vertical .pane-splitter:hover, .layout-vertical .pane-splitter:active {
+.layout-horizontal .pane-splitter:hover, .layout-horizontal .pane-splitter:active {
   background: rgba(99, 102, 241, 0.1);
 }
 
-.layout-horizontal .pane-splitter {
-  height: 12px;
+.layout-vertical .pane-splitter {
+  height: 6px;
   cursor: row-resize;
-  margin: 4px 0;
+  margin: 2px 0;
 }
-.layout-horizontal .pane-splitter::after {
-  height: 4px;
+.layout-vertical .pane-splitter::after {
+  height: 2px;
   width: 24px;
 }
-.layout-horizontal .pane-splitter:hover, .layout-horizontal .pane-splitter:active {
+.layout-vertical .pane-splitter:hover, .layout-vertical .pane-splitter:active {
   background: rgba(99, 102, 241, 0.1);
 }
 
@@ -569,18 +776,23 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
   overflow: hidden;
 }
 
-.code-editor {
-  flex: 1;
-  width: 100%;
-  padding: 16px;
-  background: transparent;
-  border: none;
-  color: var(--text-color);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
+.monaco-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+:deep(.revert-tk-highlight) {
+  background-color: rgba(99, 102, 241, 0.4);
+  border-bottom: 2px solid var(--accent-color);
+}
+.win95 :deep(.revert-tk-highlight) {
+  background-color: #000080;
+  color: #fff;
 }
 
 .table-container {
@@ -728,6 +940,42 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
   align-items: center;
 }
 
+.sub-tabs {
+  display: flex;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.sub-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-color);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+.sub-tab-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sub-tab-btn.active {
+  opacity: 1;
+  background: var(--accent-color);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
 /* Toast */
 .copy-bubble {
   position: fixed;
@@ -757,11 +1005,11 @@ const handleNoteCopy = async (note: string, event: MouseEvent) => {
   color: #000 !important;
 }
 
-.win95 .code-editor {
+.win95 .monaco-wrapper {
   background: #fff;
-  color: #000;
   border: 2px solid;
   border-color: #808080 #fff #fff #808080;
+  border-radius: 0;
 }
 
 .win95 .data-table th {

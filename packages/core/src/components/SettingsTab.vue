@@ -22,6 +22,9 @@ const {
   addPathToGroup,
   removePathFromGroup,
   downloadTemplate,
+  pickLengthExcel,
+  downloadLengthTemplate,
+  openLengthFile,
   startRecording,
   formatShortcut,
   handleShortcutKey
@@ -499,6 +502,51 @@ watch(showSettingsTrigger, (val) => {
             </div>
           </div>
         </div>
+      </div>
+
+
+      <!-- REVERT TK -->
+      <div v-show="currentCategory === 'revert_tk'" class="settings-section">
+
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.Edit3"></span>
+            <span class="card-label">Màu sắc Highlight</span>
+          </div>
+          <div class="card-body">
+            <div class="color-pickers-grid">
+              <div class="premium-field">
+                <label>Highlight Code</label>
+                <div class="color-input-wrapper">
+                  <input v-model="settings.revert_tk.highlightColor" type="color" class="color-picker-input" @change="saveSettings" />
+                  <input v-model="settings.revert_tk.highlightColor" type="text" class="premium-input-hex" maxlength="7" @change="saveSettings" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-card glass">
+          <div class="card-header">
+            <span class="card-icon" v-html="Icons.File"></span>
+            <span class="card-label">File Excel cấu hình Length Item</span>
+          </div>
+          <div class="card-body">
+            <div class="path-picker-modern">
+              <input v-model="settings.revert_tk.lengthExcelPath" type="text" class="premium-input-path" readonly placeholder="Chưa cấu hình file Excel..." />
+              <button class="premium-button" @click="pickLengthExcel">Chọn file</button>
+            </div>
+            <div style="display: flex; gap: 16px; margin-top: 5px;">
+              <button class="link-action" @click="downloadLengthTemplate">
+                <span v-html="Icons.Download"></span> Tải Excel mẫu
+              </button>
+              <button class="link-action" v-if="settings.revert_tk.lengthExcelPath" @click="openLengthFile">
+                <span v-html="Icons.ExternalLink"></span> Mở file
+              </button>
+            </div>
+          </div>
+        </div>
+
       </div>
 
 

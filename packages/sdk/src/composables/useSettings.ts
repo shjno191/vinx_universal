@@ -13,7 +13,8 @@ import {
   globalDictionaryPath,
   advancedTranslateGroups,
   hiddenExplorerPaths,
-  translateSettings
+  translateSettings,
+  revertTKSettings
 } from '../store';
 
 
@@ -72,6 +73,10 @@ export interface Settings {
     techHighlightColor: string;
     composedHighlightColor: string;
   };
+  revert_tk: {
+    highlightColor: string;
+    lengthExcelPath: string;
+  };
 }
 
 export const settings = ref<Settings>({
@@ -128,6 +133,10 @@ export const settings = ref<Settings>({
     baseHighlightColor: '#3b82f6',
     techHighlightColor: '#eab308',
     composedHighlightColor: '#10b981'
+  },
+  revert_tk: {
+    highlightColor: '#ffff00',
+    lengthExcelPath: ''
   }
 });
 
@@ -142,6 +151,7 @@ export function useSettings() {
     { id: 'translate', name: 'Dictionary', icon: 'Globe' },
     { id: 'editor', name: 'Editor', icon: 'Edit3' },
     { id: 'shortcut', name: 'Shortcuts', icon: 'Keyboard' },
+    { id: 'revert_tk', name: 'Revert TK', icon: 'Code' },
     { id: 'chill', name: 'Relaxing', icon: 'Coffee' },
   ];
 
@@ -198,6 +208,9 @@ export function useSettings() {
         if (settings.value.translate) {
           translateSettings.value = settings.value.translate;
         }
+        if (settings.value.revert_tk) {
+          revertTKSettings.value = settings.value.revert_tk;
+        }
       }
 
     } catch (e) {
@@ -210,6 +223,9 @@ export function useSettings() {
       // Sync back to translateSettings before saving
       if (settings.value.translate) {
         translateSettings.value = { ...settings.value.translate };
+      }
+      if (settings.value.revert_tk) {
+        revertTKSettings.value = { ...settings.value.revert_tk };
       }
       
       await invoke('save_settings', { settings: JSON.stringify(settings.value, null, 2) });
@@ -384,6 +400,66 @@ export function useSettings() {
     }
   };
 
+  const pickLengthExcel = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }]
+      });
+      if (selected) {
+        if (!settings.value.revert_tk) {
+          settings.value.revert_tk = { highlightColor: '#ffff00', lengthExcelPath: '' };
+        }
+        settings.value.revert_tk.lengthExcelPath = Array.isArray(selected) ? selected[0] : selected;
+        revertTKSettings.value.lengthExcelPath = settings.value.revert_tk.lengthExcelPath;
+        await saveSettings();
+      }
+    } catch (e) {
+      console.error('[useSettings] Failed to pick length excel:', e);
+    }
+  };
+
+  const downloadLengthTemplate = async () => {
+    try {
+      const chosenPath = await save({
+        filters: [{ name: 'Excel', extensions: ['xlsx'] }],
+        defaultPath: 'Length_Item_Template.xlsx'
+      });
+
+      if (chosenPath) {
+        const data = [
+          ['SUBSYSTEM_ID', 'PARAMETER_ID', 'PARAMETER_TX', 'EXPLANATION'],
+          ['AUTOORDERDEMAND', 'BAIKA_LENGTH', '6', '売価入力項目のマックスレングス'],
+          ['AUTOORDERDEMAND', 'GENKA_LENGTH', '6', '原価入力項目のマックスレングス']
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'LengthItems');
+
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const uint8 = new Uint8Array(wbout);
+
+        await invoke('write_file_binary', {
+          path: chosenPath,
+          data: Array.from(uint8)
+        });
+      }
+    } catch (e) {
+      console.error('[useSettings] Failed to save length template:', e);
+    }
+  };
+
+  const openLengthFile = async () => {
+    try {
+      const path = settings.value.revert_tk?.lengthExcelPath;
+      if (path) {
+        await invoke('open_path', { path });
+      }
+    } catch (e) {
+      console.error('Failed to open length file:', e);
+    }
+  };
+
   const startRecording = (key: string) => {
     if (['focus_search', 'open_settings'].includes(key)) return;
     isRecording.value = key;
@@ -453,6 +529,9 @@ export function useSettings() {
     addPathToGroup,
     removePathFromGroup,
     downloadTemplate,
+    pickLengthExcel,
+    downloadLengthTemplate,
+    openLengthFile,
     startRecording,
     formatShortcut,
     handleShortcutKey

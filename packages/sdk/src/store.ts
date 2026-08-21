@@ -10,7 +10,8 @@ import type {
     ContextMenuState, 
     TabContextMenuState,
     TranslateSettings,
-    AdvancedTranslateGroup
+    AdvancedTranslateGroup,
+    RevertTKSettings
 } from './types';
 
 export type { GitFile, GitBranch };
@@ -128,6 +129,11 @@ export const translateSettings = ref<TranslateSettings>({
     baseHighlightColor: '#3b82f6', // Soft Blue
     techHighlightColor: '#eab308', // Soft Yellow/Gold
     composedHighlightColor: '#10b981' // Green
+});
+
+export const revertTKSettings = ref<RevertTKSettings>({
+    highlightColor: '#ffff00',
+    lengthExcelPath: ''
 });
 
 export const loadingTheme = ref<'cute' | 'premium' | 'retro' | 'cyber' | 'nature' | 'orbit'>('cute');

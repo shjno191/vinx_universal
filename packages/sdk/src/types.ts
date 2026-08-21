@@ -133,3 +133,8 @@ export interface AdvancedTranslateGroup {
     active: boolean;
     paths: AdvancedTranslatePath[];
 }
+
+export interface RevertTKSettings {
+    highlightColor: string;
+    lengthExcelPath: string;
+}

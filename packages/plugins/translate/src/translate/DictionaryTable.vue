@@ -60,10 +60,19 @@ const filteredData = computed(() => {
   });
 });
 
+const escapeHtml = (unsafe: string) => {
+  return String(unsafe || '')
+       .replace(/&/g, "&amp;")
+       .replace(/</g, "&lt;")
+       .replace(/>/g, "&gt;")
+       .replace(/"/g, "&quot;")
+       .replace(/'/g, "&#039;");
+};
+
 const highlightMatch = (text: string) => {
-  if (!props.searchQuery || props.isStrict) return text;
+  if (!props.searchQuery || props.isStrict) return escapeHtml(text);
   const rawQuery = props.searchQuery.trim();
-  if (!rawQuery) return text;
+  if (!rawQuery) return escapeHtml(text);
   
   try {
     const keywords = rawQuery.split('|')
@@ -71,15 +80,23 @@ const highlightMatch = (text: string) => {
       .filter(k => k !== '')
       .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); // Escape regex chars
     
-    if (keywords.length === 0) return String(text || '');
+    if (keywords.length === 0) return escapeHtml(String(text || ''));
     
     const safeText = String(text || '').normalize('NFC');
     const pattern = `(${keywords.join('|')})`;
     const regex = new RegExp(pattern, 'gi');
-    const highlighted = safeText.replace(regex, '<mark class="local-match">$1</mark>');
-    return sanitize(highlighted);
+    const escapedText = escapeHtml(safeText);
+    
+    // We need to apply highlight on the escaped text, but keywords must also be escaped to match properly
+    const escapedKeywords = keywords.map(escapeHtml);
+    const escapedPattern = `(${escapedKeywords.join('|')})`;
+    const escapedRegex = new RegExp(escapedPattern, 'gi');
+    
+    const highlighted = escapedText.replace(escapedRegex, '<mark class="local-match">$1</mark>');
+    // No need to sanitize again since we manually escaped it, and only injected safe <mark> tags
+    return highlighted;
   } catch { 
-    return text; 
+    return escapeHtml(text); 
   }
 };
 </script>
@@ -107,9 +124,8 @@ const highlightMatch = (text: string) => {
             </td>
           </tr>
           <tr v-for="(item, idx) in filteredData.slice(0, 100)" 
-              :key="idx" 
-              v-else
-              v-memo="[item.jp, item.en, item.vi, props.searchQuery, props.isStrict]">
+              :key="idx + '-' + (item.jp || '').substring(0, 10) + '-' + (item.en || '').substring(0, 10)" 
+              v-else>
             <td class="col-index">{{ idx + 1 }}</td>
             <td @click="handleCellClick(item.jp, $event)" class="clickable-cell">
               <span v-html="highlightMatch(item.jp)"></span>

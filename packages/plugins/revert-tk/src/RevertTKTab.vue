@@ -29,9 +29,18 @@ const startX = ref(0);
 const startWidth = ref(0);
 const headers = ['No.', 'Item Name', 'Type', 'Status', 'Req', 'Max Length', 'Tab Index', 'Note'];
 
+const lengthSearch = ref('');
 const activeSubTab = ref<'extracted' | 'length'>('extracted');
 const lengthItems = ref<any[]>([]);
 const isLoadingLength = ref(false);
+
+const filteredLengthItems = computed(() => {
+  const q = lengthSearch.value.trim().toLowerCase();
+  if (!q) return lengthItems.value;
+  return lengthItems.value.filter(r =>
+    (r.subsystemId + r.parameterId + String(r.parameterTx) + r.explanation).toLowerCase().includes(q)
+  );
+});
 
 const loadLengthExcel = async () => {
   if (!revertTKSettings.value?.lengthExcelPath) return;
@@ -155,27 +164,27 @@ function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function generateSearchRegex(el: Element | undefined, labelEl: Element | undefined, baseLabel: string): string {
+function generateSearchRegex(el: Element | undefined, _labelEl: Element | undefined, baseLabel: string): string {
   if (el) {
     const tag = el.tagName.toLowerCase();
     const id = el.getAttribute('id');
     const name = el.getAttribute('name');
     const value = el.getAttribute('value');
     
-    if (id) return `<${tag}[^>]*id=["']?${escapeRegExp(id)}["']?[^>]*>`;
-    if (name) return `<${tag}[^>]*name=["']?${escapeRegExp(name)}["']?[^>]*>`;
-    if (value) return `<${tag}[^>]*value=["']?${escapeRegExp(value)}["']?[^>]*>`;
+    // Use precise single-tag match to avoid spanning multiple elements
+    if (id) return `<${tag}[^>]*id=["']${escapeRegExp(id)}["'][^>]*>`;
+    if (name) return `<${tag}[^>]*name=["']${escapeRegExp(name)}["'][^>]*>`;
+    if (value) {
+      const escapedVal = escapeRegExp(value);
+      return `<${tag}[^>]*value=["']${escapedVal}["'][^>]*>`;
+    }
     
+    // For inline elements with text content (no greedy cross-element matching)
     const text = el.textContent?.trim();
     if (text) {
-      return `<${tag}[^>]*>[\\s\\S]*?${escapeRegExp(text)}[\\s\\S]*?<\\/${tag}>`;
+      return `<${tag}[^>]*>[^<]*${escapeRegExp(text)}[^<]*</${tag}>`;
     }
-    return `<${tag}`;
-  }
-  
-  if (labelEl) {
-    const tag = labelEl.tagName.toLowerCase();
-    return `<${tag}[^>]*>[\\s\\S]*?${escapeRegExp(baseLabel)}[\\s\\S]*?<\\/${tag}>`;
+    return `<${tag}[^>]`;
   }
   
   return escapeRegExp(baseLabel);
@@ -584,37 +593,63 @@ const clearHighlight = () => {
           </table>
         </div>
 
-        <div class="pane-content glass-content table-container" v-show="activeSubTab === 'length'">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width: 25%">SUBSYSTEM_ID</th>
-                <th style="width: 25%">PARAMETER_ID</th>
-                <th style="width: 15%" class="center-col">PARAMETER_TX</th>
-                <th style="width: 35%">EXPLANATION</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="isLoadingLength">
-                <td colspan="4" class="empty-state">Loading Excel data...</td>
-              </tr>
-              <tr v-else-if="!revertTKSettings?.lengthExcelPath">
-                <td colspan="4" class="empty-state">No Excel path configured. Please configure it in Settings -> Revert TK.</td>
-              </tr>
-              <tr v-else-if="lengthItems.length === 0">
-                <td colspan="4" class="empty-state">No data found in the Excel file.</td>
-              </tr>
-              <template v-else>
-                <tr v-for="(row, idx) in lengthItems" :key="idx">
-                  <td class="cell-truncate" :title="row.subsystemId">{{ row.subsystemId }}</td>
-                  <td class="item-name-col cell-truncate" :title="row.parameterId">{{ row.parameterId }}</td>
-                  <td class="center-col">{{ row.parameterTx }}</td>
-                  <td class="cell-truncate" :title="row.explanation"><span class="note-text">{{ row.explanation }}</span></td>
+        <div class="pane-content glass-content length-tab-wrapper" v-show="activeSubTab === 'length'">
+          <!-- Toolbar: search + refresh -->
+          <div class="length-toolbar">
+            <div class="length-search-wrap">
+              <span class="search-icon" v-html="Icons.Search"></span>
+              <input
+                v-model="lengthSearch"
+                type="text"
+                class="length-search-input"
+                placeholder="Search SUBSYSTEM / PARAMETER / EXPLANATION..."
+              />
+              <button v-if="lengthSearch" class="length-clear-btn" @click="lengthSearch = ''" title="Clear search">
+                <span v-html="Icons.Close"></span>
+              </button>
+            </div>
+            <button class="action-btn" @click="loadLengthExcel" :disabled="isLoadingLength" title="Reload Excel file">
+              <span class="btn-icon" v-html="Icons.RefreshCw"></span>
+              {{ isLoadingLength ? 'Loading...' : 'Refresh' }}
+            </button>
+          </div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 25%">SUBSYSTEM_ID</th>
+                  <th style="width: 25%">PARAMETER_ID</th>
+                  <th style="width: 15%" class="center-col">PARAMETER_TX</th>
+                  <th style="width: 35%">EXPLANATION</th>
                 </tr>
-              </template>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                <tr v-if="isLoadingLength">
+                  <td colspan="4" class="empty-state">Loading Excel data...</td>
+                </tr>
+                <tr v-else-if="!revertTKSettings?.lengthExcelPath">
+                  <td colspan="4" class="empty-state">No Excel path configured. Please configure it in Settings → Revert TK.</td>
+                </tr>
+                <tr v-else-if="lengthItems.length === 0">
+                  <td colspan="4" class="empty-state">No data found in the Excel file.</td>
+                </tr>
+                <tr v-else-if="filteredLengthItems.length === 0">
+                  <td colspan="4" class="empty-state">No results match "{{ lengthSearch }}".</td>
+                </tr>
+                <template v-else>
+                  <tr v-for="(row, idx) in filteredLengthItems" :key="idx">
+                    <td class="cell-truncate" :title="row.subsystemId">{{ row.subsystemId }}</td>
+                    <td class="item-name-col cell-truncate" :title="row.parameterId">{{ row.parameterId }}</td>
+                    <td class="center-col">{{ row.parameterTx }}</td>
+                    <td class="cell-truncate" :title="row.explanation"><span class="note-text">{{ row.explanation }}</span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
+
       </div>
 
     </div>
@@ -975,6 +1010,81 @@ const clearHighlight = () => {
   color: #fff;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
+
+/* Length Tab */
+.length-tab-wrapper {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+.length-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.length-search-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  padding: 0 10px;
+  height: 32px;
+}
+
+.search-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.length-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-color);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.length-search-input::placeholder { opacity: 0.35; }
+.length-search-input:focus { outline: none; }
+
+.length-clear-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  opacity: 0.4;
+  cursor: pointer;
+  padding: 0;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+}
+.length-clear-btn:hover { opacity: 1; }
+
+.length-toolbar .action-btn {
+  padding: 5px 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.length-tab-wrapper .table-container {
+  flex: 1;
+  overflow: auto;
+}
+
 
 /* Toast */
 .copy-bubble {

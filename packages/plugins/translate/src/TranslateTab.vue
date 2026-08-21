@@ -424,7 +424,7 @@ watch(hoveredWord, (newWord) => {
 watch(globalDictionaryPath, (newPath) => {
   if (newPath) {
     console.log('[TranslateTab] globalDictionaryPath changed, loading:', newPath);
-    loadDictionary(newPath);
+    loadDictionary(newPath, true);
   }
 }, { immediate: true });
 

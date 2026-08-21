@@ -43,14 +43,14 @@ const filteredData = computed(() => {
   if (!rawQuery) return props.data;
   
   // Split by | to support multiple keywords (OR logic)
-  const keywords = rawQuery.split('|').map(k => k.trim().toLowerCase()).filter(k => k !== '');
+  const keywords = rawQuery.split('|').map(k => k.trim().normalize('NFC').toLowerCase()).filter(k => k !== '');
   if (keywords.length === 0) return props.data;
   
   return props.data.filter(item => {
     return keywords.some(q => {
-      const jp = String(item.jp || '').toLowerCase();
-      const en = String(item.en || '').toLowerCase();
-      const vi = String(item.vi || '').toLowerCase();
+      const jp = String(item.jp || '').normalize('NFC').toLowerCase();
+      const en = String(item.en || '').normalize('NFC').toLowerCase();
+      const vi = String(item.vi || '').normalize('NFC').toLowerCase();
       
       if (props.isStrict) {
         return jp === q || en === q || vi === q;
@@ -67,13 +67,13 @@ const highlightMatch = (text: string) => {
   
   try {
     const keywords = rawQuery.split('|')
-      .map(k => k.trim())
+      .map(k => k.trim().normalize('NFC'))
       .filter(k => k !== '')
       .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); // Escape regex chars
     
     if (keywords.length === 0) return String(text || '');
     
-    const safeText = String(text || '');
+    const safeText = String(text || '').normalize('NFC');
     const pattern = `(${keywords.join('|')})`;
     const regex = new RegExp(pattern, 'gi');
     const highlighted = safeText.replace(regex, '<mark class="local-match">$1</mark>');

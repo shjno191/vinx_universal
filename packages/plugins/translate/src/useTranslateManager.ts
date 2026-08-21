@@ -232,46 +232,60 @@ export function useTranslateManager() {
         let viIdx = 2;
 
         // Auto-detect columns based on content to handle swapped columns
-        const colProfiles: Record<number, { jp: number, en: number, total: number }> = {};
-        const sampleLimit = Math.min(jsonData.length, 100);
+        const headerRow = (jsonData[0] || []).map(h => String(h).toLowerCase().trim());
+        const findCol = (keywords: string[]) => headerRow.findIndex(h => keywords.some(k => h.includes(k)));
         
-        // Start from 0 to also profile headers if they exist, but mostly data
-        for (let i = 0; i < sampleLimit; i++) {
-          const row = jsonData[i] || [];
-          row.forEach((cell, colIdx) => {
-            const s = String(cell || '').trim();
-            if (!s) return;
-            if (!colProfiles[colIdx]) colProfiles[colIdx] = { jp: 0, en: 0, total: 0 };
-            colProfiles[colIdx].total++;
-            
-            // Profile JP characters
-            if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s) && s.length < 50) {
-              colProfiles[colIdx].jp++;
-            } 
-            // Profile English characters
-            else if (/^[A-Za-z0-9_$#.]+$/.test(s) && /[A-Za-z]/.test(s)) {
-              colProfiles[colIdx].en++;
-            }
-          });
-        }
+        const hJp = findCol(['jp', 'japan', 'nhật']);
+        const hEn = findCol(['en', 'english', 'anh']);
+        const hVi = findCol(['vi', 'viet', 'việt']);
         
-        let bestJpIdx = 0, bestJpScore = -1;
-        let bestEnIdx = 1, bestEnScore = -1;
-        for (const [colIdxStr, prof] of Object.entries(colProfiles)) {
-          const colIdx = parseInt(colIdxStr);
-          if (prof.jp > bestJpScore) { bestJpScore = prof.jp; bestJpIdx = colIdx; }
-          if (prof.en > bestEnScore) { bestEnScore = prof.en; bestEnIdx = colIdx; }
-        }
-        
-        // If we confidently found different columns for JP and EN
-        if (bestJpScore > 0 && bestEnScore > 0 && bestJpIdx !== bestEnIdx) {
-          jpIdx = bestJpIdx;
-          enIdx = bestEnIdx;
+        if (hJp >= 0 && hEn >= 0 && hVi >= 0 && new Set([hJp, hEn, hVi]).size === 3) {
+          jpIdx = hJp; enIdx = hEn; viIdx = hVi;
+        } else {
+          const colProfiles: Record<number, { jp: number, en: number, vi: number }> = {};
+          const sampleLimit = Math.min(jsonData.length, 100);
           
-          // Vi is typically the 3rd remaining column
-          const allCols = Object.keys(colProfiles).map(Number);
-          const remaining = allCols.filter(c => c !== jpIdx && c !== enIdx);
-          if (remaining.length > 0) viIdx = remaining[0];
+          for (let i = 0; i < sampleLimit; i++) {
+            const row = jsonData[i] || [];
+            row.forEach((cell, colIdx) => {
+              const s = String(cell || '').trim();
+              if (!s) return;
+              if (!colProfiles[colIdx]) colProfiles[colIdx] = { jp: 0, en: 0, vi: 0 };
+              
+              if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s) && s.length < 50) {
+                colProfiles[colIdx].jp++;
+              } else if (/[àáảãạâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/i.test(s)) {
+                colProfiles[colIdx].vi++;
+              } else if (/^[A-Za-z0-9_$#.\s\-\/]+$/.test(s) && /[A-Za-z]/.test(s)) {
+                colProfiles[colIdx].en++;
+              }
+            });
+          }
+          
+          let bestJpIdx = 0, bestJpScore = -1;
+          let bestEnIdx = 1, bestEnScore = -1;
+          let bestViIdx = 2, bestViScore = -1;
+          
+          for (const [colIdxStr, prof] of Object.entries(colProfiles)) {
+            const colIdx = parseInt(colIdxStr);
+            if (prof.jp > bestJpScore) { bestJpScore = prof.jp; bestJpIdx = colIdx; }
+            if (prof.en > bestEnScore) { bestEnScore = prof.en; bestEnIdx = colIdx; }
+            if (prof.vi > bestViScore) { bestViScore = prof.vi; bestViIdx = colIdx; }
+          }
+          
+          if (bestJpScore > 0) jpIdx = bestJpIdx;
+          if (bestEnScore > 0 && bestEnIdx !== jpIdx) enIdx = bestEnIdx;
+          if (bestViScore > 0 && bestViIdx !== jpIdx && bestViIdx !== enIdx) viIdx = bestViIdx;
+          
+          // Fallback for missing cols
+          const usedCols = new Set([jpIdx, enIdx, viIdx]);
+          const availableCols = Object.keys(colProfiles).map(Number).filter(c => !usedCols.has(c));
+          
+          if (usedCols.size < 3) {
+            if (bestJpScore <= 0 && availableCols.length > 0) { jpIdx = availableCols.shift()!; }
+            if (bestEnScore <= 0 && availableCols.length > 0) { enIdx = availableCols.shift()!; }
+            if (bestViScore <= 0 && availableCols.length > 0) { viIdx = availableCols.shift()!; }
+          }
         }
 
         console.log(`[TranslateManager] Base Dictionary detected columns: JP=${jpIdx}, EN=${enIdx}, VI=${viIdx}`);
@@ -290,7 +304,7 @@ export function useTranslateManager() {
         const uniqueMap = new Map();
 
         for (const [idx, row] of rawRows.entries()) {
-          const key = `${row.jp}|${row.en}`;
+          const key = `${row.jp}|${row.en}|${row.vi}`;
           if (!uniqueMap.has(key)) {
             uniqueMap.set(key, row);
             finalRows.push(row);

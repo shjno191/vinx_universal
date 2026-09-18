@@ -11,8 +11,7 @@ export interface Extraction {
 export function useSQLHelper() {
   const logPath = ref('');
   const logContent = shallowRef('');
-  const isInputMode = ref(false);
-  const extractions = ref<Extraction[]>([{ searchId: '', resultSql: '' }]);
+  const extractions = ref<Extraction[]>([]);
   const displayHtml = shallowRef('');
   const isLoading = ref(false);
   const isLogTooLarge = computed(() => logContent.value.length > 200000);
@@ -23,12 +22,56 @@ export function useSQLHelper() {
     displayHtml.value = '';
   };
 
+  const detectedIds = computed(() => {
+    const text = logContent.value;
+    if (!text) return [];
+    const ids = new Set<string>();
+    const regex = /(?:uniq_id\s*=\s*\(([^)]+)\)|id\s*=\s*([a-zA-Z0-9_.-]+))/gi;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const id = match[1] || match[2];
+      if (id && id.trim()) {
+        ids.add(id.trim());
+      }
+    }
+    return Array.from(ids);
+  });
+
+  const isIdExtracted = (id: string) => {
+    const target = id.trim().toLowerCase();
+    return extractions.value.some(ex => ex.searchId.trim().toLowerCase() === target);
+  };
+
+  const extractById = (id: string) => {
+    const cleanId = id.trim();
+    if (!cleanId) return;
+
+    const existingIdx = extractions.value.findIndex(
+      ex => ex.searchId.trim().toLowerCase() === cleanId.toLowerCase()
+    );
+
+    if (existingIdx !== -1) {
+      extractions.value.splice(existingIdx, 1);
+      updateDisplayHtml();
+      return;
+    }
+
+    let emptyIdx = extractions.value.findIndex(ex => !ex.searchId.trim());
+    if (emptyIdx === -1) {
+      extractions.value.push({ searchId: cleanId, resultSql: '' });
+      emptyIdx = extractions.value.length - 1;
+    } else {
+      extractions.value[emptyIdx].searchId = cleanId;
+    }
+    processSql(emptyIdx);
+    updateDisplayHtml();
+  };
+
   const pasteFromClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
         logContent.value = text;
-        isInputMode.value = false;
         updateDisplayHtml();
       }
     } catch (err) {
@@ -38,18 +81,18 @@ export function useSQLHelper() {
 
   const removeExtraction = (index: number) => {
     extractions.value.splice(index, 1);
-    if (extractions.value.length === 0) {
-      extractions.value.push({ searchId: '', resultSql: '' });
-    }
+    updateDisplayHtml();
   };
 
   const clearAllExtractions = () => {
-    extractions.value = [{ searchId: '', resultSql: '' }];
+    extractions.value = [];
+    updateDisplayHtml();
   };
 
   const existingIds = computed(() => {
     const ids = new Set<string>();
     extractions.value.forEach(ex => {
+
       if (ex.searchId.trim()) ids.add(ex.searchId.trim().toLowerCase());
     });
     return ids;
@@ -58,11 +101,36 @@ export function useSQLHelper() {
   const highlightSql = (sql: string) => {
     if (!sql || sql.startsWith('--')) return sql;
     const escapeHtml = (u: string) => u.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]||m));
-    let h = escapeHtml(sql);
-    const keywords = /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|IN|ORDER BY|GROUP BY|LIMIT|OFFSET|AS|TRIM|INSERT INTO|UPDATE|DELETE|SET|VALUES|COUNT|AVG|SUM|MIN|MAX|HAVING|DISTINCT|UNION|ALL|EXISTS|IS|NULL|NOT|BETWEEN|CASE|WHEN|THEN|ELSE|END)\b/gi;
+
+    // 1. Protect strings
+    const strings: string[] = [];
+    let h = sql.replace(/'([^']*)'/g, (_match, strContent) => {
+      strings.push(strContent);
+      return `___SQL_STR_${strings.length - 1}___`;
+    });
+
+    h = escapeHtml(h);
+
+    // 2. Prominently highlight table names in FROM, JOIN, UPDATE, INTO, TABLE
+    h = h.replace(/\b(FROM|JOIN|UPDATE|INTO|TABLE)\s+([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)/gi, (_m, clause, table) => {
+      return `${clause} <span class="sql-tbl">${table}</span>`;
+    });
+
+    // Also match comma-separated additional tables in FROM clause (e.g. FROM table1, table2)
+    h = h.replace(/(<span class="sql-tbl">[a-zA-Z0-9_.]+<\/span>)(\s*,\s*)([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)/gi, (_m, pre, comma, nextTable) => {
+      return `${pre}${comma}<span class="sql-tbl">${nextTable}</span>`;
+    });
+
+    // 3. Highlight SQL Keywords
+    const keywords = /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|ON|AND|OR|IN|ORDER BY|GROUP BY|LIMIT|OFFSET|AS|TRIM|INSERT|INTO|UPDATE|DELETE|SET|VALUES|COUNT|AVG|SUM|MIN|MAX|HAVING|DISTINCT|UNION|ALL|EXISTS|IS|NULL|NOT|BETWEEN|CASE|WHEN|THEN|ELSE|END|ASC|DESC|LIKE|ILIKE|CREATE|DROP|ALTER|TABLE)\b/gi;
     h = h.replace(keywords, '<span class="sql-kwd">$1</span>');
-    h = h.replace(/\b(FROM|JOIN)\b\s+([a-zA-Z0-9_]+)/gi, '$1 <span class="sql-tbl">$2</span>');
-    h = h.replace(/'([^']*)'/g, '<span class="sql-str">\'$1\'</span>');
+
+    // 4. Restore strings with syntax class
+    h = h.replace(/___SQL_STR_(\d+)___/g, (_m, idx) => {
+      const original = strings[parseInt(idx, 10)] || '';
+      return `<span class="sql-str">'${escapeHtml(original)}'</span>`;
+    });
+
     return sanitize(h);
   };
 
@@ -73,7 +141,6 @@ export function useSQLHelper() {
       isLoading.value = true;
       const content = await invoke<string>('read_file_content', { path: trimmedPath });
       logContent.value = content;
-      isInputMode.value = false;
       updateDisplayHtml();
     } catch (e) {
       alert(`Error loading file: ${e}`);
@@ -98,6 +165,7 @@ export function useSQLHelper() {
   };
 
   const processSql = (index: number) => {
+    if (!extractions.value[index]) return;
     const idToFind = extractions.value[index].searchId.trim().toLowerCase();
     if (!idToFind) return;
     const lines = logContent.value.split(/\r?\n/);
@@ -137,8 +205,8 @@ export function useSQLHelper() {
     }
   };
 
-
   const formatSql = (index: number) => {
+    if (!extractions.value[index]) return;
     const sql = extractions.value[index].resultSql;
     if (!sql || sql.startsWith('--')) return;
     extractions.value[index].resultSql = cleanAndFormatSql(sql);
@@ -154,7 +222,7 @@ export function useSQLHelper() {
       return;
     }
 
-    html = html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_-]+))/gi, (_match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
+    html = html.replace(/(?:(uniq_id\s*=\s*\()([^)]+)(\))|(id\s*=\s*)([a-zA-Z0-9_.-]+))/gi, (_match, uniqPre, uniqId, uniqPost, idPre, idVal) => {
       const actualId = uniqId || idVal;
       const extra = existingIds.value.has(actualId.toLowerCase()) ? ' existing-id' : '';
       if (uniqId) {
@@ -169,9 +237,9 @@ export function useSQLHelper() {
   return {
     logPath,
     logContent,
-    isInputMode,
     extractions,
     displayHtml,
+    detectedIds,
     isLoading,
     isLogTooLarge,
     clearLog,
@@ -183,6 +251,9 @@ export function useSQLHelper() {
     chooseFile,
     processSql,
     formatSql,
-    updateDisplayHtml
+    updateDisplayHtml,
+    extractById,
+    isIdExtracted
   };
 }
+

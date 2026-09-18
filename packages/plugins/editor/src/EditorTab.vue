@@ -327,11 +327,31 @@ const updateCsvDecorations = (pane: 'left' | 'right') => {
   csvDecorations[pane] = editor.deltaDecorations(csvDecorations[pane], newDecors);
 };
 
+const isLeftJava = computed(() => {
+  const tab = activeTabLeft.value;
+  if (!tab) return false;
+  return tab.language === 'java' || tab.name.endsWith('.java') || tab.path?.endsWith('.java') || false;
+});
+
+const isRightJava = computed(() => {
+  const tab = activeTabRight.value;
+  if (!tab) return false;
+  return tab.language === 'java' || tab.name.endsWith('.java') || tab.path?.endsWith('.java') || false;
+});
+
 const handleFormatCsv = (pane: 'left' | 'right') => {
+  if (pane === 'left' && isLeftJava.value) return;
+  if (pane === 'right' && isRightJava.value) return;
+
   const editor = editors[pane];
   if (!editor) return;
   const model = editor.getModel();
   if (!model) return;
+
+  const curTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
+  if (curTab && (curTab.language === 'java' || curTab.name.endsWith('.java') || curTab.path?.endsWith('.java'))) {
+    return;
+  }
 
   const text = model.getValue();
   if (!text.trim()) return;
@@ -345,7 +365,6 @@ const handleFormatCsv = (pane: 'left' | 'right') => {
   const fullRange = model.getFullModelRange();
   editor.executeEdits('format-csv', [{ range: fullRange, text: result.text, forceMoveMarkers: true }]);
 
-  const curTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
   if (curTab) {
     curTab.language = 'csv';
   }
@@ -359,6 +378,15 @@ const handleFormatCsv = (pane: 'left' | 'right') => {
 
 watch(activeTabLeft, (newTab) => {
   if (newTab) {
+    const isJava = newTab.language === 'java' || newTab.name.endsWith('.java') || newTab.path?.endsWith('.java');
+    if (isJava) {
+      activeCsvMode.value.left = false;
+      if (editors.left) {
+        csvDecorations.left = editors.left.deltaDecorations(csvDecorations.left, []);
+      }
+      return;
+    }
+
     const isCsv = newTab.language === 'csv' || newTab.name.endsWith('.csv') || newTab.name.endsWith('.tsv') || newTab.path?.endsWith('.csv');
     activeCsvMode.value.left = isCsv;
     if (isCsv && newTab.content) {
@@ -373,6 +401,15 @@ watch(activeTabLeft, (newTab) => {
 
 watch(activeTabRight, (newTab) => {
   if (newTab) {
+    const isJava = newTab.language === 'java' || newTab.name.endsWith('.java') || newTab.path?.endsWith('.java');
+    if (isJava) {
+      activeCsvMode.value.right = false;
+      if (editors.right) {
+        csvDecorations.right = editors.right.deltaDecorations(csvDecorations.right, []);
+      }
+      return;
+    }
+
     const isCsv = newTab.language === 'csv' || newTab.name.endsWith('.csv') || newTab.name.endsWith('.tsv') || newTab.path?.endsWith('.csv');
     activeCsvMode.value.right = isCsv;
     if (isCsv && newTab.content) {
@@ -384,6 +421,7 @@ watch(activeTabRight, (newTab) => {
     nextTick(() => updateCsvDecorations('right'));
   }
 }, { immediate: true });
+
 
 
 
@@ -561,12 +599,21 @@ const resolveAndOpenPath = async (rawPath: string) => {
 const handleKeyDown = (e: KeyboardEvent) => {
   const shortcuts = globalShortcuts.value;
 
-  if (matchShortcut(e, shortcuts.open_file || 'ctrl+p')) {
+  // Both Ctrl+P and Ctrl+O trigger open file dialog (no print)
+  if (matchShortcut(e, 'ctrl+p') || matchShortcut(e, 'ctrl+o') || matchShortcut(e, shortcuts.open_file || 'ctrl+p')) {
+    e.preventDefault();
+    e.stopPropagation();
+    openFile();
+    return;
+  }
+
+  if (matchShortcut(e, 'ctrl+shift+p')) {
     e.preventDefault();
     e.stopPropagation();
     showFilePalette.value = true;
     return;
   }
+
 
   if (matchShortcut(e, shortcuts.save_file || 'ctrl+s')) {
     e.preventDefault();
@@ -1398,7 +1445,7 @@ const handleContainerDrop = async (e: DragEvent) => {
               <button class="action-btn" @click="handleFormat('left')" :title="`Format (${globalShortcuts.format_code || 'Ctrl+Alt+F'})`">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
               </button>
-              <button class="action-btn csv-btn" :class="{ active: activeCsvMode.left }" @click="handleFormatCsv('left')" title="Format CSV (Rainbow Columns & Align)">
+              <button class="action-btn csv-btn" :class="{ active: activeCsvMode.left, disabled: isLeftJava }" :disabled="isLeftJava" @click="handleFormatCsv('left')" :title="isLeftJava ? 'CSV formatting disabled for Java files' : 'Format CSV (Rainbow Columns & Align)'">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
               </button>
               <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
@@ -1453,7 +1500,7 @@ const handleContainerDrop = async (e: DragEvent) => {
               <button class="action-btn" @click="handleFormat('right')" :title="`Format (${globalShortcuts.format_code || 'Ctrl+Alt+F'})`">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
               </button>
-              <button class="action-btn csv-btn" :class="{ active: activeCsvMode.right }" @click="handleFormatCsv('right')" title="Format CSV (Rainbow Columns & Align)">
+              <button class="action-btn csv-btn" :class="{ active: activeCsvMode.right, disabled: isRightJava }" :disabled="isRightJava" @click="handleFormatCsv('right')" :title="isRightJava ? 'CSV formatting disabled for Java files' : 'Format CSV (Rainbow Columns & Align)'">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
               </button>
               <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
@@ -1548,6 +1595,7 @@ const handleContainerDrop = async (e: DragEvent) => {
 .action-btn { background: transparent; border: none; color: var(--text-color); opacity: 0.4; padding: 4px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; }
 .action-btn:hover { opacity: 1; }
 .action-btn.active { color: var(--accent-color); opacity: 1; }
+.action-btn.disabled, .action-btn:disabled { opacity: 0.18 !important; cursor: not-allowed !important; pointer-events: none !important; }
 .editor-view-area { flex: 1; display: flex; overflow: hidden; position: relative; }
 .editor-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .split-view .editor-pane:first-child { border-right: var(--border-style); }

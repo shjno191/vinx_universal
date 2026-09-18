@@ -66,3 +66,25 @@
 - [x] Register Monaco DefinitionProvider for `'java'` language with same-file and cross-file search <!-- id: 43 -->
 - [x] Enable `setupCtrlClick` on both editor panes with jump highlight animation <!-- id: 44 -->
 - [x] Verify functionality with various Java method, constructor, and class declaration patterns <!-- id: 45 -->
+
+## SQL Helper & Editor Enhancements (Unified Mode, Table Highlights, Ctrl+P, CSV Java Disable)
+
+- [x] Combine VIEW and EDIT modes in SQL Helper into a single unified interactive view <!-- id: 46 -->
+- [x] Prominently highlight SQL table names in extracted SQL queries (fix regex & enhance CSS) <!-- id: 47 -->
+- [x] Remove manual ID input box in extraction cards and display query ID badges <!-- id: 48 -->
+- [x] Update EditorTab shortcuts so Ctrl+P behaves identically to Ctrl+O (open file, prevent browser print) <!-- id: 49 -->
+- [x] Disable Format CSV button and prevent CSV formatting on Java files (.java) <!-- id: 50 -->
+- [x] Verify changes with build and automated tests <!-- id: 51 -->
+
+## SQL Helper Refinements (Red Table Names & In-Text Link Highlighting)
+
+- [x] Change SQL table name highlighting color to prominent bright red <!-- id: 52 -->
+- [x] Format detected IDs directly inside log text as clickable links, and highlight them upon selection <!-- id: 53 -->
+- [x] Remove top detected pills bar to keep log view clean and direct <!-- id: 54 -->
+- [x] Ensure instantaneous re-highlighting when selecting/unselecting IDs <!-- id: 55 -->
+- [x] Verify changes with unit tests and production build <!-- id: 56 -->
+- [x] Refine table name red color and contrast specifically for Windows 95 theme (`theme-95`) <!-- id: 57 -->
+
+
+
+

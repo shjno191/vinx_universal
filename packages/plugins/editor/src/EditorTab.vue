@@ -8,12 +8,20 @@ loader.config({ monaco });
 
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 // Composables & Utils
 import { useEditorTabs, type Tab } from './composables/useEditorTabs';
 import { useExplorer } from './composables/useExplorer';
 import { useEditorFeatures } from './composables/useEditorFeatures';
 import { useGit } from '@vinx/sdk';
+import { 
+  detectDelimiter,
+  alignCsv,
+  compactCsv,
+  isCsvAligned,
+  generateRainbowDecorations
+} from './utils/csv-helper';
 
 // Sub-components
 import ExplorerNode from './components/ExplorerNode.vue';
@@ -289,6 +297,93 @@ const handleFormat = (pane: 'left' | 'right') => {
     }
 };
 
+// --- CSV Formatting & Rainbow Highlighting ---
+const activeCsvMode = ref<Record<'left' | 'right', boolean>>({ left: false, right: false });
+const csvDecorations = { left: [] as string[], right: [] as string[] };
+const csvDebounceTimers = { left: null as any, right: null as any };
+
+const updateCsvDecorations = (pane: 'left' | 'right') => {
+  const editor = editors[pane];
+  if (!editor) return;
+  const model = editor.getModel();
+  if (!model) return;
+
+  if (!activeCsvMode.value[pane]) {
+    if (csvDecorations[pane].length > 0) {
+      csvDecorations[pane] = editor.deltaDecorations(csvDecorations[pane], []);
+    }
+    return;
+  }
+
+  const text = model.getValue();
+  if (!text.trim()) {
+    csvDecorations[pane] = editor.deltaDecorations(csvDecorations[pane], []);
+    return;
+  }
+
+  const delimiter = detectDelimiter(text);
+  const newDecors = generateRainbowDecorations(model, delimiter, monaco);
+  csvDecorations[pane] = editor.deltaDecorations(csvDecorations[pane], newDecors);
+};
+
+const handleFormatCsv = (pane: 'left' | 'right') => {
+  const editor = editors[pane];
+  if (!editor) return;
+  const model = editor.getModel();
+  if (!model) return;
+
+  const text = model.getValue();
+  if (!text.trim()) return;
+
+  const delimiter = detectDelimiter(text);
+  const alreadyAligned = isCsvAligned(text, delimiter);
+
+  // Toggle: if already aligned, compact it; otherwise align columns
+  const result = alreadyAligned ? compactCsv(text, delimiter) : alignCsv(text, delimiter);
+
+  const fullRange = model.getFullModelRange();
+  editor.executeEdits('format-csv', [{ range: fullRange, text: result.text, forceMoveMarkers: true }]);
+
+  const curTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
+  if (curTab) {
+    curTab.language = 'csv';
+  }
+
+  // Enable rainbow coloring and apply decorations
+  activeCsvMode.value[pane] = true;
+  nextTick(() => {
+    updateCsvDecorations(pane);
+  });
+};
+
+watch(activeTabLeft, (newTab) => {
+  if (newTab) {
+    const isCsv = newTab.language === 'csv' || newTab.name.endsWith('.csv') || newTab.name.endsWith('.tsv') || newTab.path?.endsWith('.csv');
+    activeCsvMode.value.left = isCsv;
+    if (isCsv && newTab.content) {
+      const delim = detectDelimiter(newTab.content);
+      if (!isCsvAligned(newTab.content, delim)) {
+        newTab.content = alignCsv(newTab.content, delim).text;
+      }
+    }
+    nextTick(() => updateCsvDecorations('left'));
+  }
+}, { immediate: true });
+
+watch(activeTabRight, (newTab) => {
+  if (newTab) {
+    const isCsv = newTab.language === 'csv' || newTab.name.endsWith('.csv') || newTab.name.endsWith('.tsv') || newTab.path?.endsWith('.csv');
+    activeCsvMode.value.right = isCsv;
+    if (isCsv && newTab.content) {
+      const delim = detectDelimiter(newTab.content);
+      if (!isCsvAligned(newTab.content, delim)) {
+        newTab.content = alignCsv(newTab.content, delim).text;
+      }
+    }
+    nextTick(() => updateCsvDecorations('right'));
+  }
+}, { immediate: true });
+
 
 
 const handleMoveToTranslate = (editor: any) => {
@@ -325,12 +420,30 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   });
 
   editor.onDidChangeModelContent(() => {
+    if (activeCsvMode.value[pane]) {
+      clearTimeout(csvDebounceTimers[pane]);
+      csvDebounceTimers[pane] = setTimeout(() => {
+        updateCsvDecorations(pane);
+      }, 200);
+    }
+
     if (!editor.hasTextFocus()) return; // Ignore programmatic changes like tab switching
 
     const curTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
     if (curTab && curTab.isTemp) {
       curTab.isTemp = false;
     }
+  });
+
+  editor.onDidChangeModel(() => {
+    const curTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
+    if (curTab) {
+      const isCsv = curTab.language === 'csv' || curTab.name.endsWith('.csv') || curTab.name.endsWith('.tsv') || curTab.path?.endsWith('.csv');
+      activeCsvMode.value[pane] = isCsv;
+    }
+    nextTick(() => {
+      updateCsvDecorations(pane);
+    });
   });
 
   editor.onDidScrollChange((e: any) => {
@@ -350,6 +463,15 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
       handleMoveToTranslate(ed);
     }
   });
+
+  const initialTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
+  if (initialTab) {
+    const isCsv = initialTab.language === 'csv' || initialTab.name.endsWith('.csv') || initialTab.name.endsWith('.tsv');
+    if (isCsv) {
+      activeCsvMode.value[pane] = true;
+      nextTick(() => updateCsvDecorations(pane));
+    }
+  }
 };
 
 const handleSave = async () => {
@@ -753,6 +875,11 @@ onMounted(async () => {
     if (!monaco.languages.getLanguages().some(lang => lang.id === 'boi-script')) {
         monaco.languages.register({ id: 'boi-script' });
     }
+
+    // Register CSV language if not already registered
+    if (!monaco.languages.getLanguages().some(lang => lang.id === 'csv')) {
+        monaco.languages.register({ id: 'csv' });
+    }
     
     // Setup Monarch tokenizer for boi-script syntax highlighting
     monaco.languages.setMonarchTokensProvider('boi-script', {
@@ -898,10 +1025,60 @@ onMounted(async () => {
     const { refreshSettings } = useSettings();
     await refreshSettings();
     await setupEditorTheme();
+
+    // Listen for Tauri native file drag & drop events
+    try {
+      const appWindow = getCurrentWebviewWindow();
+      const unlistenDrop = await appWindow.onDragDropEvent(async (event) => {
+        if (event.payload.type === 'drop') {
+          const paths = event.payload.paths;
+          if (paths && paths.length > 0) {
+            for (const filePath of paths) {
+              await openFileByPath(filePath);
+            }
+          }
+        }
+      });
+      unlistenDropHandler = unlistenDrop;
+    } catch (err) {
+      console.warn('[EditorTab] Tauri drag drop listener not available:', err);
+    }
 });
 
+let unlistenDropHandler: (() => void) | null = null;
 
-onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown, true); });
+onUnmounted(() => { 
+  window.removeEventListener('keydown', handleKeyDown, true); 
+  if (unlistenDropHandler) unlistenDropHandler();
+});
+
+const handleContainerDrop = async (e: DragEvent) => {
+  // If internal tab reordering, let the tab bar handle it
+  if (e.dataTransfer?.types.includes('text/plain') && (!e.dataTransfer.files || e.dataTransfer.files.length === 0)) {
+    return;
+  }
+  e.preventDefault();
+  const files = e.dataTransfer?.files;
+  if (files && files.length > 0) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i] as any;
+      if (file.path) {
+        await openFileByPath(file.path);
+      } else {
+        const text = await file.text();
+        const ext = file.name.split('.').pop() || '';
+        let content = text;
+        const isCsv = ext.toLowerCase() === 'csv' || ext.toLowerCase() === 'tsv';
+        if (isCsv) {
+          try {
+            content = alignCsv(content).text;
+          } catch (_) {}
+        }
+        addTab(file.name, content, getFileLanguage(ext), undefined, focusedPane.value);
+      }
+    }
+  }
+};
 </script>
 
 <template>
@@ -1077,7 +1254,10 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown, true); 
 
     </Teleport>
 
-    <div class="editor-main-area">
+    <div class="editor-main-area"
+         @dragover.prevent
+         @dragenter.prevent
+         @drop="handleContainerDrop">
 
       <div class="editor-view-area" :class="{ 'split-view': showSplit }" @mouseup="handleEditorMouseUp">
         
@@ -1100,6 +1280,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown, true); 
             <div class="tab-bar-actions" v-if="!showSplit">
               <button class="action-btn" @click="handleFormat('left')" :title="`Format (${globalShortcuts.format_code || 'Ctrl+Alt+F'})`">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
+              </button>
+              <button class="action-btn csv-btn" :class="{ active: activeCsvMode.left }" @click="handleFormatCsv('left')" title="Format CSV (Rainbow Columns & Align)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
               </button>
               <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
               <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
@@ -1152,6 +1335,9 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown, true); 
             <div class="tab-bar-actions">
               <button class="action-btn" @click="handleFormat('right')" :title="`Format (${globalShortcuts.format_code || 'Ctrl+Alt+F'})`">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
+              </button>
+              <button class="action-btn csv-btn" :class="{ active: activeCsvMode.right }" @click="handleFormatCsv('right')" title="Format CSV (Rainbow Columns & Align)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
               </button>
               <button class="action-btn" @click="handleSave" title="Save File" v-html="Icons.Save"></button>
               <button class="action-btn" @click="openFile" title="Open File" v-html="Icons.File"></button>
@@ -1294,4 +1480,32 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeyDown, true); 
   font-style: italic;
   opacity: 0.8;
 }
+</style>
+
+<style>
+/* Monaco Editor Rainbow CSV Column Styling - Global (Unscoped) */
+.monaco-editor .csv-col-0 { color: #E5C07B !important; font-weight: 500; }
+.monaco-editor .csv-col-1 { color: #61AFEF !important; font-weight: 500; }
+.monaco-editor .csv-col-2 { color: #98C379 !important; font-weight: 500; }
+.monaco-editor .csv-col-3 { color: #C678DD !important; font-weight: 500; }
+.monaco-editor .csv-col-4 { color: #E06C75 !important; font-weight: 500; }
+.monaco-editor .csv-col-5 { color: #56B6C2 !important; font-weight: 500; }
+.monaco-editor .csv-col-6 { color: #D19A66 !important; font-weight: 500; }
+.monaco-editor .csv-col-7 { color: #E57CBE !important; font-weight: 500; }
+.monaco-editor .csv-col-8 { color: #70C0BA !important; font-weight: 500; }
+.monaco-editor .csv-col-9 { color: #CE9178 !important; font-weight: 500; }
+.monaco-editor .csv-delim { color: #888888 !important; opacity: 0.55; font-weight: 700; }
+
+/* Light Theme overrides */
+.theme-light .monaco-editor .csv-col-0, .vs .csv-col-0 { color: #B58900 !important; }
+.theme-light .monaco-editor .csv-col-1, .vs .csv-col-1 { color: #0277BD !important; }
+.theme-light .monaco-editor .csv-col-2, .vs .csv-col-2 { color: #2E7D32 !important; }
+.theme-light .monaco-editor .csv-col-3, .vs .csv-col-3 { color: #7B1FA2 !important; }
+.theme-light .monaco-editor .csv-col-4, .vs .csv-col-4 { color: #C62828 !important; }
+.theme-light .monaco-editor .csv-col-5, .vs .csv-col-5 { color: #00838F !important; }
+.theme-light .monaco-editor .csv-col-6, .vs .csv-col-6 { color: #E65100 !important; }
+.theme-light .monaco-editor .csv-col-7, .vs .csv-col-7 { color: #AD1457 !important; }
+.theme-light .monaco-editor .csv-col-8, .vs .csv-col-8 { color: #00695C !important; }
+.theme-light .monaco-editor .csv-col-9, .vs .csv-col-9 { color: #4E342E !important; }
+.theme-light .monaco-editor .csv-delim, .vs .csv-delim { color: #9E9E9E !important; opacity: 0.7; }
 </style>

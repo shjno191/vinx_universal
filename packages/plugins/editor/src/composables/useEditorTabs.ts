@@ -5,6 +5,7 @@ import {
   triggerEditorReload,
   useFileSystem
 } from '@vinx/sdk';
+import { alignCsv } from '../utils/csv-helper';
 
 export interface Tab {
   id: string;
@@ -149,7 +150,15 @@ export function useEditorTabs() {
         }
       }
 
-      const id = addTab(name, content, getFileLanguage(ext), path, focusedPane.value, isTemp);
+      let initialContent = content;
+      const isCsv = ext.toLowerCase() === 'csv' || ext.toLowerCase() === 'tsv';
+      if (isCsv && initialContent) {
+        try {
+          initialContent = alignCsv(initialContent).text;
+        } catch (_) {}
+      }
+
+      const id = addTab(name, initialContent, getFileLanguage(ext), path, focusedPane.value, isTemp);
       return id;
     } catch (e) {
       console.error('[EditorTabs] Failed to open file:', e);
@@ -160,7 +169,7 @@ export function useEditorTabs() {
     const m: Record<string, string> = {
       ts: 'typescript', js: 'javascript', vue: 'html', rs: 'rust',
       py: 'python', json: 'json', md: 'markdown', css: 'css',
-      html: 'html', sql: 'sql', s: 'boi-script'
+      html: 'html', sql: 'sql', s: 'boi-script', csv: 'csv', tsv: 'csv'
     };
     return m[ext.toLowerCase()] || 'plaintext';
   };

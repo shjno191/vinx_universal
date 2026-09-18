@@ -22,6 +22,7 @@ import {
   isCsvAligned,
   generateRainbowDecorations
 } from './utils/csv-helper';
+import { findJavaDefinitionInText } from './utils/java-definition-helper';
 
 // Sub-components
 import ExplorerNode from './components/ExplorerNode.vue';
@@ -404,7 +405,7 @@ const handleMoveToTranslate = (editor: any) => {
 
 const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   editors[pane] = editor;
-  if (pane === 'left') setupCtrlClick(editor);
+  setupCtrlClick(editor);
   editor.onDidFocusEditorText(() => { focusedPane.value = pane; });
   
   editor.onDidChangeCursorPosition((e: any) => {
@@ -503,14 +504,34 @@ const handleEditorMouseUp = (e: MouseEvent) => {
 };
 
 const setupCtrlClick = (editor: any) => {
-  editor.onMouseDown((e: any) => {
+  editor.onMouseDown(async (e: any) => {
     if (!e.event.ctrlKey) return;
     const model = editor.getModel();
     const pos = e.target.position;
     if (!model || !pos) return;
     const line = model.getLineContent(pos.lineNumber);
     const m = /(?:from\s+['"]|require\s*\(\s*['"]|import\s*['"])([^'"]+)['"]/.exec(line);
-    if (m) resolveAndOpenPath(m[1]);
+    if (m) {
+      resolveAndOpenPath(m[1]);
+      return;
+    }
+
+    // Java import statement: import com.example.service.UserService;
+    const javaImportMatch = /^\s*import\s+(?:static\s+)?([\w.]+)\s*;/.exec(line);
+    if (javaImportMatch && projectRootPath.value) {
+      const fullClassName = javaImportMatch[1];
+      const simpleName = fullClassName.split('.').pop() || '';
+      if (simpleName) {
+        const matches = await searchFiles(simpleName + '.java');
+        if (matches.length > 0) {
+          const fullPath = matches[0].includes(':') || matches[0].startsWith('/') 
+            ? matches[0] 
+            : projectRootPath.value + '/' + matches[0];
+          await openFileByPath(fullPath);
+          return;
+        }
+      }
+    }
   });
 };
 
@@ -1019,6 +1040,102 @@ onMounted(async () => {
             }
             
             return null; // Return null so hover underline doesn't show
+        }
+    });
+
+    // Register Go to Definition Provider for Java (Ctrl + Click)
+    const javaDefinitionProvider: monaco.languages.DefinitionProvider = {
+        provideDefinition: async (model, position, token) => {
+            const wordInfo = model.getWordAtPosition(position);
+            if (!wordInfo) return null;
+            const word = wordInfo.word;
+
+            // 1. Search locally in the current Java file
+            const text = model.getValue();
+            const localDef = findJavaDefinitionInText(text, word);
+            if (localDef) {
+                const range = new monaco.Range(localDef.line, localDef.col, localDef.line, localDef.col + localDef.length);
+
+                // Visual jump highlight for 2 seconds
+                const oldDecorations = model.deltaDecorations([], [
+                    {
+                        range: range,
+                        options: {
+                            isWholeLine: true,
+                            className: 'custom-jump-highlight'
+                        }
+                    }
+                ]);
+                setTimeout(() => {
+                    model.deltaDecorations(oldDecorations, []);
+                }, 2000);
+
+                return {
+                    uri: model.uri,
+                    range: range
+                };
+            }
+
+            // 2. Search in other open Java tabs
+            for (const tab of tabs.value) {
+                if (tab.content && (tab.language === 'java' || tab.name.endsWith('.java') || tab.path?.endsWith('.java'))) {
+                    const otherDef = findJavaDefinitionInText(tab.content, word);
+                    if (otherDef) {
+                        currentActiveId.value = tab.id;
+                        await nextTick();
+                        const activeEd = editors[focusedPane.value] || editors.left;
+                        if (activeEd) {
+                            activeEd.setPosition({ lineNumber: otherDef.line, column: otherDef.col });
+                            activeEd.revealPositionInCenter({ lineNumber: otherDef.line, column: otherDef.col }, monaco.editor.ScrollType.Smooth);
+                            const otherModel = activeEd.getModel();
+                            if (otherModel) {
+                                const targetRange = new monaco.Range(otherDef.line, otherDef.col, otherDef.line, otherDef.col + otherDef.length);
+                                const oldDecs = otherModel.deltaDecorations([], [
+                                    { range: targetRange, options: { isWholeLine: true, className: 'custom-jump-highlight' } }
+                                ]);
+                                setTimeout(() => { otherModel.deltaDecorations(oldDecs, []); }, 2000);
+                            }
+                        }
+                        return null;
+                    }
+                }
+            }
+
+            // 3. Search project files if word looks like a Class (PascalCase)
+            if (/^[A-Z]\w+$/.test(word) && projectRootPath.value) {
+                const candidateFiles = await searchFiles(word + '.java');
+                if (candidateFiles.length > 0) {
+                    const fullPath = candidateFiles[0].includes(':') || candidateFiles[0].startsWith('/') 
+                        ? candidateFiles[0] 
+                        : projectRootPath.value + '/' + candidateFiles[0];
+                    await openFileByPath(fullPath);
+                    await nextTick();
+                    const curTab = tabs.value.find(t => t.id === currentActiveId.value);
+                    if (curTab) {
+                        const classDef = findJavaDefinitionInText(curTab.content, word);
+                        if (classDef) {
+                            const activeEd = editors[focusedPane.value] || editors.left;
+                            if (activeEd) {
+                                activeEd.setPosition({ lineNumber: classDef.line, column: classDef.col });
+                                activeEd.revealPositionInCenter({ lineNumber: classDef.line, column: classDef.col }, monaco.editor.ScrollType.Smooth);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+    };
+
+    monaco.languages.registerDefinitionProvider('java', javaDefinitionProvider);
+    monaco.languages.registerDefinitionProvider('plaintext', {
+        provideDefinition: async (model, position, token) => {
+            const uri = model.uri.toString();
+            if (uri.endsWith('.java')) {
+                return javaDefinitionProvider.provideDefinition(model, position, token);
+            }
+            return null;
         }
     });
 

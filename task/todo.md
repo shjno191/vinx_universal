@@ -58,3 +58,11 @@
 - [x] Add external file drag-and-drop listener (Tauri v2 and HTML5) with auto CSV formatting <!-- id: 38 -->
 - [x] Auto-format and highlight CSV on file open when `.csv` file is detected <!-- id: 39 -->
 - [x] Verify with tests and build verification <!-- id: 40 -->
+
+## Java Method Navigation (Ctrl + Click Go to Definition)
+
+- [x] Map `.java` extension to `'java'` in `getFileLanguage` (useEditorTabs.ts) <!-- id: 41 -->
+- [x] Create Java definition finder utility in `java-definition-helper.ts` with TDD unit tests <!-- id: 42 -->
+- [x] Register Monaco DefinitionProvider for `'java'` language with same-file and cross-file search <!-- id: 43 -->
+- [x] Enable `setupCtrlClick` on both editor panes with jump highlight animation <!-- id: 44 -->
+- [x] Verify functionality with various Java method, constructor, and class declaration patterns <!-- id: 45 -->

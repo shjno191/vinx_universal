@@ -169,7 +169,8 @@ export function useEditorTabs() {
     const m: Record<string, string> = {
       ts: 'typescript', js: 'javascript', vue: 'html', rs: 'rust',
       py: 'python', json: 'json', md: 'markdown', css: 'css',
-      html: 'html', sql: 'sql', s: 'boi-script', csv: 'csv', tsv: 'csv'
+      html: 'html', sql: 'sql', s: 'boi-script', csv: 'csv', tsv: 'csv',
+      java: 'java'
     };
     return m[ext.toLowerCase()] || 'plaintext';
   };

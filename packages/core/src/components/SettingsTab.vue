@@ -363,16 +363,6 @@ watch(showSettingsTrigger, (val) => {
               </div>
            </div>
 
-           <div class="feature-card glass" :class="{ active: settings.editor.mouseNavHistory }" @click="settings.editor.mouseNavHistory = !settings.editor.mouseNavHistory; saveSettings()">
-              <div class="feature-icon" v-html="Icons.ArrowLeft"></div>
-              <div class="feature-info">
-                 <span class="feature-name">Mouse Navigation</span>
-                 <span class="feature-hint">Nút hông chuột Back/Forward</span>
-              </div>
-              <div class="feature-toggle">
-                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
-              </div>
-           </div>
 
            <div class="feature-card glass" :class="{ active: settings.editor.renderWhitespace }" @click="settings.editor.renderWhitespace = !settings.editor.renderWhitespace; saveSettings()">
               <div class="feature-icon" v-html="Icons.Eye"></div>
@@ -399,7 +389,7 @@ watch(showSettingsTrigger, (val) => {
             <div class="shortcut-row" @click="startRecording('open_file')">
               <span class="shortcut-desc">Mở file (Open File)</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'open_file' }">
-                {{ isRecording === 'open_file' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file || 'ctrl+p') }}
+                {{ isRecording === 'open_file' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.open_file || 'ctrl+o') }}
               </span>
               <input v-if="isRecording === 'open_file'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
@@ -431,20 +421,6 @@ watch(showSettingsTrigger, (val) => {
               </span>
               <input v-if="isRecording === 'global_search'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
-            <div class="shortcut-row" @click="startRecording('move_tab_left')">
-              <span class="shortcut-desc">Chuyển tab sang trái (Move Tab Left)</span>
-              <span class="shortcut-key" :class="{ 'recording': isRecording === 'move_tab_left' }">
-                {{ isRecording === 'move_tab_left' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.move_tab_left || 'alt+arrowleft') }}
-              </span>
-              <input v-if="isRecording === 'move_tab_left'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
-            </div>
-            <div class="shortcut-row" @click="startRecording('move_tab_right')">
-              <span class="shortcut-desc">Chuyển tab sang phải (Move Tab Right)</span>
-              <span class="shortcut-key" :class="{ 'recording': isRecording === 'move_tab_right' }">
-                {{ isRecording === 'move_tab_right' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.move_tab_right || 'alt+arrowright') }}
-              </span>
-              <input v-if="isRecording === 'move_tab_right'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
-            </div>
             <div class="shortcut-row" @click="startRecording('format_code')">
               <span class="shortcut-desc">Định dạng Code (Format Code)</span>
               <span class="shortcut-key" :class="{ 'recording': isRecording === 'format_code' }">
@@ -465,6 +441,36 @@ watch(showSettingsTrigger, (val) => {
                 {{ isRecording === 'move_to_translate' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.move_to_translate || 'ctrl+t') }}
               </span>
               <input v-if="isRecording === 'move_to_translate'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('jump_function')">
+              <span class="shortcut-desc">
+                Navigate Up — Nhảy lên Function
+                <span class="shortcut-sub-hint">Trong body → lên tên fn · Ở tên fn → tìm nơi gọi · Ctrl+Left = cùng logic</span>
+              </span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'jump_function' }">
+                {{ isRecording === 'jump_function' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.jump_function || 'ctrl+arrowup') }}
+              </span>
+              <input v-if="isRecording === 'jump_function'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('nav_back')">
+              <span class="shortcut-desc">
+                Navigate Back — Quay lại vị trí trước
+                <span class="shortcut-sub-hint">Quay lại cursor history · Dùng sau Ctrl+Up/Right</span>
+              </span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'nav_back' }">
+                {{ isRecording === 'nav_back' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.nav_back || 'ctrl+arrowdown') }}
+              </span>
+              <input v-if="isRecording === 'nav_back'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
+            </div>
+            <div class="shortcut-row" @click="startRecording('nav_into_function')">
+              <span class="shortcut-desc">
+                Navigate Into — Nhảy vào định nghĩa Function
+                <span class="shortcut-sub-hint">Tìm function call gần cursor → nhảy tới định nghĩa · Không có call → cuối dòng</span>
+              </span>
+              <span class="shortcut-key" :class="{ 'recording': isRecording === 'nav_into_function' }">
+                {{ isRecording === 'nav_into_function' ? 'HÃY NHẤN TỔ HỢP PHÍM MỚI...' : formatShortcut(settings.shortcuts?.nav_into_function || 'ctrl+arrowright') }}
+              </span>
+              <input v-if="isRecording === 'nav_into_function'" ref="shortcutInputRef" type="text" class="hidden-input" @keydown="handleShortcutKey($event)" @blur="isRecording = null" />
             </div>
           </div>
         </div>
@@ -977,6 +983,15 @@ watch(showSettingsTrigger, (val) => {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-color);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shortcut-sub-hint {
+  font-size: 0.65rem;
+  font-weight: 500;
+  opacity: 0.45;
+  font-style: italic;
 }
 .shortcut-key {
   font-family: 'JetBrains Mono', monospace;

@@ -25,3 +25,24 @@
 - **External File Drag-and-Drop in Tauri v2**:
     - Tauri intercepts native window file drops from Windows Explorer.
     - Must listen to `getCurrentWebviewWindow().onDragDropEvent` to receive `event.payload.paths` when files are dropped from outside the window, alongside HTML5 drop fallback.
+    - **Multi-Tab Drop Listener Isolation**:
+        - Global window-level drag-drop listeners fire on all mounted tabs.
+        - Never rely solely on global reactive strings (such as `activeTab.value`) across separate package bundles, as module instances or out-of-sync states can cause checks to fail and drop events to be ignored.
+        - Instead, combine three layers:
+            1. Explicit props passed from the host tab container (`:is-active="currentTab === plugin.name"`).
+            2. DOM visibility check (`el.checkVisibility()` or `offsetWidth > 0 || offsetParent !== null`) using the component root ref, which accurately reflects `v-show`.
+            3. Overlay pointer-events: ensure full-screen drop overlays use `pointer-events: none` and inner zones use `pointer-events: auto` to prevent dragleave flickering and event swallowing.
+
+# Function Navigation & Global Keydown Lessons
+
+- **Never Use Unbounded Regex Loops for Line Matching**:
+    - When searching for function usages across lines, a `while ((match = regex.exec(line)) !== null)` without a guarantee of advancing `lastIndex` can turn into an infinite loop if `regex` matches 0 characters or encounters edge-case boundaries.
+    - Since we only need one usage item per line, execute a single bounded match (`const match = wordPattern.exec(checkLine)`) without `while`, completely eliminating infinite loop risks.
+- **Bypass Lines Lacking Braces in Scope Parsers**:
+    - In brace-counting scope detection (`findFunctionEndLine`), 90%+ lines in any codebase contain neither `{` nor `}`.
+    - Skipping these lines (`if (!line.includes('{') && !line.includes('}')) continue;`) avoids running heavy comment/string sanitization regexes, accelerating parsing by 10x-20x on large files.
+- **Isolate Global Keydown Capture Handlers Across Tabs**:
+    - When multiple tabs or modals register `window.addEventListener('keydown', handler, true)`, the listeners run in the capture phase for all events globally.
+    - Every plugin tab must verify `if (!isTabActive()) return;` at the very start of its keydown handler; otherwise a background tab will intercept shortcuts, call `e.stopPropagation()`, and prevent the active tab from responding.
+- **Prevent Action Conflicts When Usages Modal is Open**:
+    - When the usages modal is already active, pressing `Ctrl + Up` again or `ArrowUp`/`ArrowDown` should smoothly cycle to the next/previous usage inside the modal instead of re-triggering definition detection on the temporarily previewed cursor position.

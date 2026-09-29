@@ -46,7 +46,7 @@ export const cursorHistory = shallowRef<CursorPosition[]>([]);
 export const cursorHistoryIndex = ref(-1);
 export const globalShortcuts = ref({
     open_settings: 'ctrl+,',
-    open_file: 'ctrl+p',
+    open_file: 'ctrl+o',
     focus_search: 'ctrl+f',
     global_search: 'ctrl+shift+f',
     prev_tab: 'ctrl+shift+[',
@@ -55,12 +55,13 @@ export const globalShortcuts = ref({
     save_file: 'ctrl+s',
     close_tab: 'ctrl+w',
     close_all_tabs: 'ctrl+shift+w',
-    move_tab_left: 'alt+arrowleft',
-    move_tab_right: 'alt+arrowright',
     quick_open_tabs: 'ctrl+~',
     format_code: 'ctrl+alt+f',
     comment_code: 'ctrl+shift+/',
-    move_to_translate: 'ctrl+t'
+    move_to_translate: 'ctrl+t',
+    jump_function: 'ctrl+arrowup',
+    nav_back: 'ctrl+arrowdown',
+    nav_into_function: 'ctrl+arrowright'
 });
 
 export const requestNavigateTab = ref<string>('');

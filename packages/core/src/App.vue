@@ -28,8 +28,6 @@ const {
   currentTheme,
   showSettingsModal,
   initializedTabs,
-  navigateBack,
-  navigateForward,
   applyTheme,
   loadSettings,
   saveSettings,
@@ -147,9 +145,15 @@ const handleGlobalKeyUp = (e: KeyboardEvent) => {
   if (e.code === 'Space') isGlobalSmoking.value = false;
 };
 
-const handleMouseUp = (e: MouseEvent) => {
-  if (e.button === 3) navigateBack();
-  else if (e.button === 4) navigateForward();
+const handleGlobalDragOver = (e: DragEvent) => {
+  e.preventDefault();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy';
+  }
+};
+
+const handleGlobalDrop = (e: DragEvent) => {
+  e.preventDefault();
 };
 
 // Persistence Watchers
@@ -182,13 +186,17 @@ onMounted(async () => {
   checkForUpdates();
   window.addEventListener("keydown", handleGlobalKeyDown, true);
   window.addEventListener("keyup", handleGlobalKeyUp, true);
-  window.addEventListener("mouseup", handleMouseUp, true);
+  window.addEventListener("dragover", handleGlobalDragOver, false);
+  window.addEventListener("dragenter", handleGlobalDragOver, false);
+  window.addEventListener("drop", handleGlobalDrop, false);
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleGlobalKeyDown, true);
   window.removeEventListener("keyup", handleGlobalKeyUp, true);
-  window.removeEventListener("mouseup", handleMouseUp, true);
+  window.removeEventListener("dragover", handleGlobalDragOver, false);
+  window.removeEventListener("dragenter", handleGlobalDragOver, false);
+  window.removeEventListener("drop", handleGlobalDrop, false);
 });
 </script>
 
@@ -220,6 +228,8 @@ onUnmounted(() => {
             v-if="initializedTabs[plugin.name]" 
             v-show="currentTab === plugin.name" 
             :theme="currentTheme" 
+            :is-active="currentTab === plugin.name"
+            :active="currentTab === plugin.name"
           />
         </template>
       </div>

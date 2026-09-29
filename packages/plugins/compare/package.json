@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@vinx/sdk": "*",
+    "monaco-editor": "^0.55.1",
     "@guolao/vue-monaco-editor": "^1.6.0"
   },
   "devDependencies": {

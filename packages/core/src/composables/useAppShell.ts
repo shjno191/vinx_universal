@@ -1,4 +1,4 @@
-import { ref, reactive, watch, nextTick } from 'vue';
+import { ref, reactive, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { check } from '@tauri-apps/plugin-updater';
 import { ask } from '@tauri-apps/plugin-dialog';
@@ -14,7 +14,8 @@ import {
   chillSettings,
   activeTab,
   matchShortcut,
-  useSettings
+  useSettings,
+  theme as sdkTheme
 } from '@vinx/sdk';
 
 export function useAppShell() {
@@ -27,52 +28,20 @@ export function useAppShell() {
   
   const initializedTabs = reactive<Record<string, boolean>>({});
 
-  // Tab History management
-  const tabHistory = ref<string[]>([]);
-  const tabHistoryIndex = ref(0);
-  let isNavigatingHistory = false;
-
   watch(currentTab, (newTab) => {
     activeTab.value = newTab;
-    if (isNavigatingHistory) return;
-
-    if (tabHistoryIndex.value < tabHistory.value.length - 1) {
-      tabHistory.value = tabHistory.value.slice(0, tabHistoryIndex.value + 1);
-    }
-
-    if (tabHistory.value[tabHistoryIndex.value] === newTab) return;
-
-    tabHistory.value.push(newTab);
-    tabHistoryIndex.value = tabHistory.value.length - 1;
 
     if (!initializedTabs[newTab]) {
       initializedTabs[newTab] = true;
     }
   }, { immediate: true });
 
-  const navigateBack = () => {
-    if (tabHistoryIndex.value > 0) {
-      tabHistoryIndex.value--;
-      isNavigatingHistory = true;
-      currentTab.value = tabHistory.value[tabHistoryIndex.value];
-      nextTick(() => { isNavigatingHistory = false; });
-    }
-  };
-
-  const navigateForward = () => {
-    if (tabHistoryIndex.value < tabHistory.value.length - 1) {
-      tabHistoryIndex.value++;
-      isNavigatingHistory = true;
-      currentTab.value = tabHistory.value[tabHistoryIndex.value];
-      nextTick(() => { isNavigatingHistory = false; });
-    }
-  };
-
-  const applyTheme = (theme: string) => {
-    currentTheme.value = theme;
+  const applyTheme = (themeName: string) => {
+    currentTheme.value = themeName;
+    sdkTheme.value = themeName as any;
     document.documentElement.classList.remove('theme-95', 'theme-light', 'theme-dark');
-    if (theme === '95') document.documentElement.classList.add('theme-95');
-    else if (theme === 'light') document.documentElement.classList.add('theme-light');
+    if (themeName === '95') document.documentElement.classList.add('theme-95');
+    else if (themeName === 'light') document.documentElement.classList.add('theme-light');
     else document.documentElement.classList.add('theme-dark');
   };
 
@@ -150,8 +119,6 @@ export function useAppShell() {
     currentTheme,
     showSettingsModal,
     initializedTabs,
-    navigateBack,
-    navigateForward,
     applyTheme,
     loadSettings,
     saveSettings,

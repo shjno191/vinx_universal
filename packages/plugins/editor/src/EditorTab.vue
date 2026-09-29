@@ -29,9 +29,11 @@ import ExplorerNode from './components/ExplorerNode.vue';
 import ExplorerContextMenu from './components/ExplorerContextMenu.vue';
 import TabContextMenu from './components/TabContextMenu.vue';
 import GitSelectionModal from './components/GitSelectionModal.vue';
+import FunctionUsagesModal from './components/FunctionUsagesModal.vue';
 import { 
   projectRootPath, 
   theme as globalTheme, 
+  activeTab,
   activeTabContextMenu, 
   gitTabRepoPath, 
   gitBranches, 
@@ -49,8 +51,30 @@ import {
   useSettings,
   useFileSystem,
   requestNavigateTab,
-  translateInput
+  translateInput,
+  extractFunctionsFromContent,
+  getCurrentFunctionAtCursor,
+  findFunctionUsages,
+  findFunctionCallsOnLine,
+  findFunctionDefinition,
+  type FunctionSymbolItem,
+  type FunctionUsageItem
 } from '@vinx/sdk';
+
+const props = defineProps<{ theme?: string; isActive?: boolean; active?: boolean }>();
+const editorContainerRef = ref<HTMLElement | null>(null);
+
+const isTabActive = () => {
+  if (props.isActive !== undefined) return props.isActive;
+  if (props.active !== undefined) return props.active;
+  if (editorContainerRef.value) {
+    if (typeof editorContainerRef.value.checkVisibility === 'function') {
+      return editorContainerRef.value.checkVisibility();
+    }
+    return editorContainerRef.value.offsetWidth > 0 || editorContainerRef.value.offsetHeight > 0 || editorContainerRef.value.offsetParent !== null;
+  }
+  return true;
+};
 
 const { searchRepoFiles } = useGit();
 const { readFile } = useFileSystem();
@@ -116,6 +140,199 @@ const paletteQuery = ref('');
 const paletteResults = ref<string[]>([]);
 const paletteSelectedIndex = ref(0);
 const paletteInput = ref<HTMLInputElement | null>(null);
+
+// --- Function Palette state ---
+const showFunctionPalette = ref(false);
+const functionPaletteQuery = ref('');
+const functionPaletteResults = ref<FunctionSymbolItem[]>([]);
+const functionPaletteSelectedIndex = ref(0);
+const functionPaletteInput = ref<HTMLInputElement | null>(null);
+const allCurrentFileFunctions = ref<FunctionSymbolItem[]>([]);
+
+// --- Function Usages Modal state & handlers ---
+const showUsagesModal = ref(false);
+const usagesFunctionName = ref('');
+const usagesList = ref<FunctionUsageItem[]>([]);
+const usagesSelectedIndex = ref(0);
+const usagesEditorInstance = ref<any>(null);
+
+const editorToast = ref<{ message: string; type: string } | null>(null);
+let editorToastTimer: any = null;
+const showEditorToast = (message: string, type: 'info' | 'success' | 'warn' | 'error' = 'info') => {
+  editorToast.value = { message, type };
+  if (editorToastTimer) clearTimeout(editorToastTimer);
+  editorToastTimer = setTimeout(() => {
+    editorToast.value = null;
+  }, 2500);
+};
+
+const highlightLineBriefly = (editor: any, lineNumber: number) => {
+  const model = editor?.getModel();
+  if (!model) return;
+  const range = new monaco.Range(lineNumber, 1, lineNumber, 1);
+  const oldDecs = model.deltaDecorations([], [
+    { range, options: { isWholeLine: true, className: 'custom-jump-highlight' } }
+  ]);
+  setTimeout(() => {
+    try { model.deltaDecorations(oldDecs, []); } catch (_) {}
+  }, 1200);
+};
+
+const jumpToUsagePreview = (u: FunctionUsageItem, ed?: any) => {
+  const editor = ed || usagesEditorInstance.value || editors[focusedPane.value] || editors.left;
+  if (!editor || !u) return;
+  editor.setPosition({ lineNumber: u.line, column: u.column });
+  editor.revealPositionInCenter({ lineNumber: u.line, column: u.column }, monaco.editor.ScrollType.Smooth);
+  highlightLineBriefly(editor, u.line);
+};
+
+const handleJumpFunctionOrUsages = () => {
+  // If usages modal is already open, advance selection in modal
+  if (showUsagesModal.value && usagesList.value.length > 0) {
+    const nextIdx = (usagesSelectedIndex.value + 1) % usagesList.value.length;
+    usagesSelectedIndex.value = nextIdx;
+    jumpToUsagePreview(usagesList.value[nextIdx]);
+    return;
+  }
+
+  try {
+    const editor = editors[focusedPane.value] || editors.left;
+    if (!editor) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const pos = editor.getPosition();
+    if (!pos) return;
+
+    const content = model.getValue();
+    const cursorLine = pos.lineNumber;
+    const activeTab = focusedPane.value === 'left' ? activeTabLeft.value : (activeTabRight.value || activeTabLeft.value);
+    const lang = activeTab?.language || '';
+
+    const { fn, isAtDefinition, isInsideBody } = getCurrentFunctionAtCursor(content, cursorLine, lang);
+
+    // Case 2.1: Inside function body -> jump to function definition line
+    if (isInsideBody && fn) {
+      editor.setPosition({ lineNumber: fn.line, column: fn.column });
+      editor.revealPositionInCenter({ lineNumber: fn.line, column: fn.column }, monaco.editor.ScrollType.Smooth);
+      editor.focus();
+      highlightLineBriefly(editor, fn.line);
+      showEditorToast(`Jumped to function "${fn.name}"`, 'success');
+      return;
+    }
+
+    // Case 2.2: On function definition line -> jump to usage or open usages modal
+    if (isAtDefinition && fn) {
+      const usages = findFunctionUsages(content, fn.name, fn.line);
+      if (usages.length === 0) {
+        showEditorToast(`No other usages found for "${fn.name}" in this file`, 'info');
+        return;
+      }
+      if (usages.length === 1) {
+        const target = usages[0];
+        editor.setPosition({ lineNumber: target.line, column: target.column });
+        editor.revealPositionInCenter({ lineNumber: target.line, column: target.column }, monaco.editor.ScrollType.Smooth);
+        editor.focus();
+        highlightLineBriefly(editor, target.line);
+        showEditorToast(`Jumped to usage of "${fn.name}"`, 'success');
+        return;
+      }
+
+      // Multiple usages -> show modal
+      usagesFunctionName.value = fn.name;
+      usagesList.value = usages;
+      usagesSelectedIndex.value = 0;
+      usagesEditorInstance.value = editor;
+      showUsagesModal.value = true;
+      jumpToUsagePreview(usages[0], editor);
+      return;
+    }
+  } catch (err) {
+    console.error('Error handling jump function or usages:', err);
+  }
+};
+
+const handleUsageSelect = (item: FunctionUsageItem, idx: number) => {
+  usagesSelectedIndex.value = idx;
+  jumpToUsagePreview(item);
+};
+
+const handleUsageConfirm = (item: FunctionUsageItem) => {
+  jumpToUsagePreview(item);
+  showUsagesModal.value = false;
+  const editor = usagesEditorInstance.value || editors[focusedPane.value] || editors.left;
+  editor?.focus();
+};
+
+const handleUsageClose = () => {
+  showUsagesModal.value = false;
+  const editor = usagesEditorInstance.value || editors[focusedPane.value] || editors.left;
+  editor?.focus();
+};
+
+const openFunctionPalette = () => {
+  const activeTab = focusedPane.value === 'left' ? activeTabLeft.value : (activeTabRight.value || activeTabLeft.value);
+  const currentContent = activeTab?.content || '';
+  allCurrentFileFunctions.value = extractFunctionsFromContent(currentContent, activeTab?.language);
+  functionPaletteQuery.value = '';
+  functionPaletteResults.value = allCurrentFileFunctions.value;
+  functionPaletteSelectedIndex.value = 0;
+  showFunctionPalette.value = true;
+};
+
+watch(showFunctionPalette, (val) => {
+  if (val) {
+    nextTick(() => {
+      if (functionPaletteInput.value) {
+        functionPaletteInput.value.focus();
+        functionPaletteInput.value.select();
+      }
+    });
+  }
+});
+
+watch(functionPaletteQuery, (query) => {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    functionPaletteResults.value = allCurrentFileFunctions.value;
+  } else {
+    functionPaletteResults.value = allCurrentFileFunctions.value.filter(fn => 
+      fn.name.toLowerCase().includes(q) || fn.preview.toLowerCase().includes(q)
+    );
+  }
+  functionPaletteSelectedIndex.value = 0;
+});
+
+const handleFunctionPaletteKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (functionPaletteResults.value.length > 0) {
+      functionPaletteSelectedIndex.value = (functionPaletteSelectedIndex.value + 1) % functionPaletteResults.value.length;
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (functionPaletteResults.value.length > 0) {
+      functionPaletteSelectedIndex.value = (functionPaletteSelectedIndex.value - 1 + functionPaletteResults.value.length) % functionPaletteResults.value.length;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (functionPaletteResults.value[functionPaletteSelectedIndex.value]) {
+      jumpToFunction(functionPaletteResults.value[functionPaletteSelectedIndex.value]);
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    showFunctionPalette.value = false;
+  }
+};
+
+const jumpToFunction = (fn: FunctionSymbolItem) => {
+  showFunctionPalette.value = false;
+  const editor = editors[focusedPane.value] || editors.left;
+  if (editor) {
+    editor.setPosition({ lineNumber: fn.line, column: fn.column });
+    editor.revealPositionInCenter({ lineNumber: fn.line, column: fn.column }, monaco.editor.ScrollType.Smooth);
+    editor.focus();
+  }
+};
 
 
 
@@ -441,20 +658,41 @@ const handleMoveToTranslate = (editor: any) => {
   requestNavigateTab.value = 'Translate';
 };
 
+const recordCursorPosition = (pane: 'left' | 'right', line: number, column: number) => {
+  if (isNavigatingCursorHistory) return;
+  const tabId = pane === 'left' ? activeTabIdLeft.value : activeTabIdRight.value;
+  if (!tabId) return;
+  const current = cursorHistory.value[cursorHistoryIndex.value];
+  if (current && current.tabId === tabId && current.line === line && current.column === column) return;
+
+  if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
+    cursorHistory.value = cursorHistory.value.slice(0, cursorHistoryIndex.value + 1);
+  }
+  cursorHistory.value.push({ tabId, line, column });
+  if (cursorHistory.value.length > 100) cursorHistory.value.shift();
+  cursorHistoryIndex.value = cursorHistory.value.length - 1;
+};
+
 const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   editors[pane] = editor;
   setupCtrlClick(editor);
   editor.onDidFocusEditorText(() => { focusedPane.value = pane; });
   
+  editor.onMouseDown((e: any) => {
+    if (e.event?.leftButton && e.target?.position) {
+      recordCursorPosition(pane, e.target.position.lineNumber, e.target.position.column);
+    }
+  });
+
   editor.onDidChangeCursorPosition((e: any) => {
     if (isNavigatingCursorHistory) return;
     const tabId = pane === 'left' ? activeTabIdLeft.value : activeTabIdRight.value;
     const newPos = { tabId, line: e.position.lineNumber, column: e.position.column };
     const current = cursorHistory.value[cursorHistoryIndex.value];
-    if (current && current.tabId === newPos.tabId && Math.abs(current.line - newPos.line) < 5) return;
+    if (current && current.tabId === newPos.tabId && current.line === newPos.line) return;
     if (cursorHistoryIndex.value < cursorHistory.value.length - 1) cursorHistory.value = cursorHistory.value.slice(0, cursorHistoryIndex.value + 1);
     cursorHistory.value.push(newPos);
-    if (cursorHistory.value.length > 50) cursorHistory.value.shift();
+    if (cursorHistory.value.length > 100) cursorHistory.value.shift();
     cursorHistoryIndex.value = cursorHistory.value.length - 1;
   });
 
@@ -519,26 +757,52 @@ const handleSave = async () => {
 };
 
 const jumpToHistory = (pos: any) => {
-    isNavigatingCursorHistory = true;
-    if (activeTabIdLeft.value !== pos.tabId) activeTabIdLeft.value = pos.tabId;
-    nextTick(() => {
-        const editor = editors.left;
-        if (editor) {
-            editor.setPosition({ lineNumber: pos.line, column: pos.column });
-            editor.revealPositionInCenter({ lineNumber: pos.line, column: pos.column }, monaco.editor.ScrollType.Smooth);
-            editor.focus();
-        }
-        setTimeout(() => { isNavigatingCursorHistory = false; }, 100);
-    });
+  if (!pos) return;
+  isNavigatingCursorHistory = true;
+  const isRight = tabsRight.value.some(t => t.id === pos.tabId);
+  const targetPane = isRight ? 'right' : 'left';
+  if (targetPane === 'left' && activeTabIdLeft.value !== pos.tabId) {
+    activeTabIdLeft.value = pos.tabId;
+  } else if (targetPane === 'right' && activeTabIdRight.value !== pos.tabId) {
+    activeTabIdRight.value = pos.tabId;
+  }
+  focusedPane.value = targetPane;
+
+  nextTick(() => {
+    const editor = editors[targetPane];
+    if (editor) {
+      editor.setPosition({ lineNumber: pos.line, column: pos.column });
+      editor.revealPositionInCenter({ lineNumber: pos.line, column: pos.column }, monaco.editor.ScrollType.Smooth);
+      editor.focus();
+    }
+    setTimeout(() => { isNavigatingCursorHistory = false; }, 100);
+  });
 };
 
 const handleEditorMouseUp = (e: MouseEvent) => {
-    if (!editorSettings.value.mouseNavHistory) return;
-    if (e.button === 3 && cursorHistoryIndex.value > 0) {
-        e.stopPropagation(); cursorHistoryIndex.value--; jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
-    } else if (e.button === 4 && cursorHistoryIndex.value < cursorHistory.value.length - 1) {
-        e.stopPropagation(); cursorHistoryIndex.value++; jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
+  if (e.button === 3) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (cursorHistoryIndex.value > 0) {
+      cursorHistoryIndex.value--;
+      jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
     }
+  } else if (e.button === 4) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
+      cursorHistoryIndex.value++;
+      jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
+    }
+  }
+};
+
+const handleTabDoubleClick = (tab: Tab) => {
+  tab.isTemp = false;
+  const isUntitled = !tab.path || /^unitl?e/i.test(tab.name) || tab.name.toLowerCase().includes('untitled');
+  if (isUntitled) {
+    showExplorer.value = false;
+  }
 };
 
 const setupCtrlClick = (editor: any) => {
@@ -595,12 +859,102 @@ const resolveAndOpenPath = async (rawPath: string) => {
   }
 };
 
+// --- Navigation: Jump into the definition of the function call nearest to cursor ---
+const handleNavIntoFunction = () => {
+  try {
+    const editor = editors[focusedPane.value] || editors.left;
+    if (!editor) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const pos = editor.getPosition();
+    if (!pos) return;
+
+    const lineText = model.getLineContent(pos.lineNumber);
+    const calls = findFunctionCallsOnLine(lineText, pos.column);
+    if (calls.length === 0) {
+      // Fallback: move to end of line
+      const lineLen = model.getLineMaxColumn(pos.lineNumber);
+      editor.setPosition({ lineNumber: pos.lineNumber, column: lineLen });
+      editor.focus();
+      return;
+    }
+
+    const curTab = focusedPane.value === 'left' ? activeTabLeft.value : (activeTabRight.value || activeTabLeft.value);
+    const lang = curTab?.language || '';
+    const content = model.getValue();
+
+    for (const call of calls) {
+      const def = findFunctionDefinition(content, call.name, lang);
+      if (def) {
+        editor.setPosition({ lineNumber: def.line, column: def.column });
+        editor.revealPositionInCenter({ lineNumber: def.line, column: def.column }, monaco.editor.ScrollType.Smooth);
+        editor.focus();
+        highlightLineBriefly(editor, def.line);
+        showEditorToast(`Jumped into "${def.name}"`, 'success');
+        return;
+      }
+    }
+
+    showEditorToast(`No definition found for "${calls[0].name}" in this file`, 'info');
+  } catch (err) {
+    console.error('Error in nav_into_function:', err);
+  }
+};
+
+// --- Navigation: Go back in cursor history ---
+const handleNavBack = () => {
+  if (cursorHistoryIndex.value > 0) {
+    cursorHistoryIndex.value--;
+    jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
+  } else {
+    showEditorToast('No previous position', 'info');
+  }
+};
+
 // --- Handlers ---
 const handleKeyDown = (e: KeyboardEvent) => {
+  if (!isTabActive()) return;
   const shortcuts = globalShortcuts.value;
 
-  // Both Ctrl+P and Ctrl+O trigger open file dialog (no print)
-  if (matchShortcut(e, 'ctrl+p') || matchShortcut(e, 'ctrl+o') || matchShortcut(e, shortcuts.open_file || 'ctrl+p')) {
+  // Ctrl+Up / Ctrl+Left — Navigate Up (jump to function definition or usages)
+  if (
+    matchShortcut(e, shortcuts.jump_function || 'ctrl+arrowup') ||
+    matchShortcut(e, 'ctrl+up') ||
+    matchShortcut(e, 'ctrl+arrowleft') ||
+    matchShortcut(e, 'ctrl+left')
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    handleJumpFunctionOrUsages();
+    return;
+  }
+
+  // Ctrl+Down — Navigate Back (go back to previous cursor position)
+  if (matchShortcut(e, shortcuts.nav_back || 'ctrl+arrowdown') || matchShortcut(e, 'ctrl+down')) {
+    e.preventDefault();
+    e.stopPropagation();
+    handleNavBack();
+    return;
+  }
+
+  // Ctrl+Right — Navigate Into Function (jump into function call definition)
+  if (matchShortcut(e, shortcuts.nav_into_function || 'ctrl+arrowright') || matchShortcut(e, 'ctrl+right')) {
+    e.preventDefault();
+    e.stopPropagation();
+    handleNavIntoFunction();
+    return;
+  }
+
+  // Ctrl+P opens Function Palette
+  if (matchShortcut(e, 'ctrl+p')) {
+    e.preventDefault();
+    e.stopPropagation();
+    openFunctionPalette();
+    return;
+  }
+
+  // Ctrl+O triggers open file dialog
+  if (matchShortcut(e, 'ctrl+o') || matchShortcut(e, shortcuts.open_file || 'ctrl+o')) {
     e.preventDefault();
     e.stopPropagation();
     openFile();
@@ -645,14 +999,6 @@ const handleKeyDown = (e: KeyboardEvent) => {
     return;
   }
 
-  if (matchShortcut(e, shortcuts.move_tab_left || 'alt+arrowleft')) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (currentActiveId.value) {
-      moveToPane(currentActiveId.value, 'left');
-    }
-    return;
-  }
 
   if (matchShortcut(e, shortcuts.format_code || 'ctrl+alt+f')) {
     e.preventDefault();
@@ -681,14 +1027,6 @@ const handleKeyDown = (e: KeyboardEvent) => {
     return;
   }
 
-  if (matchShortcut(e, shortcuts.move_tab_right || 'alt+arrowright')) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (currentActiveId.value) {
-      moveToPane(currentActiveId.value, 'right');
-    }
-    return;
-  }
 
   // Global Search
   if (matchShortcut(e, shortcuts.global_search || 'ctrl+shift+f')) {
@@ -938,6 +1276,7 @@ watch(() => editorSettings.value?.colors, () => {
 
 onMounted(async () => { 
     window.addEventListener('keydown', handleKeyDown, true); 
+    window.addEventListener('mouseup', handleEditorMouseUp, true); 
 
     // Register BOI Script language if not already registered
     if (!monaco.languages.getLanguages().some(lang => lang.id === 'boi-script')) {
@@ -1194,6 +1533,9 @@ onMounted(async () => {
     try {
       const appWindow = getCurrentWebviewWindow();
       const unlistenDrop = await appWindow.onDragDropEvent(async (event) => {
+        // Only process drop if Editor tab is currently active and visible
+        if (!isTabActive()) return;
+
         if (event.payload.type === 'drop') {
           const paths = event.payload.paths;
           if (paths && paths.length > 0) {
@@ -1213,8 +1555,16 @@ let unlistenDropHandler: (() => void) | null = null;
 
 onUnmounted(() => { 
   window.removeEventListener('keydown', handleKeyDown, true); 
+  window.removeEventListener('mouseup', handleEditorMouseUp, true);
   if (unlistenDropHandler) unlistenDropHandler();
 });
+
+const handleContainerDragOver = (e: DragEvent) => {
+  e.preventDefault();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy';
+  }
+};
 
 const handleContainerDrop = async (e: DragEvent) => {
   // If internal tab reordering, let the tab bar handle it
@@ -1246,7 +1596,13 @@ const handleContainerDrop = async (e: DragEvent) => {
 </script>
 
 <template>
-  <div class="editor-tab-container">
+  <div 
+    ref="editorContainerRef" 
+    class="editor-tab-container"
+    @dragover="handleContainerDragOver"
+    @dragenter="handleContainerDragOver"
+    @drop="handleContainerDrop"
+  >
     <div class="activity-bar">
       <div class="activity-item" :class="{ active: activeSidebar === 'explorer' && showExplorer }" 
            @click="handleSidebarClick('explorer')" title="Explorer (Ctrl+Shift+E)">
@@ -1418,9 +1774,79 @@ const handleContainerDrop = async (e: DragEvent) => {
 
     </Teleport>
 
+    <!-- Function Palette Modal -->
+    <Teleport to="body">
+        <transition name="fade">
+            <div v-if="showFunctionPalette" class="palette-backdrop" @click.self="showFunctionPalette = false">
+                <div class="palette-container glass-effect">
+                    <div class="palette-input-wrapper">
+                        <span class="palette-icon fn-symbol">ƒ</span>
+                        <input 
+                            ref="functionPaletteInput"
+                            v-model="functionPaletteQuery" 
+                            class="palette-input" 
+                            placeholder="Tìm kiếm function (@function_name)..." 
+                            autofocus
+                            @keydown="handleFunctionPaletteKeyDown"
+                        />
+                        <span class="palette-count" v-if="functionPaletteResults.length">{{ functionPaletteResults.length }}</span>
+                    </div>
+                    <div v-if="functionPaletteResults.length > 0" class="palette-results">
+                        <div 
+                            v-for="(fn, idx) in functionPaletteResults" 
+                            :key="fn.name + ':' + fn.line" 
+                            class="palette-item"
+                            :class="{ active: idx === functionPaletteSelectedIndex }"
+                            @click="jumpToFunction(fn)"
+                        >
+                            <span class="fn-badge">fn</span>
+                            <div class="file-info">
+                                <div class="file-name fn-name">
+                                  {{ fn.name }}
+                                  <span class="fn-line-tag">Line {{ fn.line }}</span>
+                                </div>
+                                <div class="file-path fn-preview">{{ fn.preview }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="palette-empty">
+                      <span>Không tìm thấy function nào</span>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </Teleport>
+
+    <Teleport to="body">
+      <FunctionUsagesModal
+        :visible="showUsagesModal"
+        :function-name="usagesFunctionName"
+        :usages="usagesList"
+        :selected-index="usagesSelectedIndex"
+        :theme="globalTheme"
+        @select="handleUsageSelect"
+        @confirm="handleUsageConfirm"
+        @close="handleUsageClose"
+      />
+    </Teleport>
+
+    <!-- Editor Toast Notification -->
+    <Teleport to="body">
+      <transition name="toast-fade">
+        <div v-if="editorToast" class="editor-toast glass" :class="[editorToast.type, { 'win95-toast': props.theme === '95' }]">
+          <span class="toast-icon">
+            <span v-if="editorToast.type === 'error' || editorToast.type === 'warn'">⚠️</span>
+            <span v-else-if="editorToast.type === 'success'">✅</span>
+            <span v-else>ℹ️</span>
+          </span>
+          <span class="toast-message">{{ editorToast.message }}</span>
+        </div>
+      </transition>
+    </Teleport>
+
     <div class="editor-main-area"
-         @dragover.prevent
-         @dragenter.prevent
+         @dragover="handleContainerDragOver"
+         @dragenter="handleContainerDragOver"
          @drop="handleContainerDrop">
 
       <div class="editor-view-area" :class="{ 'split-view': showSplit }" @mouseup="handleEditorMouseUp">
@@ -1433,11 +1859,12 @@ const handleContainerDrop = async (e: DragEvent) => {
                @drop="(e) => moveToPane(e.dataTransfer?.getData('text/plain') || '', 'left')">
             <div class="tabs-scroll-area">
               <div v-for="tab in tabsLeft" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdLeft, 'is-diff': tab.isDiff, 'is-temp': tab.isTemp }" 
+                   :title="tab.path || tab.name"
                    @click="currentActiveId = tab.id" @mouseup.middle.prevent="removeTab(tab.id)" @contextmenu.prevent.stop="showTabContextMenu($event, tab)"
-                   @dblclick.stop="tab.isTemp = false"
+                   @dblclick.stop="handleTabDoubleClick(tab)"
                    draggable="true"
                    @dragstart="(e) => e.dataTransfer?.setData('text/plain', tab.id)">
-                <span class="tab-name">{{ tab.name }}</span>
+                <span class="tab-name" :title="tab.path || tab.name">{{ tab.name }}</span>
                 <span class="tab-close" @click.stop="removeTab(tab.id)">&times;</span>
               </div>
             </div>
@@ -1488,11 +1915,12 @@ const handleContainerDrop = async (e: DragEvent) => {
                @drop="(e) => moveToPane(e.dataTransfer?.getData('text/plain') || '', 'right')">
             <div class="tabs-scroll-area">
               <div v-for="tab in tabsRight" :key="tab.id" class="editor-tab" :class="{ active: tab.id === activeTabIdRight, 'is-diff': tab.isDiff, 'is-temp': tab.isTemp }" 
+                   :title="tab.path || tab.name"
                    @click="currentActiveId = tab.id" @mouseup.middle.prevent="removeTab(tab.id)" @contextmenu.prevent.stop="showTabContextMenu($event, tab)"
-                   @dblclick.stop="tab.isTemp = false"
+                   @dblclick.stop="handleTabDoubleClick(tab)"
                    draggable="true"
                    @dragstart="(e) => e.dataTransfer?.setData('text/plain', tab.id)">
-                <span class="tab-name">{{ tab.name }}</span>
+                <span class="tab-name" :title="tab.path || tab.name">{{ tab.name }}</span>
                 <span class="tab-close" @click.stop="removeTab(tab.id)">&times;</span>
               </div>
             </div>
@@ -1645,6 +2073,40 @@ const handleContainerDrop = async (e: DragEvent) => {
   font-style: italic;
   opacity: 0.8;
 }
+
+.fn-symbol { font-family: serif; font-size: 1.2rem; font-weight: bold; color: var(--accent-color); opacity: 0.9; }
+.palette-count { font-size: 0.75rem; opacity: 0.5; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); }
+.fn-badge { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; background: rgba(226, 122, 0, 0.2); color: #e27a00; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(226, 122, 0, 0.4); flex-shrink: 0; }
+.fn-name { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text-color); }
+.fn-line-tag { font-size: 0.65rem; font-weight: 600; opacity: 0.6; color: var(--accent-color); }
+.fn-preview { font-family: monospace; font-size: 0.7rem; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px; }
+.palette-empty { padding: 30px; text-align: center; opacity: 0.5; font-size: 0.85rem; }
+
+/* Editor Toast Notification */
+.editor-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  z-index: 9999;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  background: rgba(24, 24, 37, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  pointer-events: none;
+}
+.editor-toast.success { border-color: #10b981; box-shadow: 0 10px 30px rgba(16, 185, 129, 0.25); }
+.editor-toast.warn, .editor-toast.error { border-color: #f43f5e; box-shadow: 0 10px 30px rgba(244, 63, 94, 0.25); }
+.toast-fade-enter-active, .toast-fade-leave-active { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.toast-fade-enter-from { opacity: 0; transform: translate(-50%, 20px) scale(0.95); }
+.toast-fade-leave-to { opacity: 0; transform: translate(-50%, -10px) scale(0.95); }
 </style>
 
 <style>

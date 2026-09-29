@@ -10,3 +10,4 @@ export * from './composables/useFileSystem';
 export * from './utils/systemControl';
 export * from './utils/security';
 export * from './utils/keyboard';
+export * from './utils/function-navigation';

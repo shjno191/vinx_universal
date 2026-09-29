@@ -35,12 +35,13 @@ export interface Settings {
     close_all_tabs: string;
     prev_tab: string;
     next_tab: string;
-    move_tab_left: string;
-    move_tab_right: string;
     quick_open_tabs: string;
     format_code: string;
     comment_code: string;
     move_to_translate: string;
+    jump_function: string;
+    nav_back: string;
+    nav_into_function: string;
   };
   editor: {
     middleClickClose: boolean;
@@ -89,19 +90,20 @@ export const settings = ref<Settings>({
     focus_search: 'ctrl+f',
     global_search: 'ctrl+shift+f',
     open_settings: 'ctrl+shift+s',
-    open_file: 'ctrl+p',
+    open_file: 'ctrl+o',
     new_tab: 'ctrl+n',
     save_file: 'ctrl+s',
     close_tab: 'ctrl+w',
     close_all_tabs: 'ctrl+shift+w',
     prev_tab: 'ctrl+shift+[',
     next_tab: 'ctrl+shift+]',
-    move_tab_left: 'alt+arrowleft',
-    move_tab_right: 'alt+arrowright',
     quick_open_tabs: 'ctrl+~',
     format_code: 'ctrl+alt+f',
     comment_code: 'ctrl+shift+/',
-    move_to_translate: 'ctrl+t'
+    move_to_translate: 'ctrl+t',
+    jump_function: 'ctrl+arrowup',
+    nav_back: 'ctrl+arrowdown',
+    nav_into_function: 'ctrl+arrowright'
   },
   editor: {
     middleClickClose: true,
@@ -179,7 +181,21 @@ export function useSettings() {
                 c.keyword = '#000080';
             }
         }
-        globalShortcuts.value = settings.value.shortcuts;
+        // Strip deprecated shortcuts before applying to avoid stale key bindings
+        const sanitizedShortcuts = { ...settings.value.shortcuts };
+        delete (sanitizedShortcuts as any).move_tab_left;
+        delete (sanitizedShortcuts as any).move_tab_right;
+
+        // Guard: if prev_tab/next_tab conflict with navigation shortcuts, reset to defaults
+        const navKeys = ['ctrl+arrowleft', 'ctrl+left', 'ctrl+arrowright', 'ctrl+right', 'ctrl+arrowup', 'ctrl+arrowdown'];
+        if (navKeys.includes((sanitizedShortcuts.prev_tab || '').toLowerCase())) {
+          sanitizedShortcuts.prev_tab = 'ctrl+shift+[';
+        }
+        if (navKeys.includes((sanitizedShortcuts.next_tab || '').toLowerCase())) {
+          sanitizedShortcuts.next_tab = 'ctrl+shift+]';
+        }
+
+        globalShortcuts.value = sanitizedShortcuts;
         editorSettings.value = settings.value.editor;
         theme.value = settings.value.theme as 'light' | 'dark' | '95';
         loadingTheme.value = (settings.value.loading_theme || 'cute') as any;
@@ -229,7 +245,10 @@ export function useSettings() {
       }
       
       await invoke('save_settings', { settings: JSON.stringify(settings.value, null, 2) });
-      globalShortcuts.value = settings.value.shortcuts;
+      const sanitizedShortcuts = { ...settings.value.shortcuts };
+      delete (sanitizedShortcuts as any).move_tab_left;
+      delete (sanitizedShortcuts as any).move_tab_right;
+      globalShortcuts.value = sanitizedShortcuts;
       editorSettings.value = settings.value.editor;
       theme.value = settings.value.theme as 'light' | 'dark' | '95';
       loadingTheme.value = (settings.value.loading_theme || 'cute') as any;
@@ -470,7 +489,14 @@ export function useSettings() {
 
   const formatShortcut = (str: string) => {
     if (!str) return 'NOT SET';
-    return str.split('+').map(part => part.trim().toUpperCase()).join(' + ');
+    return str.split('+').map(part => {
+      const u = part.trim().toUpperCase();
+      if (u === 'ARROWUP') return 'UP';
+      if (u === 'ARROWDOWN') return 'DOWN';
+      if (u === 'ARROWLEFT') return 'LEFT';
+      if (u === 'ARROWRIGHT') return 'RIGHT';
+      return u;
+    }).join(' + ');
   };
 
   const handleShortcutKey = (e: KeyboardEvent) => {
@@ -491,7 +517,9 @@ export function useSettings() {
     if (forbidden.includes(k)) return;
 
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
-      if (!isRecording.value.includes('tab')) return;
+      if (!isRecording.value.includes('tab') && 
+          !isRecording.value.includes('jump_function') &&
+          !isRecording.value.includes('nav_')) return;
     }
 
     const parts = [];

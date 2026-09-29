@@ -418,6 +418,45 @@ const zoomOut = () => setZoomCenter(Math.max(zoomLevel.value - 0.25, 0.25));
 const resetZoom = () => setZoomCenter(1);
 
 const hasAnyImage = computed(() => images.value.some(img => img !== null));
+
+const loadDroppedImages = (imageUrls: string[]) => {
+  if (!imageUrls || imageUrls.length === 0) return;
+
+  if (imageUrls.length >= 2) {
+    if (images.value[0]) URL.revokeObjectURL(images.value[0]);
+    if (images.value[1]) URL.revokeObjectURL(images.value[1]);
+    images.value[0] = imageUrls[0];
+    images.value[1] = imageUrls[1];
+    selectedIndices.value = [0, 1];
+    activeSlot.value = 2;
+  } else {
+    let targetIdx = activeSlot.value;
+    if (images.value[targetIdx] !== null) {
+      const emptyIdx = images.value.findIndex(img => img === null);
+      if (emptyIdx !== -1) {
+        targetIdx = emptyIdx;
+      }
+    }
+    if (images.value[targetIdx]) {
+      URL.revokeObjectURL(images.value[targetIdx]!);
+    }
+    images.value[targetIdx] = imageUrls[0];
+    if (lockedBaseIndex.value !== null) {
+      if (targetIdx !== lockedBaseIndex.value && selectedIndices.value.length < 2) {
+        selectedIndices.value[1] = targetIdx;
+      }
+    } else {
+      if (!selectedIndices.value.includes(targetIdx) && selectedIndices.value.length < 2) {
+        selectedIndices.value.push(targetIdx);
+      }
+    }
+    activeSlot.value = (targetIdx + 1) % 4;
+  }
+};
+
+defineExpose({
+  loadDroppedImages
+});
 </script>
 
 <template>

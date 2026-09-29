@@ -12,6 +12,14 @@ export const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
   let k = e.key.toLowerCase();
   if (k === '`' && key === '~') k = '~';
   if (k === '~' && key === '`') k = '`';
+  if (k === 'arrowup' && key === 'up') k = 'up';
+  if (k === 'arrowdown' && key === 'down') k = 'down';
+  if (k === 'arrowleft' && key === 'left') k = 'left';
+  if (k === 'arrowright' && key === 'right') k = 'right';
+  if (k === 'up' && key === 'arrowup') k = 'arrowup';
+  if (k === 'down' && key === 'arrowdown') k = 'arrowdown';
+  if (k === 'left' && key === 'arrowleft') k = 'arrowleft';
+  if (k === 'right' && key === 'arrowright') k = 'arrowright';
   
   return k === key &&
          e.ctrlKey === ctrl &&

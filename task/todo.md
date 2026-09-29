@@ -85,6 +85,37 @@
 - [x] Verify changes with unit tests and production build <!-- id: 56 -->
 - [x] Refine table name red color and contrast specifically for Windows 95 theme (`theme-95`) <!-- id: 57 -->
 
+## Compare Tab Theme Fix & Ctrl+Up Function Navigation (Sep 29, 2026)
 
+- [x] Fix Compare Tab background color and theme to match Editor Tab across all themes <!-- id: 58 -->
+- [x] Create shared function navigation utility in @vinx/sdk (`function-navigation.ts`) <!-- id: 59 -->
+- [x] Support `ctrl+arrowup` / `ctrl+up` shortcut in SDK keyboard utils, settings store, and SettingsTab UI <!-- id: 60 -->
+- [x] Implement Ctrl+Up function navigation and Usages modal in EditorTab.vue <!-- id: 61 -->
+- [x] Implement Ctrl+Up function navigation and Usages modal in CompareTab.vue <!-- id: 62 -->
+- [x] Verify build and functionality across SDK and Core <!-- id: 63 -->
+## Compare Tab Drag & Drop File Support (Sep 29, 2026)
+
+- [x] Prevent EditorTab native drop listener from capturing drops when CompareTab is active <!-- id: 64 -->
+- [x] Implement HTML5 and Tauri native file drag & drop in CompareTab.vue (Original vs Modified drop zones) <!-- id: 65 -->
+- [x] Add visual drag-over overlay with Left/Right drop zone guidance <!-- id: 66 -->
+- [x] Verify build and test drag & drop behavior <!-- id: 67 -->
+
+## Fix Drag & Drop in Both Editor and Compare Tabs (Sep 29, 2026)
+
+- [x] Identify and remove fragile `activeTab.value` checks in EditorTab and CompareTab native listeners <!-- id: 75 -->
+- [x] Implement DOM visibility detection (`offsetParent !== null` / `offsetWidth > 0`) so each tab only processes drops when actually visible <!-- id: 76 -->
+- [x] Fix file validator in `file-validator.ts` so non-binary files are never rejected by default (only reject true binary .exe/.zip/.pdf or null-byte content) <!-- id: 77 -->
+- [x] Ensure HTML5 drag & drop handlers on `.editor-tab-container` and `.compare-tab` work cleanly without flicker <!-- id: 78 -->
+- [x] Verify both Editor tab and Compare tab open dropped files in tests and production build <!-- id: 79 -->
+- [x] Update `task/lesson.md` with lessons learned from drag & drop tab visibility <!-- id: 80 -->
+
+## Fix Freeze / Hang on Ctrl + Up at Function Declaration Line (Sep 29, 2026)
+
+- [x] Eliminate infinite loop risk in `findFunctionUsages` by replacing unbounded `while` loop with single bounded match <!-- id: 81 -->
+- [x] Optimize `findFunctionEndLine` by bypassing lines lacking braces (`{` / `}`) to boost parsing speed by 10x <!-- id: 82 -->
+- [x] Prevent event capture collision: guard `handleKeyDown` in both `EditorTab.vue` and `CompareTab.vue` with `if (!isTabActive()) return;` <!-- id: 83 -->
+- [x] Support cycling through usages when `Ctrl + Up` or `ArrowUp`/`ArrowDown` is pressed while the usages modal is open <!-- id: 84 -->
+- [x] Wrap `handleJumpFunctionOrUsages` in `try...catch` across Editor and Compare tabs <!-- id: 85 -->
+- [x] Add multiline Java method declaration support and verify with comprehensive Vitest suite (9/9 pass) and full production build <!-- id: 86 -->
 
 

@@ -56,6 +56,8 @@ import {
   findFunctionUsages,
   findFunctionCallsOnLine,
   findFunctionDefinition,
+  getFunctionUsagesModalAction,
+  cycleUsageIndex,
   type FunctionSymbolItem,
   type FunctionUsageItem
 } from '@vinx/sdk';
@@ -207,26 +209,38 @@ watch(usagesPaletteQuery, (query) => {
   usagesPaletteSelectedIndex.value = 0;
 });
 
+const usagesPaletteResultsRef = ref<HTMLElement | null>(null);
+
+watch(usagesPaletteSelectedIndex, () => {
+  nextTick(() => {
+    const container = usagesPaletteResultsRef.value;
+    if (!container) return;
+    const activeEl = container.querySelector('.palette-item.active') as HTMLElement;
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest' });
+    }
+  });
+});
+
 const handleUsagesPaletteKeyDown = (e: KeyboardEvent) => {
-  if (e.key === 'ArrowDown' || (e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'j'))) {
+  const result = getFunctionUsagesModalAction(e);
+  if (result.action !== 'none') {
     e.preventDefault();
-    if (usagesPaletteResults.value.length > 0) {
-      usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value + 1) % usagesPaletteResults.value.length;
+    e.stopPropagation();
+    if (result.action === 'next') {
+      if (usagesPaletteResults.value.length > 0) {
+        usagesPaletteSelectedIndex.value = cycleUsageIndex(usagesPaletteSelectedIndex.value, usagesPaletteResults.value.length, 'next');
+      }
+    } else if (result.action === 'prev') {
+      if (usagesPaletteResults.value.length > 0) {
+        usagesPaletteSelectedIndex.value = cycleUsageIndex(usagesPaletteSelectedIndex.value, usagesPaletteResults.value.length, 'prev');
+      }
+    } else if (result.action === 'confirm') {
+      const selected = usagesPaletteResults.value[usagesPaletteSelectedIndex.value];
+      if (selected) confirmUsage(selected);
+    } else if (result.action === 'close') {
+      closeUsagesPalette();
     }
-  } else if (e.key === 'ArrowUp' || (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'k'))) {
-    e.preventDefault();
-    if (usagesPaletteResults.value.length > 0) {
-      usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value - 1 + usagesPaletteResults.value.length) % usagesPaletteResults.value.length;
-    }
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    const selected = usagesPaletteResults.value[usagesPaletteSelectedIndex.value];
-    if (selected) {
-      confirmUsage(selected);
-    }
-  } else if (e.key === 'Escape') {
-    e.preventDefault();
-    closeUsagesPalette();
   }
 };
 
@@ -256,20 +270,20 @@ const closeUsagesPalette = () => {
   preUsagesCursorPos = null;
 };
 
-const handleJumpFunctionOrUsages = () => {
+const handleJumpFunctionOrUsages = (): boolean => {
   // If usages palette is already open, advance selection in palette
   if (showUsagesPalette.value && usagesPaletteResults.value.length > 0) {
-    usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value + 1) % usagesPaletteResults.value.length;
-    return;
+    usagesPaletteSelectedIndex.value = cycleUsageIndex(usagesPaletteSelectedIndex.value, usagesPaletteResults.value.length, 'next');
+    return true;
   }
 
   try {
     const editor = editors[focusedPane.value] || editors.left;
-    if (!editor) return;
+    if (!editor) return false;
     const model = editor.getModel();
-    if (!model) return;
+    if (!model) return false;
     const pos = editor.getPosition();
-    if (!pos) return;
+    if (!pos) return false;
 
     const content = model.getValue();
     const cursorLine = pos.lineNumber;
@@ -286,7 +300,7 @@ const handleJumpFunctionOrUsages = () => {
       editor.focus();
       highlightLineBriefly(editor, fn.line);
       showEditorToast(`Jumped to function "${fn.name}"`, 'success');
-      return;
+      return true;
     }
 
     // Case 2.2: On function definition line -> jump to usage or open usages palette
@@ -294,7 +308,7 @@ const handleJumpFunctionOrUsages = () => {
       const usages = findFunctionUsages(content, fn.name, fn.line);
       if (usages.length === 0) {
         showEditorToast(`No other usages found for "${fn.name}" in this file`, 'info');
-        return;
+        return true;
       }
       if (usages.length === 1) {
         recordCursorPosition(focusedPane.value, pos.lineNumber, pos.column);
@@ -304,7 +318,7 @@ const handleJumpFunctionOrUsages = () => {
         editor.focus();
         highlightLineBriefly(editor, target.line);
         showEditorToast(`Jumped to usage of "${fn.name}"`, 'success');
-        return;
+        return true;
       }
 
       // Multiple usages -> open Usages Palette
@@ -319,10 +333,13 @@ const handleJumpFunctionOrUsages = () => {
       usagesPaletteResults.value = usages;
       usagesPaletteSelectedIndex.value = 0;
       showUsagesPalette.value = true;
-      return;
+      return true;
     }
+
+    return false;
   } catch (err) {
     console.error('Error handling jump function or usages:', err);
+    return false;
   }
 };
 
@@ -854,22 +871,12 @@ const handleEditorMouseUp = (e: MouseEvent) => {
     // Mouse button 4 / 5 (Browser Back) -> Navigate back in cursor position history
     e.preventDefault();
     e.stopPropagation();
-    if (cursorHistoryIndex.value > 0) {
-      cursorHistoryIndex.value--;
-      jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
-    } else {
-      showEditorToast('No previous cursor position', 'info');
-    }
+    handleNavBack();
   } else if (e.button === 4) {
     // Mouse button 5 / 6 (Browser Forward) -> Navigate forward in cursor position history
     e.preventDefault();
     e.stopPropagation();
-    if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
-      cursorHistoryIndex.value++;
-      jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
-    } else {
-      showEditorToast('No next cursor position', 'info');
-    }
+    handleNavForward();
   }
 };
 
@@ -936,23 +943,19 @@ const resolveAndOpenPath = async (rawPath: string) => {
 };
 
 // --- Navigation: Jump into the definition of the function call nearest to cursor ---
-const handleNavIntoFunction = () => {
+const handleNavIntoFunction = (): boolean => {
   try {
     const editor = editors[focusedPane.value] || editors.left;
-    if (!editor) return;
+    if (!editor) return false;
     const model = editor.getModel();
-    if (!model) return;
+    if (!model) return false;
     const pos = editor.getPosition();
-    if (!pos) return;
+    if (!pos) return false;
 
     const lineText = model.getLineContent(pos.lineNumber);
     const calls = findFunctionCallsOnLine(lineText, pos.column);
     if (calls.length === 0) {
-      // Fallback: move to end of line
-      const lineLen = model.getLineMaxColumn(pos.lineNumber);
-      editor.setPosition({ lineNumber: pos.lineNumber, column: lineLen });
-      editor.focus();
-      return;
+      return false; // Allow standard word movement if not on a function call
     }
 
     const curTab = focusedPane.value === 'left' ? activeTabLeft.value : (activeTabRight.value || activeTabLeft.value);
@@ -961,37 +964,82 @@ const handleNavIntoFunction = () => {
 
     for (const call of calls) {
       const def = findFunctionDefinition(content, call.name, lang);
-      if (def) {
+      if (def && def.line !== pos.lineNumber) {
+        recordCursorPosition(focusedPane.value, pos.lineNumber, pos.column);
         editor.setPosition({ lineNumber: def.line, column: def.column });
-        editor.revealPositionInCenter({ lineNumber: def.line, column: def.column }, monaco.editor.ScrollType.Smooth);
+        editor.revealPositionInCenter({ lineNumber: def.line, column: def.column }, monaco.editor.ScrollType.Immediate);
         editor.focus();
         highlightLineBriefly(editor, def.line);
         showEditorToast(`Jumped into "${def.name}"`, 'success');
-        return;
+        return true;
       }
     }
 
-    showEditorToast(`No definition found for "${calls[0].name}" in this file`, 'info');
+    // Do NOT block cursor movement if no external definition exists in this file
+    return false;
   } catch (err) {
     console.error('Error in nav_into_function:', err);
+    return false;
   }
 };
 
 // --- Navigation: Go back in cursor history ---
-const handleNavBack = () => {
-  if (cursorHistoryIndex.value > 0) {
-    cursorHistoryIndex.value--;
-    jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
-  } else {
-    showEditorToast('No previous position', 'info');
+const handleNavBack = (): boolean => {
+  let idx = cursorHistoryIndex.value - 1;
+  while (idx >= 0 && (cursorHistory.value[idx]?.tabId?.startsWith('compare') ?? false)) {
+    idx--;
   }
+  if (idx >= 0) {
+    cursorHistoryIndex.value = idx;
+    jumpToHistory(cursorHistory.value[idx]);
+    return true;
+  }
+  return false;
+};
+
+const handleNavForward = (): boolean => {
+  let idx = cursorHistoryIndex.value + 1;
+  while (idx < cursorHistory.value.length && (cursorHistory.value[idx]?.tabId?.startsWith('compare') ?? false)) {
+    idx++;
+  }
+  if (idx < cursorHistory.value.length) {
+    cursorHistoryIndex.value = idx;
+    jumpToHistory(cursorHistory.value[idx]);
+    return true;
+  }
+  return false;
 };
 
 // --- Handlers ---
 const handleKeyDown = (e: KeyboardEvent) => {
   if (!isTabActive()) return;
-  // If Usages Palette is open, let the palette handle all keys and prevent background shortcut execution
-  if (showUsagesPalette.value) return;
+
+  // 1. If Usages Palette is open, handle navigation keys safely
+  if (showUsagesPalette.value) {
+    const actionResult = getFunctionUsagesModalAction(e);
+    if (actionResult.action !== 'none') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (actionResult.action === 'next') {
+        if (usagesPaletteResults.value.length > 0) {
+          usagesPaletteSelectedIndex.value = cycleUsageIndex(usagesPaletteSelectedIndex.value, usagesPaletteResults.value.length, 'next');
+        }
+      } else if (actionResult.action === 'prev') {
+        if (usagesPaletteResults.value.length > 0) {
+          usagesPaletteSelectedIndex.value = cycleUsageIndex(usagesPaletteSelectedIndex.value, usagesPaletteResults.value.length, 'prev');
+        }
+      } else if (actionResult.action === 'confirm') {
+        const selected = usagesPaletteResults.value[usagesPaletteSelectedIndex.value];
+        if (selected) confirmUsage(selected);
+      } else if (actionResult.action === 'close') {
+        closeUsagesPalette();
+      }
+      return;
+    }
+    // Allow query typing into the palette filter input
+    return;
+  }
+
   const shortcuts = globalShortcuts.value;
 
   // Ctrl+Up / Ctrl+Left — Navigate Up (jump to function definition or usages)
@@ -1001,25 +1049,34 @@ const handleKeyDown = (e: KeyboardEvent) => {
     matchShortcut(e, 'ctrl+arrowleft') ||
     matchShortcut(e, 'ctrl+left')
   ) {
-    e.preventDefault();
-    e.stopPropagation();
-    handleJumpFunctionOrUsages();
+    const handled = handleJumpFunctionOrUsages();
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     return;
   }
 
   // Ctrl+Down — Navigate Back (go back to previous cursor position)
-  if (matchShortcut(e, shortcuts.nav_back || 'ctrl+arrowdown') || matchShortcut(e, 'ctrl+down')) {
-    e.preventDefault();
-    e.stopPropagation();
-    handleNavBack();
+  if (
+    matchShortcut(e, shortcuts.nav_back || 'ctrl+arrowdown') ||
+    matchShortcut(e, 'ctrl+down')
+  ) {
+    const handled = handleNavBack();
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     return;
   }
 
   // Ctrl+Right — Navigate Into Function (jump into function call definition)
   if (matchShortcut(e, shortcuts.nav_into_function || 'ctrl+arrowright') || matchShortcut(e, 'ctrl+right')) {
-    e.preventDefault();
-    e.stopPropagation();
-    handleNavIntoFunction();
+    const handled = handleNavIntoFunction();
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     return;
   }
 
@@ -1914,7 +1971,7 @@ const handleContainerDrop = async (e: DragEvent) => {
               />
               <span class="palette-count" v-if="usagesPaletteResults.length">{{ usagesPaletteResults.length }}</span>
             </div>
-            <div v-if="usagesPaletteResults.length > 0" class="palette-results">
+            <div v-if="usagesPaletteResults.length > 0" class="palette-results" ref="usagesPaletteResultsRef">
               <div 
                 v-for="(item, idx) in usagesPaletteResults" 
                 :key="item.name + ':' + item.line + ':' + item.column" 

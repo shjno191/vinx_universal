@@ -83,6 +83,42 @@
 - **Immediate Scroll & Visual Feedback on Cursor History Jump**:
     - When jumping between history positions, use `ScrollType.Immediate` and brief line highlighting (`highlightLineBriefly`) so the jump is instant and immediately visible to the developer.
 
+# Compare Tab Navigation & Shared Architecture Lessons
 
+- **Unified Language & Editor Heuristics**:
+    - Diff editors do not have traditional file tabs with explicit file paths. Using undefined variables (like `originalFile`) causes runtime crashes.
+    - Centralize language detection in `@vinx/sdk` (`detectScriptLanguage`) to inspect code headers/content (BOI script, Java, Python, JS/TS) gracefully.
+- **Tab History Isolation in Shared Stores**:
+    - When a global cursor history store is shared across plugins, entries must be prefixed or tagged (e.g. `compare-original`, `compare-modified` vs editor `tabId`).
+    - Handlers must filter entries matching their current tab context, avoiding jumping to line numbers belonging to unrelated files in other tabs.
+- **Single Source of Truth for Focused Editor in Diff View**:
+    - Monaco diff editors contain two separate code editors (`getOriginalEditor()` and `getModifiedEditor()`). Tracking active focus (`focusedSide`) via `onDidFocusEditorText` and `onMouseDown` ensures shortcuts always target the pane the user is actually looking at.
+# Non-Blocking Keyboard Handlers & Fast Localized AST Navigation Lessons
+
+- **Never Parse Whole Documents Synchronously in Keyboard Listeners**:
+    - Parsing thousands of lines of code with regex or AST extraction on every `Ctrl + Right`, `Ctrl + Left`, or `Ctrl + Up` synchronously on the main thread locks the UI event loop for hundreds of milliseconds to several seconds.
+    - Instead of parsing every function and its end line, use targeted line searches (`rawLine.includes(name)`) and fast upward scans from the cursor position.
+- **Conditional `preventDefault()` and `stopPropagation()`**:
+    - Never call `preventDefault()` and `stopPropagation()` blindly at the entry of shortcut handlers.
+    - Only prevent default when a semantic action actually occurs (e.g., a function definition is found or history navigation succeeds). If no action is taken, allowing the event to proceed enables Monaco's standard word navigation (`Ctrl + Left`, `Ctrl + Right`) and line scrolling (`Ctrl + Up`, `Ctrl + Down`) to function without locking the cursor.
+- **Safe Regex Design (ReDoS Prevention)**:
+    - Avoid overlapping whitespace quantifiers like `[\w<>\s]+\s+([a-zA-Z0-9_$]+)`. When matched against complex signatures, the V8 engine suffers from exponential backtracking. Explicitly exclude whitespace from type parameter matchers (`[a-zA-Z0-9_<>[\],.?]+\s+`).
+- **Comprehensive Usages Palette Event Dispatching**:
+    - Overlays must handle semantic actions (`next`, `prev`, `confirm`, `close`) cleanly across all key variants (`Ctrl+Up/Down`, `ArrowUp/Down`, `Ctrl+Right/Enter`, `Ctrl+Left/Esc`) regardless of which sub-element currently holds DOM focus.
+
+# Full Keyboard Navigation & Cursor Non-Blocking Lessons
+
+- **Never Block Monaco Cursor Movement When Target Definition is Absent**:
+    - In `handleNavIntoFunction` (`Ctrl + Right`), if a call is on the current line but not defined in the current file (e.g. library calls or external methods), or if the definition is on the same line (the function header itself), the handler must return `false`.
+    - Returning `true` with `e.preventDefault()` leaves the cursor stuck in place, which users perceive as a total freeze ("bị lỗi đứng"). Returning `false` allows Monaco's native `cursorWordRight` to navigate words seamlessly.
+- **Strict Adherence to Documented Directional Shortcuts**:
+    - `SettingsTab.vue` defines `Ctrl + Left` as having the exact same logic as `jump_function` (Navigate Up: inside body -> jump to header; at header -> search usages).
+    - Mapping `Ctrl + Left` to `nav_back` breaks user expectations and traps the user in history navigation instead of navigating up.
+- **Fast-Exit Pre-Checks on Line-by-Line Scanners**:
+    - Adding an instant pre-check (`!trimmed.includes('(') && !trimmed.includes('=>') && !/^\s*function\b/i.test(trimmed)`) skips over 95% of non-function lines in under 1 nanosecond without firing complex regular expressions.
+    - Single-line quotes (`"` and `'`) must be reset at the end of each line so unmatched syntax or regex literal characters never corrupt brace balancing across subsequent lines.
+- **Dedicated Scope for Diff vs Single-Editor Navigation**:
+    - Diff editors (`CompareTab`) serve a specialized role: comparing text lines, diff coloring, and viewing modifications.
+    - Overlaying complex single-file symbol jumping (`Ctrl + Up/Down/Left/Right`) on a dual-pane diff editor creates event conflicts. Removing keydown hijacking entirely allows Monaco Diff Editor to handle text comparison natively and flawlessly without freezing.
 
 

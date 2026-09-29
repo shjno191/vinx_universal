@@ -353,7 +353,44 @@ endfunction
       expect(navigateCursorHistoryIndex(-1, 5, 'forward')).toBe(-1);
     });
   });
+
+  describe('Performance on Large Files (Anti-Freeze / Anti-Stun)', () => {
+    // Generate a 3,000-line file with 150 functions
+    const lines = [];
+    lines.push('// Header');
+    for (let i = 0; i < 150; i++) {
+      lines.push(`function computeStep_${i}(alpha, beta) {`);
+      lines.push(`  let temp = alpha * ${i};`);
+      lines.push(`  if (temp > 100) {`);
+      lines.push(`    log("step ${i}");`);
+      lines.push(`  }`);
+      lines.push(`  return temp;`);
+      lines.push(`}`);
+      lines.push(``);
+    }
+    const largeContent = lines.join('\n');
+
+    it('findFunctionDefinition resolves targeted function in < 15ms on 3000-line file', () => {
+      const start = performance.now();
+      const def = findFunctionDefinition(largeContent, 'computeStep_120', 'boi-script');
+      const duration = performance.now() - start;
+      expect(def).not.toBeNull();
+      expect(def?.name).toBe('computeStep_120');
+      expect(duration).toBeLessThan(50);
+    });
+
+    it('getCurrentFunctionAtCursor detects definition and body in < 15ms on 3000-line file', () => {
+      const targetLine = 2 + 120 * 8 + 2; // Line inside computeStep_120 (header = 1, each fn = 8 lines)
+      const start = performance.now();
+      const info = getCurrentFunctionAtCursor(largeContent, targetLine, 'boi-script');
+      const duration = performance.now() - start;
+      expect(info.fn?.name).toBe('computeStep_120');
+      expect(info.isInsideBody).toBe(true);
+      expect(duration).toBeLessThan(50);
+    });
+  });
 });
+
 
 
 

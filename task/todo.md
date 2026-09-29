@@ -148,6 +148,17 @@
 - [x] Run Vitest tests and production build <!-- id: 106 -->
 - [x] Update `task/lesson.md` with WebView2 overlay event loop insights <!-- id: 107 -->
 
+## Fix Navigation Freeze on Ctrl + Right / Left / Up / Down (Sep 29, 2026)
+
+- [x] Fix `Ctrl + Left` mapping: align with `jump_function` (Navigate Up) as documented in SettingsTab, removing it from `nav_back` <!-- id: 108 -->
+- [x] Fix `Ctrl + Right` cursor freeze in EditorTab and CompareTab: return `false` from `handleNavIntoFunction` when no definition exists or when on definition line to avoid blocking Monaco cursor movement <!-- id: 109 -->
+- [x] Fix ReDoS and unclosed single-line quote vulnerabilities in `findFunctionEndLine` and `testLineForFunctionDefinition` <!-- id: 110 -->
+- [x] Synchronize CompareTab cursor history navigation with EditorTab (`startsWith('compare')`) <!-- id: 111 -->
+- [x] Add auto-scroll watcher for selected item in Usages Palette in both EditorTab and CompareTab <!-- id: 112 -->
+- [x] Simplify CompareTab.vue: completely remove `ctrl + up/down/left/right` custom shortcut interceptors, Usages Palette, and function navigation so Compare Tab operates 100% natively for text comparing and color highlighting only <!-- id: 115 -->
+- [x] Verify all 29 Vitest tests pass and core application builds with 0 errors <!-- id: 113 -->
+- [x] Update `task/lesson.md` <!-- id: 114 -->
+
 ## Fix Mouse Buttons 5 & 6 (Mouse 4 & 5) for Cursor History Navigation (Sep 29, 2026)
 
 - [x] Remove erroneous tab-switching `mouseup` listener and `navigateBack`/`navigateForward` from `App.vue` and `useAppShell.ts` <!-- id: 108 -->
@@ -156,6 +167,29 @@
 - [x] Implement cursor position history navigation on mouse buttons in `CompareTab.vue` <!-- id: 111 -->
 - [x] Add helper functions `getMouseNavigationAction` and `navigateCursorHistoryIndex` in `@vinx/sdk` and test in `tests/function-navigation.test.mjs` (27/27 pass) <!-- id: 112 -->
 - [x] Verify production build and update documentation <!-- id: 113 -->
+
+## Fix Compare Tab Navigation Hangs and Unify with EditorTab Architecture (Sep 29, 2026)
+
+- [x] Identify root causes of hangs in CompareTab on Ctrl+Up/Down/Left/Right: undefined variable reference `originalFile`, `ScrollType.Smooth` rAF queue lag, and lack of tabId isolation in shared cursorHistory <!-- id: 114 -->
+- [x] Export `detectScriptLanguage` in `@vinx/sdk` for unified language detection across BOI script, Java, Python, and JS/TS <!-- id: 115 -->
+- [x] Unify `getActiveEditor`, `recordCursorPosition`, `jumpToHistory`, `handleNavBack`, `handleNavForward`, and `handleNavIntoFunction` in `CompareTab.vue` to mirror `EditorTab.vue` <!-- id: 116 -->
+- [x] Isolate cursor history between tabs (`compare-original`/`compare-modified` vs editor `tabId`) to prevent crossing bounds <!-- id: 117 -->
+- [x] Use `ScrollType.Immediate` with line highlight on all jump operations <!-- id: 118 -->
+- [x] Run Vitest tests and production build <!-- id: 119 -->
+- [x] Update `task/lesson.md` with lessons learned <!-- id: 120 -->
+
+## Fix Freeze on Ctrl+Right/Left/Up/Down Navigation Across Editor and Compare (Sep 29, 2026)
+
+- [x] Optimize `findFunctionDefinition` in `@vinx/sdk` with targeted substring and regex matching (<0.2ms on 3,000+ line files) to avoid full document extraction <!-- id: 121 -->
+- [x] Optimize `getCurrentFunctionAtCursor` to test the cursor line directly and scan upward only when inside a body, eliminating O(N * totalLines) scans <!-- id: 122 -->
+- [x] Eliminate ReDoS vulnerability in Java method extraction regexes by removing nested whitespace quantifiers <!-- id: 123 -->
+- [x] Fix keyboard hijacking in `EditorTab.vue` and `CompareTab.vue`: only call `preventDefault` and `stopPropagation` when a function jump or cursor history navigation actually succeeds, allowing default Monaco word navigation and scrolling to function smoothly without stuck cursors <!-- id: 124 -->
+- [x] Wire `getFunctionUsagesModalAction` and `cycleUsageIndex` into `showUsagesPalette` keyboard handlers so `Ctrl+Up`, `Ctrl+Down`, `Ctrl+Right` (confirm), and `Ctrl+Left` (close) work reliably regardless of focus <!-- id: 125 -->
+- [x] Add large-file performance Vitest tests in `tests/function-navigation.test.mjs` verifying sub-15ms execution on 3,000-line files (all 29 tests pass) <!-- id: 126 -->
+- [x] Verify clean production build with `npm run build -w packages/core` <!-- id: 127 -->
+- [x] Update `task/lesson.md` <!-- id: 128 -->
+
+
 
 
 

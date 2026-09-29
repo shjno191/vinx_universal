@@ -118,4 +118,44 @@
 - [x] Wrap `handleJumpFunctionOrUsages` in `try...catch` across Editor and Compare tabs <!-- id: 85 -->
 - [x] Add multiline Java method declaration support and verify with comprehensive Vitest suite (9/9 pass) and full production build <!-- id: 86 -->
 
+## Fix Function Usages Modal (>2 usages), Next/Prev Tab Shortcuts, and Restore Settings (Sep 29, 2026)
+
+- [x] Fix `matchShortcut` in `packages/sdk/src/utils/keyboard.ts` for Shift + bracket (`[` / `{` and `]` / `}`) and key code variations <!-- id: 87 -->
+- [x] Fix container-only scroll in `FunctionUsagesModal.vue` without `scrollIntoView()` affecting body/window layout <!-- id: 88 -->
+- [x] Fix modal keydown cycling: Ctrl+Up / ArrowDown goes forward, ArrowUp goes backward, Ctrl+Down / Esc cancels, Enter / Ctrl+Right confirms <!-- id: 89 -->
+- [x] Save pre-modal cursor position and restore on modal cancel/close in EditorTab and CompareTab <!-- id: 90 -->
+- [x] Restore `mouseNavHistory` setting card, tabHistory, and mouse back/forward button handlers <!-- id: 91 -->
+- [x] Verify test suite and build across SDK and Core <!-- id: 92 -->
+- [x] Update `task/lesson.md` with lessons learned <!-- id: 93 -->
+
+## Fix Usages Modal Freeze / Stun On Function Navigation (Sep 29, 2026)
+
+- [x] Write Vitest unit tests for `getFunctionUsagesModalAction` and `cycleUsageIndex` in `tests/function-navigation.test.mjs` <!-- id: 94 -->
+- [x] Implement `getFunctionUsagesModalAction` and `cycleUsageIndex` in `packages/sdk/src/utils/function-navigation.ts` <!-- id: 95 -->
+- [x] Guard `handleKeyDown` in `EditorTab.vue` and `CompareTab.vue` when `showUsagesModal.value` is true so shortcuts do not steal keys or execute background commands <!-- id: 96 -->
+- [x] Switch `jumpToUsagePreview` and `handleUsageClose` from `ScrollType.Smooth` to `ScrollType.Immediate` to eliminate animation lag <!-- id: 97 -->
+- [x] Update `FunctionUsagesModal.vue` in Editor and Compare plugins with `tabindex="-1"`, auto-focus, close button, and bulletproof key handling <!-- id: 98 -->
+- [x] Run test suite and production build to verify zero regressions <!-- id: 99 -->
+- [x] Update `task/lesson.md` <!-- id: 100 -->
+
+## Permanently Replace Usages Modal with Non-Blocking Palette (Sep 29, 2026)
+
+- [x] Analyze root cause of freeze: WebView2 compositor deadlock between fixed div overlay capture listener and Monaco canvas focus <!-- id: 101 -->
+- [x] Replace `FunctionUsagesModal` with native `<input>`-based `showUsagesPalette` in `EditorTab.vue` (matching proven `FunctionPalette` architecture) <!-- id: 102 -->
+- [x] Replace `FunctionUsagesModal` with native `<input>`-based `showUsagesPalette` in `CompareTab.vue` <!-- id: 103 -->
+- [x] Use `ScrollType.Immediate` for cursor navigation to eliminate rAF queue backlog <!-- id: 104 -->
+- [x] Add real-time query filter and keyboard navigation (ArrowUp, ArrowDown, Ctrl+j, Ctrl+k, Enter, Esc) <!-- id: 105 -->
+- [x] Run Vitest tests and production build <!-- id: 106 -->
+- [x] Update `task/lesson.md` with WebView2 overlay event loop insights <!-- id: 107 -->
+
+## Fix Mouse Buttons 5 & 6 (Mouse 4 & 5) for Cursor History Navigation (Sep 29, 2026)
+
+- [x] Remove erroneous tab-switching `mouseup` listener and `navigateBack`/`navigateForward` from `App.vue` and `useAppShell.ts` <!-- id: 108 -->
+- [x] Implement cursor position history navigation on mouse button 3 (Back / Mouse 4/5) and button 4 (Forward / Mouse 5/6) in `EditorTab.vue` <!-- id: 109 -->
+- [x] Add `mousedown` preventDefault to prevent browser/WebView2 default back/forward navigation <!-- id: 110 -->
+- [x] Implement cursor position history navigation on mouse buttons in `CompareTab.vue` <!-- id: 111 -->
+- [x] Add helper functions `getMouseNavigationAction` and `navigateCursorHistoryIndex` in `@vinx/sdk` and test in `tests/function-navigation.test.mjs` (27/27 pass) <!-- id: 112 -->
+- [x] Verify production build and update documentation <!-- id: 113 -->
+
+
 

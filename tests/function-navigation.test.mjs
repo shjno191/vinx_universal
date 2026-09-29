@@ -5,7 +5,11 @@ import {
   getCurrentFunctionAtCursor,
   findFunctionCallsOnLine,
   findFunctionDefinition,
-  matchShortcut
+  matchShortcut,
+  getFunctionUsagesModalAction,
+  cycleUsageIndex,
+  getMouseNavigationAction,
+  navigateCursorHistoryIndex
 } from '../packages/sdk/src/index.ts';
 
 describe('Function Navigation Utility', () => {
@@ -212,5 +216,144 @@ endfunction
 
     expect(findFunctionDefinition(code, 'nonExistent', 'javascript')).toBeNull();
   });
+
+  it('matches shortcuts including shift brackets and arrow variations', () => {
+    // When Shift is pressed with [, e.key is '{' and e.code is 'BracketLeft'
+    const shiftBracketLeft = { key: '{', code: 'BracketLeft', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false };
+    expect(matchShortcut(shiftBracketLeft, 'ctrl+shift+[')).toBe(true);
+
+    const shiftBracketRight = { key: '}', code: 'BracketRight', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false };
+    expect(matchShortcut(shiftBracketRight, 'ctrl+shift+]')).toBe(true);
+
+    // Ctrl+Up with ArrowUp or Up
+    const ctrlArrowUp = { key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true, shiftKey: false, altKey: false, metaKey: false };
+    expect(matchShortcut(ctrlArrowUp, 'ctrl+arrowup')).toBe(true);
+    expect(matchShortcut(ctrlArrowUp, 'ctrl+up')).toBe(true);
+
+    const ctrlUpLegacy = { key: 'Up', code: 'ArrowUp', ctrlKey: true, shiftKey: false, altKey: false, metaKey: false };
+    expect(matchShortcut(ctrlUpLegacy, 'ctrl+arrowup')).toBe(true);
+    expect(matchShortcut(ctrlUpLegacy, 'ctrl+up')).toBe(true);
+  });
+
+  describe('Usages Modal Index Cycler and Action Dispatcher', () => {
+    it('cycles usage indices correctly for 2 usages (e.g. outputErrorCsv)', () => {
+      // 2 usages total (index 0 and index 1)
+      expect(cycleUsageIndex(0, 2, 'next')).toBe(1);
+      expect(cycleUsageIndex(1, 2, 'next')).toBe(0); // wraps around
+      expect(cycleUsageIndex(0, 2, 'prev')).toBe(1); // wraps around
+      expect(cycleUsageIndex(1, 2, 'prev')).toBe(0);
+    });
+
+    it('cycles usage indices correctly for 3 or more usages', () => {
+      expect(cycleUsageIndex(0, 3, 'next')).toBe(1);
+      expect(cycleUsageIndex(1, 3, 'next')).toBe(2);
+      expect(cycleUsageIndex(2, 3, 'next')).toBe(0); // wraps around
+      expect(cycleUsageIndex(0, 3, 'prev')).toBe(2); // wraps around
+    });
+
+    it('handles empty or single usage edge cases in cycler', () => {
+      expect(cycleUsageIndex(0, 0, 'next')).toBe(0);
+      expect(cycleUsageIndex(0, 1, 'next')).toBe(0);
+      expect(cycleUsageIndex(0, 1, 'prev')).toBe(0);
+    });
+
+    it('dispatches "next" action on ArrowDown and Ctrl+Down/ArrowDown', () => {
+      const down = getFunctionUsagesModalAction({ key: 'ArrowDown', code: 'ArrowDown' });
+      expect(down.action).toBe('next');
+      expect(down.preventDefault).toBe(true);
+      expect(down.stopPropagation).toBe(true);
+
+      const ctrlDown = getFunctionUsagesModalAction({ key: 'ArrowDown', code: 'ArrowDown', ctrlKey: true });
+      expect(ctrlDown.action).toBe('next');
+      expect(ctrlDown.preventDefault).toBe(true);
+
+      const legacyDown = getFunctionUsagesModalAction({ key: 'Down' });
+      expect(legacyDown.action).toBe('next');
+    });
+
+    it('dispatches "prev" action on ArrowUp and Ctrl+Up/ArrowUp', () => {
+      const up = getFunctionUsagesModalAction({ key: 'ArrowUp', code: 'ArrowUp' });
+      expect(up.action).toBe('prev');
+      expect(up.preventDefault).toBe(true);
+      expect(up.stopPropagation).toBe(true);
+
+      const ctrlUp = getFunctionUsagesModalAction({ key: 'ArrowUp', code: 'ArrowUp', ctrlKey: true });
+      expect(ctrlUp.action).toBe('prev');
+      expect(ctrlUp.preventDefault).toBe(true);
+
+      const legacyUp = getFunctionUsagesModalAction({ key: 'Up' });
+      expect(legacyUp.action).toBe('prev');
+    });
+
+    it('dispatches "confirm" action on Enter, NumpadEnter, Space, and Ctrl+Right', () => {
+      const enter = getFunctionUsagesModalAction({ key: 'Enter', code: 'Enter' });
+      expect(enter.action).toBe('confirm');
+      expect(enter.preventDefault).toBe(true);
+
+      const numpadEnter = getFunctionUsagesModalAction({ key: 'Enter', code: 'NumpadEnter' });
+      expect(numpadEnter.action).toBe('confirm');
+
+      const space = getFunctionUsagesModalAction({ key: ' ' });
+      expect(space.action).toBe('confirm');
+
+      const ctrlRight = getFunctionUsagesModalAction({ key: 'ArrowRight', code: 'ArrowRight', ctrlKey: true });
+      expect(ctrlRight.action).toBe('confirm');
+    });
+
+    it('dispatches "close" action on Escape and Ctrl+Left', () => {
+      const esc = getFunctionUsagesModalAction({ key: 'Escape', code: 'Escape' });
+      expect(esc.action).toBe('close');
+      expect(esc.preventDefault).toBe(true);
+      expect(esc.stopPropagation).toBe(true);
+
+      const ctrlLeft = getFunctionUsagesModalAction({ key: 'ArrowLeft', code: 'ArrowLeft', ctrlKey: true });
+      expect(ctrlLeft.action).toBe('close');
+    });
+
+    it('blocks typing and shortcuts from leaking into background editor', () => {
+      const letterA = getFunctionUsagesModalAction({ key: 'a' });
+      expect(letterA.action).toBe('none');
+      expect(letterA.stopPropagation).toBe(true);
+
+      const ctrlS = getFunctionUsagesModalAction({ key: 's', ctrlKey: true });
+      expect(ctrlS.action).toBe('none');
+      expect(ctrlS.stopPropagation).toBe(true);
+    });
+  });
+
+  describe('Mouse Navigation Actions (Buttons 3 & 4 / Mouse 4, 5, 6)', () => {
+    it('maps button 3 to "back" and button 4 to "forward"', () => {
+      expect(getMouseNavigationAction(3)).toBe('back');
+      expect(getMouseNavigationAction(4)).toBe('forward');
+    });
+
+    it('returns "none" for left, right, middle, or unhandled mouse buttons', () => {
+      expect(getMouseNavigationAction(0)).toBe('none');
+      expect(getMouseNavigationAction(1)).toBe('none');
+      expect(getMouseNavigationAction(2)).toBe('none');
+      expect(getMouseNavigationAction(5)).toBe('none');
+    });
+
+    it('returns "none" when mouse navigation is disabled in settings', () => {
+      expect(getMouseNavigationAction(3, false)).toBe('none');
+      expect(getMouseNavigationAction(4, false)).toBe('none');
+    });
+
+    it('correctly calculates backwards movement in cursor history', () => {
+      expect(navigateCursorHistoryIndex(2, 5, 'back')).toBe(1);
+      expect(navigateCursorHistoryIndex(1, 5, 'back')).toBe(0);
+      expect(navigateCursorHistoryIndex(0, 5, 'back')).toBe(-1); // At start, cannot go back further
+      expect(navigateCursorHistoryIndex(-1, 5, 'back')).toBe(-1);
+    });
+
+    it('correctly calculates forwards movement in cursor history', () => {
+      expect(navigateCursorHistoryIndex(0, 5, 'forward')).toBe(1);
+      expect(navigateCursorHistoryIndex(3, 5, 'forward')).toBe(4);
+      expect(navigateCursorHistoryIndex(4, 5, 'forward')).toBe(-1); // At end, cannot go forward further
+      expect(navigateCursorHistoryIndex(-1, 5, 'forward')).toBe(-1);
+    });
+  });
 });
+
+
 

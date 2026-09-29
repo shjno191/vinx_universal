@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import type { FunctionUsageItem } from '@vinx/sdk';
+import { 
+  type FunctionUsageItem, 
+  getFunctionUsagesModalAction, 
+  cycleUsageIndex 
+} from '@vinx/sdk';
 
 const props = defineProps<{
   visible: boolean;
@@ -17,13 +21,20 @@ const emit = defineEmits<{
 }>();
 
 const listContainerRef = ref<HTMLElement | null>(null);
+const modalContainerRef = ref<HTMLElement | null>(null);
 
 const scrollActiveItemIntoView = () => {
   nextTick(() => {
-    if (!listContainerRef.value) return;
-    const activeEl = listContainerRef.value.querySelector('.usage-item.active') as HTMLElement;
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: 'nearest' });
+    const container = listContainerRef.value;
+    if (!container) return;
+    const activeEl = container.querySelector('.usage-item.active') as HTMLElement;
+    if (!activeEl) return;
+    const elRect = activeEl.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    if (elRect.top < cRect.top) {
+      container.scrollTop -= (cRect.top - elRect.top);
+    } else if (elRect.bottom > cRect.bottom) {
+      container.scrollTop += (elRect.bottom - cRect.bottom);
     }
   });
 };
@@ -34,45 +45,42 @@ watch(() => props.selectedIndex, () => {
 
 watch(() => props.visible, (val) => {
   if (val) {
-    scrollActiveItemIntoView();
+    nextTick(() => {
+      modalContainerRef.value?.focus();
+      scrollActiveItemIntoView();
+    });
   }
 });
 
 const handleKeyDown = (e: KeyboardEvent) => {
   if (!props.visible || props.usages.length === 0) return;
 
-  const isUp = e.key === 'ArrowUp' || (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowLeft'));
-  const isDown = e.key === 'ArrowDown' || (e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'ArrowRight'));
+  const result = getFunctionUsagesModalAction(e);
+  if (result.preventDefault) e.preventDefault();
+  if (result.stopPropagation) e.stopPropagation();
 
-  if (isDown) {
-    e.preventDefault();
-    e.stopPropagation();
-    const nextIdx = (props.selectedIndex + 1) % props.usages.length;
+  if (result.action === 'next') {
+    const nextIdx = cycleUsageIndex(props.selectedIndex, props.usages.length, 'next');
     emit('select', props.usages[nextIdx], nextIdx);
-  } else if (isUp) {
-    e.preventDefault();
-    e.stopPropagation();
-    const prevIdx = (props.selectedIndex - 1 + props.usages.length) % props.usages.length;
+  } else if (result.action === 'prev') {
+    const prevIdx = cycleUsageIndex(props.selectedIndex, props.usages.length, 'prev');
     emit('select', props.usages[prevIdx], prevIdx);
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    e.stopPropagation();
+  } else if (result.action === 'confirm') {
     const chosen = props.usages[props.selectedIndex] || props.usages[0];
-    if (chosen) {
-      emit('confirm', chosen);
-    }
-  } else if (e.key === 'Escape') {
-    e.preventDefault();
-    e.stopPropagation();
+    if (chosen) emit('confirm', chosen);
+  } else if (result.action === 'close') {
     emit('close');
-  } else if (e.ctrlKey) {
-    // Block all other Ctrl combos from leaking to editor while modal is open
-    e.stopPropagation();
   }
 };
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown, true);
+  if (props.visible) {
+    nextTick(() => {
+      modalContainerRef.value?.focus();
+      scrollActiveItemIntoView();
+    });
+  }
 });
 
 onUnmounted(() => {
@@ -86,19 +94,39 @@ const handleItemClick = (item: FunctionUsageItem, idx: number) => {
 </script>
 
 <template>
-  <div v-if="visible" class="usages-modal-backdrop" @mousedown.self="emit('close')" :class="{ win95: theme === '95' }">
-    <div class="usages-modal-container">
+  <div
+    v-if="visible"
+    class="usages-modal-backdrop"
+    @mousedown.self="emit('close')"
+    @click.self="emit('close')"
+    :class="{ win95: theme === '95' }"
+  >
+    <div
+      ref="modalContainerRef"
+      class="usages-modal-container"
+      tabindex="-1"
+    >
       <header class="usages-header">
         <div class="header-left">
           <span class="usages-title">Usages of <strong class="fn-highlight">{{ functionName }}</strong></span>
           <span class="usages-count-badge">{{ usages.length }}</span>
         </div>
-        <div class="header-hint">
-          <span>&uarr;&darr; / Ctrl+&uarr;&darr; Preview</span>
-          <span class="dot">&bull;</span>
-          <span>Enter Choose</span>
-          <span class="dot">&bull;</span>
-          <span>Esc Close</span>
+        <div class="header-right">
+          <div class="header-hint">
+            <span>&uarr;&darr; / Ctrl+&uarr;&darr; Preview</span>
+            <span class="dot">&bull;</span>
+            <span>Enter Choose</span>
+            <span class="dot">&bull;</span>
+            <span>Esc Close</span>
+          </div>
+          <button
+            class="close-btn"
+            type="button"
+            @click.stop="emit('close')"
+            title="Close (Esc)"
+          >
+            &times;
+          </button>
         </div>
       </header>
 
@@ -109,6 +137,7 @@ const handleItemClick = (item: FunctionUsageItem, idx: number) => {
           class="usage-item"
           :class="{ active: idx === selectedIndex }"
           @click="handleItemClick(item, idx)"
+          @dblclick="handleItemClick(item, idx)"
         >
           <span class="line-badge">Line {{ item.line }}</span>
           <span class="preview-text" :title="item.preview">{{ item.preview }}</span>
@@ -145,6 +174,7 @@ const handleItemClick = (item: FunctionUsageItem, idx: number) => {
   flex-direction: column;
   overflow: hidden;
   animation: slideDown 0.15s ease-out;
+  outline: none;
 }
 
 @keyframes slideDown {
@@ -171,6 +201,34 @@ const handleItemClick = (item: FunctionUsageItem, idx: number) => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0.6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.close-btn:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
 }
 
 .usages-title {
@@ -288,5 +346,16 @@ const handleItemClick = (item: FunctionUsageItem, idx: number) => {
 .win95 .usage-item.active .line-badge,
 .win95 .usage-item.active .preview-text {
   color: #fff;
+}
+.win95 .close-btn {
+  background: #c0c0c0;
+  border: 2px outset #fff;
+  color: #000;
+  font-weight: bold;
+  font-size: 0.85rem;
+  padding: 0 4px;
+}
+.win95 .close-btn:active {
+  border: 2px inset #fff;
 }
 </style>

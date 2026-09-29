@@ -375,3 +375,105 @@ export function findFunctionDefinition(
   const fns = extractFunctionsFromContent(content, lang);
   return fns.find(f => f.name === funcName) || null;
 }
+
+export type UsagesModalAction = 'next' | 'prev' | 'confirm' | 'close' | 'none';
+
+export interface UsagesModalActionResult {
+  action: UsagesModalAction;
+  preventDefault: boolean;
+  stopPropagation: boolean;
+}
+
+/**
+ * Normalizes keyboard events received by FunctionUsagesModal and maps them to clean semantic actions.
+ * 
+ * Supported keys:
+ * - ArrowDown / Down / Ctrl+ArrowDown / Ctrl+Down -> 'next' (cycle to next usage)
+ * - ArrowUp / Up / Ctrl+ArrowUp / Ctrl+Up -> 'prev' (cycle to previous usage)
+ * - Enter / NumpadEnter / Ctrl+Right / Space -> 'confirm' (choose selected usage)
+ * - Escape / Ctrl+Left -> 'close' (cancel and restore cursor position)
+ * - Any other key (letter, ctrl-combo) -> 'none' with stopPropagation to isolate modal from editor
+ */
+export function getFunctionUsagesModalAction(e: {
+  key?: string;
+  code?: string;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+}): UsagesModalActionResult {
+  const k = (e.key || '').toLowerCase();
+  const code = e.code || '';
+  const isUp = k === 'arrowup' || k === 'up' || code === 'ArrowUp';
+  const isDown = k === 'arrowdown' || k === 'down' || code === 'ArrowDown';
+  const isLeft = k === 'arrowleft' || k === 'left' || code === 'ArrowLeft';
+  const isRight = k === 'arrowright' || k === 'right' || code === 'ArrowRight';
+  const isEnter = k === 'enter' || code === 'Enter' || code === 'NumpadEnter';
+  const isEscape = k === 'escape' || code === 'Escape';
+
+  // Navigation: Down / Next
+  if (isDown || (e.ctrlKey && isDown)) {
+    return { action: 'next', preventDefault: true, stopPropagation: true };
+  }
+
+  // Navigation: Up / Prev
+  if (isUp || (e.ctrlKey && isUp)) {
+    return { action: 'prev', preventDefault: true, stopPropagation: true };
+  }
+
+  // Confirm: Enter, NumpadEnter, Ctrl+Right, or bare Space
+  if (isEnter || (e.ctrlKey && isRight) || (k === ' ' && !e.ctrlKey && !e.altKey)) {
+    return { action: 'confirm', preventDefault: true, stopPropagation: true };
+  }
+
+  // Close / Cancel: Escape or Ctrl+Left
+  if (isEscape || (e.ctrlKey && isLeft)) {
+    return { action: 'close', preventDefault: true, stopPropagation: true };
+  }
+
+  // Prevent background editor from typing or triggering hotkeys while modal is open
+  const shouldBlock = Boolean(e.ctrlKey || e.altKey || (k && k.length === 1));
+  return { action: 'none', preventDefault: false, stopPropagation: shouldBlock };
+}
+
+/**
+ * Calculates the next or previous index in a circular list of usages.
+ */
+export function cycleUsageIndex(currentIndex: number, total: number, direction: 'next' | 'prev'): number {
+  if (total <= 0) return 0;
+  if (direction === 'next') {
+    return (currentIndex + 1) % total;
+  }
+  return (currentIndex - 1 + total) % total;
+}
+
+export type MouseNavigationAction = 'back' | 'forward' | 'none';
+
+/**
+ * Maps standard browser mouse button numbers to cursor history navigation actions.
+ * button 3: Fourth button (Browser Back, Mouse 4 / 5)
+ * button 4: Fifth button (Browser Forward, Mouse 5 / 6)
+ */
+export function getMouseNavigationAction(button: number, enabled: boolean = true): MouseNavigationAction {
+  if (!enabled) return 'none';
+  if (button === 3) return 'back';
+  if (button === 4) return 'forward';
+  return 'none';
+}
+
+/**
+ * Calculates new cursor history index based on navigation action.
+ * Returns -1 if no movement is possible.
+ */
+export function navigateCursorHistoryIndex(currentIndex: number, totalLength: number, action: 'back' | 'forward'): number {
+  if (action === 'back') {
+    if (currentIndex > 0) return currentIndex - 1;
+    return -1;
+  }
+  if (action === 'forward') {
+    if (currentIndex >= 0 && currentIndex < totalLength - 1) return currentIndex + 1;
+    return -1;
+  }
+  return -1;
+}
+
+

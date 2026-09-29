@@ -9,17 +9,27 @@ export const matchShortcut = (e: KeyboardEvent, shortcutStr: string) => {
   const shift = parts.includes('shift');
   const alt = parts.includes('alt');
   const meta = parts.includes('meta');
-  let k = e.key.toLowerCase();
+  let k = e.key ? e.key.toLowerCase() : '';
   if (k === '`' && key === '~') k = '~';
   if (k === '~' && key === '`') k = '`';
-  if (k === 'arrowup' && key === 'up') k = 'up';
-  if (k === 'arrowdown' && key === 'down') k = 'down';
-  if (k === 'arrowleft' && key === 'left') k = 'left';
-  if (k === 'arrowright' && key === 'right') k = 'right';
-  if (k === 'up' && key === 'arrowup') k = 'arrowup';
-  if (k === 'down' && key === 'arrowdown') k = 'arrowdown';
-  if (k === 'left' && key === 'arrowleft') k = 'arrowleft';
-  if (k === 'right' && key === 'arrowright') k = 'arrowright';
+  if ((key === '[' || key === '{') && (k === '[' || k === '{' || e.code === 'BracketLeft')) {
+    k = key;
+  }
+  if ((key === ']' || key === '}') && (k === ']' || k === '}' || e.code === 'BracketRight')) {
+    k = key;
+  }
+  if ((key === 'arrowup' || key === 'up') && (k === 'arrowup' || k === 'up' || e.code === 'ArrowUp')) {
+    k = key;
+  }
+  if ((key === 'arrowdown' || key === 'down') && (k === 'arrowdown' || k === 'down' || e.code === 'ArrowDown')) {
+    k = key;
+  }
+  if ((key === 'arrowleft' || key === 'left') && (k === 'arrowleft' || k === 'left' || e.code === 'ArrowLeft')) {
+    k = key;
+  }
+  if ((key === 'arrowright' || key === 'right') && (k === 'arrowright' || k === 'right' || e.code === 'ArrowRight')) {
+    k = key;
+  }
   
   return k === key &&
          e.ctrlKey === ctrl &&

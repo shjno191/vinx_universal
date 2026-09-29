@@ -29,7 +29,6 @@ import ExplorerNode from './components/ExplorerNode.vue';
 import ExplorerContextMenu from './components/ExplorerContextMenu.vue';
 import TabContextMenu from './components/TabContextMenu.vue';
 import GitSelectionModal from './components/GitSelectionModal.vue';
-import FunctionUsagesModal from './components/FunctionUsagesModal.vue';
 import { 
   projectRootPath, 
   theme as globalTheme, 
@@ -149,12 +148,15 @@ const functionPaletteSelectedIndex = ref(0);
 const functionPaletteInput = ref<HTMLInputElement | null>(null);
 const allCurrentFileFunctions = ref<FunctionSymbolItem[]>([]);
 
-// --- Function Usages Modal state & handlers ---
-const showUsagesModal = ref(false);
-const usagesFunctionName = ref('');
-const usagesList = ref<FunctionUsageItem[]>([]);
-const usagesSelectedIndex = ref(0);
-const usagesEditorInstance = ref<any>(null);
+// --- Function Usages Palette state & handlers ---
+const showUsagesPalette = ref(false);
+const usagesPaletteQuery = ref('');
+const usagesPaletteResults = ref<FunctionUsageItem[]>([]);
+const usagesPaletteSelectedIndex = ref(0);
+const usagesPaletteInput = ref<HTMLInputElement | null>(null);
+const allCurrentUsages = ref<FunctionUsageItem[]>([]);
+const currentUsageFunctionName = ref('');
+let preUsagesCursorPos: { pane: 'left' | 'right'; line: number; column: number } | null = null;
 
 const editorToast = ref<{ message: string; type: string } | null>(null);
 let editorToastTimer: any = null;
@@ -167,31 +169,97 @@ const showEditorToast = (message: string, type: 'info' | 'success' | 'warn' | 'e
 };
 
 const highlightLineBriefly = (editor: any, lineNumber: number) => {
-  const model = editor?.getModel();
-  if (!model) return;
-  const range = new monaco.Range(lineNumber, 1, lineNumber, 1);
-  const oldDecs = model.deltaDecorations([], [
-    { range, options: { isWholeLine: true, className: 'custom-jump-highlight' } }
-  ]);
-  setTimeout(() => {
-    try { model.deltaDecorations(oldDecs, []); } catch (_) {}
-  }, 1200);
+  try {
+    const model = editor?.getModel();
+    if (!model) return;
+    const range = new monaco.Range(lineNumber, 1, lineNumber, 1);
+    const oldDecs = model.deltaDecorations([], [
+      { range, options: { isWholeLine: true, className: 'custom-jump-highlight' } }
+    ]);
+    setTimeout(() => {
+      try { model.deltaDecorations(oldDecs, []); } catch (_) {}
+    }, 1200);
+  } catch (err) {
+    console.warn('highlightLineBriefly failed:', err);
+  }
 };
 
-const jumpToUsagePreview = (u: FunctionUsageItem, ed?: any) => {
-  const editor = ed || usagesEditorInstance.value || editors[focusedPane.value] || editors.left;
+watch(showUsagesPalette, (val) => {
+  if (val) {
+    nextTick(() => {
+      if (usagesPaletteInput.value) {
+        usagesPaletteInput.value.focus();
+        usagesPaletteInput.value.select();
+      }
+    });
+  }
+});
+
+watch(usagesPaletteQuery, (query) => {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    usagesPaletteResults.value = allCurrentUsages.value;
+  } else {
+    usagesPaletteResults.value = allCurrentUsages.value.filter(u => 
+      u.preview.toLowerCase().includes(q) || String(u.line).includes(q)
+    );
+  }
+  usagesPaletteSelectedIndex.value = 0;
+});
+
+const handleUsagesPaletteKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'ArrowDown' || (e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'j'))) {
+    e.preventDefault();
+    if (usagesPaletteResults.value.length > 0) {
+      usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value + 1) % usagesPaletteResults.value.length;
+    }
+  } else if (e.key === 'ArrowUp' || (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'k'))) {
+    e.preventDefault();
+    if (usagesPaletteResults.value.length > 0) {
+      usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value - 1 + usagesPaletteResults.value.length) % usagesPaletteResults.value.length;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const selected = usagesPaletteResults.value[usagesPaletteSelectedIndex.value];
+    if (selected) {
+      confirmUsage(selected);
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeUsagesPalette();
+  }
+};
+
+const confirmUsage = (u: FunctionUsageItem) => {
+  showUsagesPalette.value = false;
+  const editor = editors[focusedPane.value] || editors.left;
   if (!editor || !u) return;
+  if (preUsagesCursorPos) {
+    recordCursorPosition(preUsagesCursorPos.pane, preUsagesCursorPos.line, preUsagesCursorPos.column);
+    preUsagesCursorPos = null;
+  }
   editor.setPosition({ lineNumber: u.line, column: u.column });
-  editor.revealPositionInCenter({ lineNumber: u.line, column: u.column }, monaco.editor.ScrollType.Smooth);
+  editor.revealPositionInCenter({ lineNumber: u.line, column: u.column }, monaco.editor.ScrollType.Immediate);
+  editor.focus();
   highlightLineBriefly(editor, u.line);
+  showEditorToast(`Jumped to usage of "${u.name}" at Line ${u.line}`, 'success');
+};
+
+const closeUsagesPalette = () => {
+  showUsagesPalette.value = false;
+  const editor = editors[focusedPane.value] || editors.left;
+  if (editor && preUsagesCursorPos) {
+    editor.setPosition({ lineNumber: preUsagesCursorPos.line, column: preUsagesCursorPos.column });
+    editor.revealPositionInCenter({ lineNumber: preUsagesCursorPos.line, column: preUsagesCursorPos.column }, monaco.editor.ScrollType.Immediate);
+    editor.focus();
+  }
+  preUsagesCursorPos = null;
 };
 
 const handleJumpFunctionOrUsages = () => {
-  // If usages modal is already open, advance selection in modal
-  if (showUsagesModal.value && usagesList.value.length > 0) {
-    const nextIdx = (usagesSelectedIndex.value + 1) % usagesList.value.length;
-    usagesSelectedIndex.value = nextIdx;
-    jumpToUsagePreview(usagesList.value[nextIdx]);
+  // If usages palette is already open, advance selection in palette
+  if (showUsagesPalette.value && usagesPaletteResults.value.length > 0) {
+    usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value + 1) % usagesPaletteResults.value.length;
     return;
   }
 
@@ -212,15 +280,16 @@ const handleJumpFunctionOrUsages = () => {
 
     // Case 2.1: Inside function body -> jump to function definition line
     if (isInsideBody && fn) {
+      recordCursorPosition(focusedPane.value, pos.lineNumber, pos.column);
       editor.setPosition({ lineNumber: fn.line, column: fn.column });
-      editor.revealPositionInCenter({ lineNumber: fn.line, column: fn.column }, monaco.editor.ScrollType.Smooth);
+      editor.revealPositionInCenter({ lineNumber: fn.line, column: fn.column }, monaco.editor.ScrollType.Immediate);
       editor.focus();
       highlightLineBriefly(editor, fn.line);
       showEditorToast(`Jumped to function "${fn.name}"`, 'success');
       return;
     }
 
-    // Case 2.2: On function definition line -> jump to usage or open usages modal
+    // Case 2.2: On function definition line -> jump to usage or open usages palette
     if (isAtDefinition && fn) {
       const usages = findFunctionUsages(content, fn.name, fn.line);
       if (usages.length === 0) {
@@ -228,45 +297,33 @@ const handleJumpFunctionOrUsages = () => {
         return;
       }
       if (usages.length === 1) {
+        recordCursorPosition(focusedPane.value, pos.lineNumber, pos.column);
         const target = usages[0];
         editor.setPosition({ lineNumber: target.line, column: target.column });
-        editor.revealPositionInCenter({ lineNumber: target.line, column: target.column }, monaco.editor.ScrollType.Smooth);
+        editor.revealPositionInCenter({ lineNumber: target.line, column: target.column }, monaco.editor.ScrollType.Immediate);
         editor.focus();
         highlightLineBriefly(editor, target.line);
         showEditorToast(`Jumped to usage of "${fn.name}"`, 'success');
         return;
       }
 
-      // Multiple usages -> show modal
-      usagesFunctionName.value = fn.name;
-      usagesList.value = usages;
-      usagesSelectedIndex.value = 0;
-      usagesEditorInstance.value = editor;
-      showUsagesModal.value = true;
-      jumpToUsagePreview(usages[0], editor);
+      // Multiple usages -> open Usages Palette
+      preUsagesCursorPos = {
+        pane: focusedPane.value,
+        line: pos.lineNumber,
+        column: pos.column
+      };
+      currentUsageFunctionName.value = fn.name;
+      allCurrentUsages.value = usages;
+      usagesPaletteQuery.value = '';
+      usagesPaletteResults.value = usages;
+      usagesPaletteSelectedIndex.value = 0;
+      showUsagesPalette.value = true;
       return;
     }
   } catch (err) {
     console.error('Error handling jump function or usages:', err);
   }
-};
-
-const handleUsageSelect = (item: FunctionUsageItem, idx: number) => {
-  usagesSelectedIndex.value = idx;
-  jumpToUsagePreview(item);
-};
-
-const handleUsageConfirm = (item: FunctionUsageItem) => {
-  jumpToUsagePreview(item);
-  showUsagesModal.value = false;
-  const editor = usagesEditorInstance.value || editors[focusedPane.value] || editors.left;
-  editor?.focus();
-};
-
-const handleUsageClose = () => {
-  showUsagesModal.value = false;
-  const editor = usagesEditorInstance.value || editors[focusedPane.value] || editors.left;
-  editor?.focus();
 };
 
 const openFunctionPalette = () => {
@@ -685,7 +742,7 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   });
 
   editor.onDidChangeCursorPosition((e: any) => {
-    if (isNavigatingCursorHistory) return;
+    if (isNavigatingCursorHistory || isPreviewingUsage) return;
     const tabId = pane === 'left' ? activeTabIdLeft.value : activeTabIdRight.value;
     const newPos = { tabId, line: e.position.lineNumber, column: e.position.column };
     const current = cursorHistory.value[cursorHistoryIndex.value];
@@ -772,27 +829,46 @@ const jumpToHistory = (pos: any) => {
     const editor = editors[targetPane];
     if (editor) {
       editor.setPosition({ lineNumber: pos.line, column: pos.column });
-      editor.revealPositionInCenter({ lineNumber: pos.line, column: pos.column }, monaco.editor.ScrollType.Smooth);
+      editor.revealPositionInCenter({ lineNumber: pos.line, column: pos.column }, monaco.editor.ScrollType.Immediate);
       editor.focus();
+      highlightLineBriefly(editor, pos.line);
     }
     setTimeout(() => { isNavigatingCursorHistory = false; }, 100);
   });
 };
 
+const handleEditorMouseDown = (e: MouseEvent) => {
+  // Prevent browser default back/forward navigation in WebView2 when clicking mouse buttons 3/4
+  if (e.button === 3 || e.button === 4) {
+    if (editorSettings.value?.mouseNavHistory ?? true) {
+      e.preventDefault();
+    }
+  }
+};
+
 const handleEditorMouseUp = (e: MouseEvent) => {
+  if (editorSettings.value?.mouseNavHistory === false) return;
+  if (!isTabActive()) return;
+
   if (e.button === 3) {
+    // Mouse button 4 / 5 (Browser Back) -> Navigate back in cursor position history
     e.preventDefault();
     e.stopPropagation();
     if (cursorHistoryIndex.value > 0) {
       cursorHistoryIndex.value--;
       jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
+    } else {
+      showEditorToast('No previous cursor position', 'info');
     }
   } else if (e.button === 4) {
+    // Mouse button 5 / 6 (Browser Forward) -> Navigate forward in cursor position history
     e.preventDefault();
     e.stopPropagation();
     if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
       cursorHistoryIndex.value++;
       jumpToHistory(cursorHistory.value[cursorHistoryIndex.value]);
+    } else {
+      showEditorToast('No next cursor position', 'info');
     }
   }
 };
@@ -914,6 +990,8 @@ const handleNavBack = () => {
 // --- Handlers ---
 const handleKeyDown = (e: KeyboardEvent) => {
   if (!isTabActive()) return;
+  // If Usages Palette is open, let the palette handle all keys and prevent background shortcut execution
+  if (showUsagesPalette.value) return;
   const shortcuts = globalShortcuts.value;
 
   // Ctrl+Up / Ctrl+Left — Navigate Up (jump to function definition or usages)
@@ -1276,6 +1354,7 @@ watch(() => editorSettings.value?.colors, () => {
 
 onMounted(async () => { 
     window.addEventListener('keydown', handleKeyDown, true); 
+    window.addEventListener('mousedown', handleEditorMouseDown, true);
     window.addEventListener('mouseup', handleEditorMouseUp, true); 
 
     // Register BOI Script language if not already registered
@@ -1555,6 +1634,7 @@ let unlistenDropHandler: (() => void) | null = null;
 
 onUnmounted(() => { 
   window.removeEventListener('keydown', handleKeyDown, true); 
+  window.removeEventListener('mousedown', handleEditorMouseDown, true);
   window.removeEventListener('mouseup', handleEditorMouseUp, true);
   if (unlistenDropHandler) unlistenDropHandler();
 });
@@ -1817,17 +1897,47 @@ const handleContainerDrop = async (e: DragEvent) => {
         </transition>
     </Teleport>
 
+    <!-- Function Usages Palette -->
     <Teleport to="body">
-      <FunctionUsagesModal
-        :visible="showUsagesModal"
-        :function-name="usagesFunctionName"
-        :usages="usagesList"
-        :selected-index="usagesSelectedIndex"
-        :theme="globalTheme"
-        @select="handleUsageSelect"
-        @confirm="handleUsageConfirm"
-        @close="handleUsageClose"
-      />
+      <transition name="fade">
+        <div v-if="showUsagesPalette" class="palette-backdrop" @click.self="closeUsagesPalette">
+          <div class="palette-container glass-effect">
+            <div class="palette-input-wrapper">
+              <span class="palette-icon usages-symbol">⤾</span>
+              <input 
+                ref="usagesPaletteInput"
+                v-model="usagesPaletteQuery" 
+                class="palette-input" 
+                :placeholder="`Usages of ${currentUsageFunctionName} (${usagesPaletteResults.length} found)...`" 
+                autofocus
+                @keydown="handleUsagesPaletteKeyDown"
+              />
+              <span class="palette-count" v-if="usagesPaletteResults.length">{{ usagesPaletteResults.length }}</span>
+            </div>
+            <div v-if="usagesPaletteResults.length > 0" class="palette-results">
+              <div 
+                v-for="(item, idx) in usagesPaletteResults" 
+                :key="item.name + ':' + item.line + ':' + item.column" 
+                class="palette-item"
+                :class="{ active: idx === usagesPaletteSelectedIndex }"
+                @click="confirmUsage(item)"
+              >
+                <span class="fn-badge usage-badge">Line {{ item.line }}</span>
+                <div class="file-info">
+                  <div class="file-name usage-name">
+                    {{ item.name }}
+                    <span class="fn-line-tag">Col {{ item.column }}</span>
+                  </div>
+                  <div class="file-path fn-preview">{{ item.preview }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="palette-empty">
+              <span>Không tìm thấy usage nào</span>
+            </div>
+          </div>
+        </div>
+      </transition>
     </Teleport>
 
     <!-- Editor Toast Notification -->
@@ -2107,6 +2217,11 @@ const handleContainerDrop = async (e: DragEvent) => {
 .toast-fade-enter-active, .toast-fade-leave-active { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
 .toast-fade-enter-from { opacity: 0; transform: translate(-50%, 20px) scale(0.95); }
 .toast-fade-leave-to { opacity: 0; transform: translate(-50%, -10px) scale(0.95); }
+
+/* Usages Palette Styling */
+.usages-symbol { font-size: 1.2rem; color: var(--accent-color); font-weight: bold; }
+.usage-badge { background: var(--accent-color); color: white; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; font-family: monospace; flex-shrink: 0; }
+.usage-name { font-family: monospace; font-size: 0.8rem; }
 </style>
 
 <style>

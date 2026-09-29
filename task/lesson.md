@@ -46,3 +46,43 @@
     - Every plugin tab must verify `if (!isTabActive()) return;` at the very start of its keydown handler; otherwise a background tab will intercept shortcuts, call `e.stopPropagation()`, and prevent the active tab from responding.
 - **Prevent Action Conflicts When Usages Modal is Open**:
     - When the usages modal is already active, pressing `Ctrl + Up` again or `ArrowUp`/`ArrowDown` should smoothly cycle to the next/previous usage inside the modal instead of re-triggering definition detection on the temporarily previewed cursor position.
+
+# Modal Scrolling & Shortcut Normalization Lessons
+
+- **Never Use `scrollIntoView()` on Elements in Teleported Modals**:
+    - In SPAs and Tauri windows with fixed full-height viewports (`overflow: hidden; height: 100vh;`), calling `element.scrollIntoView()` causes the browser to scroll `document.body` and `window`, shifting the entire app frame off-screen and breaking click hitboxes (appearing as if the app is "stunned" or frozen).
+    - Always scroll the inner container directly using `container.scrollTop` calculations based on `element.offsetTop` and `element.offsetHeight`.
+- **KeyboardEvent Shift Key Discrepancies**:
+    - On standard keyboards, pressing `Shift` changes key values (`[` -> `{`, `]` -> `}`).
+    - A shortcut defined as `ctrl+shift+[` will fail if `e.key` (`"{"`) is strictly compared against `"["`.
+    - Always normalize bracket keys (`key === '[' || key === '{'`) against both `e.key` and `e.code === 'BracketLeft'` / `'BracketRight'`.
+- **Preserve User Settings and Avoid Collateral Removals**:
+    - Never delete existing setting cards (like `mouseNavHistory`) or strip settings properties during refactoring.
+    - Always isolate fixes to requested features and preserve existing history management.
+
+# Usages Modal Freeze / Stun Root Cause & Permanent Solution (Usages Palette)
+
+- **Root Cause of App Stun / Freeze with Modal Overlays**:
+    - In Tauri WebView2 on Windows, fixed-overlay modal dialogs with capturing key listeners (`window.addEventListener('keydown', ..., true)`) and uneditable focus targets (`div tabindex="-1"`) create an input-compositor deadlock with Monaco Editor's hidden GPU/canvas `<textarea>`.
+    - When focus is wrestled between Monaco's input area and an uneditable modal `div`, WebView2 freezes the input event queue on key/click events, resulting in the app becoming completely frozen / stunned ("đứng app").
+- **The Permanent Replacement: Non-Blocking Native `<input>` Palette**:
+    - The Command Palette / Function Palette pattern (`showFunctionPalette`) NEVER freezes because it contains a real HTML `<input ref="..." autofocus>` element with a local `@keydown` handler.
+    - Browsers and WebView2 give native, uninterrupted focus to real input elements without deadlocking the compositor.
+    - Replacing the modal with an input-based Usages Palette (`showUsagesPalette`) eliminates the freeze completely while providing real-time text/line filtering, immediate jump preview, and full keyboard navigation (`ArrowUp`/`ArrowDown`, `Ctrl+j`/`Ctrl+k`, `Enter`, `Escape`).
+- **Always Use `ScrollType.Immediate` for Keyboard Navigation**:
+    - Never use `monaco.editor.ScrollType.Smooth` for cycling usages or jump previews. Smooth scrolling enqueues multiple requestAnimationFrame interpolations that bottleneck the event loop. Always use `monaco.editor.ScrollType.Immediate`.
+
+# Mouse Buttons 5 & 6 (Mouse 4 & 5) Cursor History Navigation Lessons
+
+- **Never Hijack Mouse Buttons for Top-Level Tab Switching**:
+    - Mouse buttons 3 and 4 (standard Mouse 4 / 5, often called buttons 5 and 6) in code editors are universally expected to navigate cursor position history (nav_back and nav_forward), similar to Alt+Left / Alt+Right.
+    - Capturing mouseup on the global window in `App.vue` to switch top-level tabs (`currentTab`) breaks the expected editor behavior and frustrates users.
+- **Prevent WebView2 Native Back/Forward on Mousedown**:
+    - Windows WebView2 / Chromium binds mouse buttons 3 and 4 to browser session history navigation (`history.back()`).
+    - Adding `e.preventDefault()` on `mousedown` with `{ capture: true }` prevents Chromium's native shell from triggering browser back/forward, allowing `mouseup` to smoothly trigger editor `jumpToHistory`.
+- **Immediate Scroll & Visual Feedback on Cursor History Jump**:
+    - When jumping between history positions, use `ScrollType.Immediate` and brief line highlighting (`highlightLineBriefly`) so the jump is instant and immediately visible to the developer.
+
+
+
+

@@ -364,6 +364,17 @@ watch(showSettingsTrigger, (val) => {
            </div>
 
 
+           <div class="feature-card glass" :class="{ active: settings.editor.mouseNavHistory }" @click="settings.editor.mouseNavHistory = !settings.editor.mouseNavHistory; saveSettings()">
+              <div class="feature-icon" v-html="Icons.ArrowLeft"></div>
+              <div class="feature-info">
+                 <span class="feature-name">Mouse Navigation</span>
+                 <span class="feature-hint">Nút hông chuột Back/Forward</span>
+              </div>
+              <div class="feature-toggle">
+                 <div class="toggle-track"><div class="toggle-thumb"></div></div>
+              </div>
+           </div>
+
            <div class="feature-card glass" :class="{ active: settings.editor.renderWhitespace }" @click="settings.editor.renderWhitespace = !settings.editor.renderWhitespace; saveSettings()">
               <div class="feature-icon" v-html="Icons.Eye"></div>
               <div class="feature-info">

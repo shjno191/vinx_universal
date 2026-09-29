@@ -22,7 +22,6 @@ import {
   type FunctionUsageItem
 } from '@vinx/sdk';
 import ImageCompare from './ImageCompare.vue';
-import FunctionUsagesModal from './FunctionUsagesModal.vue';
 import { 
   validateDroppedFile, 
   isBinaryContent 
@@ -178,39 +177,104 @@ const currentOptions = computed(() => ({
   theme: activeCompareTheme.value,
 }));
 
-// --- Function Navigation & Usages Modal State ---
-const showUsagesModal = ref(false);
-const usagesFunctionName = ref('');
-const usagesList = ref<FunctionUsageItem[]>([]);
-const usagesSelectedIndex = ref(0);
+// --- Function Navigation & Usages Palette State ---
+const showUsagesPalette = ref(false);
+const usagesPaletteQuery = ref('');
+const usagesPaletteResults = ref<FunctionUsageItem[]>([]);
+const usagesPaletteSelectedIndex = ref(0);
+const usagesPaletteInput = ref<HTMLInputElement | null>(null);
+const allCurrentUsagesCompare = ref<FunctionUsageItem[]>([]);
+const currentUsageFunctionNameCompare = ref('');
+let preUsagesCursorPosCompare: { line: number; column: number } | null = null;
 const usagesEditorInstance = ref<any>(null);
 
 const highlightLineBriefly = (editor: any, lineNumber: number) => {
-  const model = editor?.getModel();
-  if (!model) return;
-  const range = new monaco.Range(lineNumber, 1, lineNumber, 1);
-  const oldDecs = model.deltaDecorations([], [
-    { range, options: { isWholeLine: true, className: 'custom-jump-highlight' } }
-  ]);
-  setTimeout(() => {
-    try { model.deltaDecorations(oldDecs, []); } catch (_) {}
-  }, 1200);
+  try {
+    const model = editor?.getModel();
+    if (!model) return;
+    const range = new monaco.Range(lineNumber, 1, lineNumber, 1);
+    const oldDecs = model.deltaDecorations([], [
+      { range, options: { isWholeLine: true, className: 'custom-jump-highlight' } }
+    ]);
+    setTimeout(() => {
+      try { model.deltaDecorations(oldDecs, []); } catch (_) {}
+    }, 1200);
+  } catch (err) {
+    console.warn('highlightLineBriefly failed:', err);
+  }
 };
 
-const jumpToUsagePreview = (u: FunctionUsageItem, ed?: any) => {
-  const editor = ed || usagesEditorInstance.value;
-  if (!editor || !u) return;
-  editor.setPosition({ lineNumber: u.line, column: u.column });
-  editor.revealPositionInCenter({ lineNumber: u.line, column: u.column }, monaco.editor.ScrollType.Smooth);
-  highlightLineBriefly(editor, u.line);
+watch(showUsagesPalette, (val) => {
+  if (val) {
+    nextTick(() => {
+      if (usagesPaletteInput.value) {
+        usagesPaletteInput.value.focus();
+        usagesPaletteInput.value.select();
+      }
+    });
+  }
+});
+
+watch(usagesPaletteQuery, (query) => {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    usagesPaletteResults.value = allCurrentUsagesCompare.value;
+  } else {
+    usagesPaletteResults.value = allCurrentUsagesCompare.value.filter(u => 
+      u.preview.toLowerCase().includes(q) || String(u.line).includes(q)
+    );
+  }
+  usagesPaletteSelectedIndex.value = 0;
+});
+
+const handleUsagesPaletteKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'ArrowDown' || (e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'j'))) {
+    e.preventDefault();
+    if (usagesPaletteResults.value.length > 0) {
+      usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value + 1) % usagesPaletteResults.value.length;
+    }
+  } else if (e.key === 'ArrowUp' || (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'k'))) {
+    e.preventDefault();
+    if (usagesPaletteResults.value.length > 0) {
+      usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value - 1 + usagesPaletteResults.value.length) % usagesPaletteResults.value.length;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const selected = usagesPaletteResults.value[usagesPaletteSelectedIndex.value];
+    if (selected) {
+      confirmUsageCompare(selected);
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeUsagesPaletteCompare();
+  }
+};
+
+const confirmUsageCompare = (u: FunctionUsageItem) => {
+  showUsagesPalette.value = false;
+  if (!usagesEditorInstance.value || !u) return;
+  usagesEditorInstance.value.setPosition({ lineNumber: u.line, column: u.column });
+  usagesEditorInstance.value.revealPositionInCenter({ lineNumber: u.line, column: u.column }, monaco.editor.ScrollType.Immediate);
+  usagesEditorInstance.value.focus();
+  highlightLineBriefly(usagesEditorInstance.value, u.line);
+  preUsagesCursorPosCompare = null;
+  showToast(`Jumped to usage of "${u.name}" at Line ${u.line}`, 'success');
+};
+
+const closeUsagesPaletteCompare = () => {
+  showUsagesPalette.value = false;
+  if (usagesEditorInstance.value && preUsagesCursorPosCompare) {
+    usagesEditorInstance.value.setPosition({ lineNumber: preUsagesCursorPosCompare.line, column: preUsagesCursorPosCompare.column });
+    usagesEditorInstance.value.revealPositionInCenter({ lineNumber: preUsagesCursorPosCompare.line, column: preUsagesCursorPosCompare.column }, monaco.editor.ScrollType.Immediate);
+    usagesEditorInstance.value.focus();
+  }
+  preUsagesCursorPosCompare = null;
 };
 
 const handleJumpFunctionOrUsages = () => {
-  // If usages modal is already open, advance selection in modal
-  if (showUsagesModal.value && usagesList.value.length > 0) {
-    const nextIdx = (usagesSelectedIndex.value + 1) % usagesList.value.length;
-    usagesSelectedIndex.value = nextIdx;
-    jumpToUsagePreview(usagesList.value[nextIdx]);
+  // If usages palette is already open, advance selection in palette
+  if (showUsagesPalette.value && usagesPaletteResults.value.length > 0) {
+    usagesPaletteSelectedIndex.value = (usagesPaletteSelectedIndex.value + 1) % usagesPaletteResults.value.length;
     return;
   }
 
@@ -243,7 +307,7 @@ const handleJumpFunctionOrUsages = () => {
     // Case 2.1: Inside function body -> jump to definition line
     if (isInsideBody && fn) {
       targetEditor.setPosition({ lineNumber: fn.line, column: fn.column });
-      targetEditor.revealPositionInCenter({ lineNumber: fn.line, column: fn.column }, monaco.editor.ScrollType.Smooth);
+      targetEditor.revealPositionInCenter({ lineNumber: fn.line, column: fn.column }, monaco.editor.ScrollType.Immediate);
       targetEditor.focus();
       highlightLineBriefly(targetEditor, fn.line);
       showToast(`Jumped to function "${fn.name}"`, 'success');
@@ -260,20 +324,22 @@ const handleJumpFunctionOrUsages = () => {
       if (usages.length === 1) {
         const u = usages[0];
         targetEditor.setPosition({ lineNumber: u.line, column: u.column });
-        targetEditor.revealPositionInCenter({ lineNumber: u.line, column: u.column }, monaco.editor.ScrollType.Smooth);
+        targetEditor.revealPositionInCenter({ lineNumber: u.line, column: u.column }, monaco.editor.ScrollType.Immediate);
         targetEditor.focus();
         highlightLineBriefly(targetEditor, u.line);
         showToast(`Jumped to usage of "${fn.name}"`, 'success');
         return;
       }
 
-      // Multiple usages -> open modal
-      usagesFunctionName.value = fn.name;
-      usagesList.value = usages;
-      usagesSelectedIndex.value = 0;
+      // Multiple usages -> open Usages Palette
+      preUsagesCursorPosCompare = { line: pos.lineNumber, column: pos.column };
+      currentUsageFunctionNameCompare.value = fn.name;
+      allCurrentUsagesCompare.value = usages;
+      usagesPaletteQuery.value = '';
+      usagesPaletteResults.value = usages;
+      usagesPaletteSelectedIndex.value = 0;
       usagesEditorInstance.value = targetEditor;
-      showUsagesModal.value = true;
-      jumpToUsagePreview(usages[0], targetEditor);
+      showUsagesPalette.value = true;
       return;
     }
   } catch (err) {
@@ -281,23 +347,7 @@ const handleJumpFunctionOrUsages = () => {
   }
 };
 
-const handleUsageSelect = (item: FunctionUsageItem, idx: number) => {
-  usagesSelectedIndex.value = idx;
-  jumpToUsagePreview(item);
-};
-
-const handleUsageConfirm = (item: FunctionUsageItem) => {
-  jumpToUsagePreview(item);
-  showUsagesModal.value = false;
-  usagesEditorInstance.value?.focus();
-};
-
-const handleUsageClose = () => {
-  showUsagesModal.value = false;
-  usagesEditorInstance.value?.focus();
-};
-
-// --- Compare: cursor history for nav_back ---
+// --- Compare: cursor history for nav_back / nav_forward ---
 let isNavigatingHistory = false;
 
 const jumpToHistoryInCompare = (pos: any) => {
@@ -308,8 +358,9 @@ const jumpToHistoryInCompare = (pos: any) => {
   const editor = modified || original;
   if (editor) {
     editor.setPosition({ lineNumber: pos.line, column: pos.column });
-    editor.revealPositionInCenter({ lineNumber: pos.line, column: pos.column }, monaco.editor.ScrollType.Smooth);
+    editor.revealPositionInCenter({ lineNumber: pos.line, column: pos.column }, monaco.editor.ScrollType.Immediate);
     editor.focus();
+    highlightLineBriefly(editor, pos.line);
   }
   setTimeout(() => { isNavigatingHistory = false; }, 100);
 };
@@ -319,9 +370,72 @@ const handleNavBackCompare = () => {
     cursorHistoryIndex.value--;
     jumpToHistoryInCompare(cursorHistory.value[cursorHistoryIndex.value]);
   } else {
-    showToast('No previous position', 'info');
+    showToast('No previous cursor position', 'info');
   }
 };
+
+const handleNavForwardCompare = () => {
+  if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
+    cursorHistoryIndex.value++;
+    jumpToHistoryInCompare(cursorHistory.value[cursorHistoryIndex.value]);
+  } else {
+    showToast('No next cursor position', 'info');
+  }
+};
+
+const handleCompareMouseDown = (e: MouseEvent) => {
+  if (e.button === 3 || e.button === 4) {
+    if (editorSettings.value?.mouseNavHistory ?? true) {
+      e.preventDefault();
+    }
+  }
+};
+
+const handleCompareMouseUp = (e: MouseEvent) => {
+  if (editorSettings.value?.mouseNavHistory === false) return;
+  if (!isTabActive()) return;
+  if (activeMode.value !== 'text') return;
+
+  if (e.button === 3) {
+    // Mouse button 4 / 5 (Browser Back) -> Navigate back in cursor position history
+    e.preventDefault();
+    e.stopPropagation();
+    handleNavBackCompare();
+  } else if (e.button === 4) {
+    // Mouse button 5 / 6 (Browser Forward) -> Navigate forward in cursor position history
+    e.preventDefault();
+    e.stopPropagation();
+    handleNavForwardCompare();
+  }
+};
+
+const recordCursorPositionCompare = (line: number, column: number) => {
+  if (isNavigatingHistory) return;
+  const current = cursorHistory.value[cursorHistoryIndex.value];
+  if (current && current.tabId === 'compare' && current.line === line && current.column === column) return;
+
+  if (cursorHistoryIndex.value < cursorHistory.value.length - 1) {
+    cursorHistory.value = cursorHistory.value.slice(0, cursorHistoryIndex.value + 1);
+  }
+  cursorHistory.value.push({ tabId: 'compare', line, column });
+  if (cursorHistory.value.length > 100) cursorHistory.value.shift();
+  cursorHistoryIndex.value = cursorHistory.value.length - 1;
+};
+
+watch(diffEditorRef, (editor) => {
+  if (!editor) return;
+  const original = editor.getOriginalEditor?.();
+  const modified = editor.getModifiedEditor?.();
+  [original, modified].forEach(ed => {
+    if (!ed) return;
+    ed.onDidChangeCursorPosition?.((e: any) => {
+      if (isNavigatingHistory) return;
+      const current = cursorHistory.value[cursorHistoryIndex.value];
+      if (current && current.tabId === 'compare' && current.line === e.position.lineNumber) return;
+      recordCursorPositionCompare(e.position.lineNumber, e.position.column);
+    });
+  });
+});
 
 const handleNavIntoFunctionCompare = () => {
   try {
@@ -371,6 +485,8 @@ const handleNavIntoFunctionCompare = () => {
 
 const handleKeyDown = (e: KeyboardEvent) => {
   if (!isTabActive()) return;
+  // If Usages Palette is open, let the palette handle all keys and prevent background shortcut execution
+  if (showUsagesPalette.value) return;
   if (activeMode.value !== 'text') return;
   const shortcuts = globalShortcuts.value;
 
@@ -647,6 +763,8 @@ const handleTauriDrop = async (paths: string[], clientX?: number) => {
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyDown, true);
+  window.addEventListener('mousedown', handleCompareMouseDown, true);
+  window.addEventListener('mouseup', handleCompareMouseUp, true);
 
   // Listen for Tauri native file drag & drop events
   try {
@@ -685,6 +803,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown, true);
+  window.removeEventListener('mousedown', handleCompareMouseDown, true);
+  window.removeEventListener('mouseup', handleCompareMouseUp, true);
   if (unlistenDropHandler) unlistenDropHandler();
   if (toastTimer) clearTimeout(toastTimer);
 });
@@ -781,17 +901,47 @@ onUnmounted(() => {
       </div>
     </main>
 
+    <!-- Function Usages Palette -->
     <Teleport to="body">
-      <FunctionUsagesModal
-        :visible="showUsagesModal"
-        :function-name="usagesFunctionName"
-        :usages="usagesList"
-        :selected-index="usagesSelectedIndex"
-        :theme="props.theme || globalTheme"
-        @select="handleUsageSelect"
-        @confirm="handleUsageConfirm"
-        @close="handleUsageClose"
-      />
+      <transition name="fade">
+        <div v-if="showUsagesPalette" class="palette-backdrop" @click.self="closeUsagesPaletteCompare">
+          <div class="palette-container glass-effect">
+            <div class="palette-input-wrapper">
+              <span class="palette-icon usages-symbol">⤾</span>
+              <input 
+                ref="usagesPaletteInput"
+                v-model="usagesPaletteQuery" 
+                class="palette-input" 
+                :placeholder="`Usages of ${currentUsageFunctionNameCompare} (${usagesPaletteResults.length} found)...`" 
+                autofocus
+                @keydown="handleUsagesPaletteKeyDown"
+              />
+              <span class="palette-count" v-if="usagesPaletteResults.length">{{ usagesPaletteResults.length }}</span>
+            </div>
+            <div v-if="usagesPaletteResults.length > 0" class="palette-results">
+              <div 
+                v-for="(item, idx) in usagesPaletteResults" 
+                :key="item.name + ':' + item.line + ':' + item.column" 
+                class="palette-item"
+                :class="{ active: idx === usagesPaletteSelectedIndex }"
+                @click="confirmUsageCompare(item)"
+              >
+                <span class="fn-badge usage-badge">Line {{ item.line }}</span>
+                <div class="file-info">
+                  <div class="file-name usage-name">
+                    {{ item.name }}
+                    <span class="fn-line-tag">Col {{ item.column }}</span>
+                  </div>
+                  <div class="file-path fn-preview">{{ item.preview }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="palette-empty">
+              <span>Không tìm thấy usage nào</span>
+            </div>
+          </div>
+        </div>
+      </transition>
     </Teleport>
 
     <!-- Compare Toast Notification -->
@@ -962,4 +1112,24 @@ onUnmounted(() => {
   border-radius: 0 !important;
   box-shadow: 4px 4px 0 #000 !important;
 }
+
+/* Usages Palette Styling */
+.palette-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; padding-top: 10vh; z-index: 10000; }
+.palette-container { width: 600px; max-width: 90%; background: var(--container-bg); border: 1px solid var(--accent-color); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; height: fit-content; max-height: 400px; }
+.palette-input-wrapper { padding: 15px; border-bottom: 1px solid rgba(128,128,128,0.1); display: flex; align-items: center; gap: 12px; }
+.palette-input { flex: 1; background: var(--input-bg); border: none; color: var(--text-color); font-size: 0.9rem; outline: none; padding: 6px; border-radius: 4px; }
+.palette-count { font-size: 0.75rem; opacity: 0.6; font-weight: 700; background: rgba(128, 128, 128, 0.2); padding: 2px 8px; border-radius: 10px; }
+.palette-results { overflow-y: auto; }
+.palette-item { padding: 10px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid rgba(128,128,128,0.05); transition: 0.2s; }
+.palette-item:hover, .palette-item.active { background: rgba(99, 102, 241, 0.15); }
+.palette-empty { padding: 24px; text-align: center; opacity: 0.5; font-size: 0.85rem; }
+.file-info { display: flex; flex-direction: column; gap: 2px; }
+.file-name { font-size: 0.85rem; font-weight: 700; color: var(--text-color); }
+.file-path { font-size: 0.65rem; opacity: 0.4; }
+.palette-icon { opacity: 0.5; display: flex; }
+.usages-symbol { font-size: 1.2rem; color: var(--accent-color); font-weight: bold; }
+.usage-badge { background: var(--accent-color); color: white; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; font-family: monospace; flex-shrink: 0; }
+.usage-name { font-family: monospace; font-size: 0.8rem; }
+.fn-line-tag { opacity: 0.6; font-size: 0.7rem; margin-left: 6px; }
+.fn-preview { font-family: monospace; }
 </style>

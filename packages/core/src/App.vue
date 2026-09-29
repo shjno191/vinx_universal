@@ -156,6 +156,7 @@ const handleGlobalDrop = (e: DragEvent) => {
   e.preventDefault();
 };
 
+
 // Persistence Watchers
 watch([projectRootPath, gitTabRepoPath], async ([root, git]) => {
   await saveSettings({ last_project_root: root, last_git_repo: git });

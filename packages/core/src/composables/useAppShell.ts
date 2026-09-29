@@ -30,7 +30,6 @@ export function useAppShell() {
 
   watch(currentTab, (newTab) => {
     activeTab.value = newTab;
-
     if (!initializedTabs[newTab]) {
       initializedTabs[newTab] = true;
     }

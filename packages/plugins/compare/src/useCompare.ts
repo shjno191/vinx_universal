@@ -44,6 +44,23 @@ export function useCompare() {
     const original = editor.getOriginalEditor();
     const modified = editor.getModifiedEditor();
 
+    try {
+      editor.updateOptions({
+        diffWordWrap: 'on',
+        wordWrap: 'on',
+      });
+      original?.updateOptions({
+        wordWrap: 'on',
+        wordWrapOverride1: 'on',
+      });
+      modified?.updateOptions({
+        wordWrap: 'on',
+        wordWrapOverride1: 'on',
+      });
+    } catch (e) {
+      console.warn('[useCompare] Failed to apply wordWrap options:', e);
+    }
+
     original.onDidChangeModelContent(() => {
       const val = normalize(original.getValue());
       if (normalize(originalText.value) !== val) {

@@ -88,7 +88,7 @@
 ## Compare Tab Theme Fix & Ctrl+Up Function Navigation (Sep 29, 2026)
 
 - [x] Fix Compare Tab background color and theme to match Editor Tab across all themes <!-- id: 58 -->
-- [x] Create shared function navigation utility in @vinx/sdk (`function-navigation.ts`) <!-- id: 59 -->
+fix warp compare- [x] Create shared function navigation utility in @vinx/sdk (`function-navigation.ts`) <!-- id: 59 -->
 - [x] Support `ctrl+arrowup` / `ctrl+up` shortcut in SDK keyboard utils, settings store, and SettingsTab UI <!-- id: 60 -->
 - [x] Implement Ctrl+Up function navigation and Usages modal in EditorTab.vue <!-- id: 61 -->
 - [x] Implement Ctrl+Up function navigation and Usages modal in CompareTab.vue <!-- id: 62 -->
@@ -189,7 +189,10 @@
 - [x] Verify clean production build with `npm run build -w packages/core` <!-- id: 127 -->
 - [x] Update `task/lesson.md` <!-- id: 128 -->
 
+## Enable Default Word Wrap on Left Compare Tab (Oct 5, 2026)
 
-
-
+- [x] Add `diffWordWrap: 'on'` to `currentOptions` in `packages/plugins/compare/src/CompareTab.vue` <!-- id: 129 -->
+- [x] Explicitly enforce wordWrap on `original` and `modified` editors in `handleEditorMount` in `packages/plugins/compare/src/useCompare.ts` <!-- id: 130 -->
+- [x] Ensure `renderSideBySide` watcher updates diffWordWrap and sub-editor wordWrap in `CompareTab.vue` <!-- id: 131 -->
+- [x] Verify test suite and type check <!-- id: 132 -->
 

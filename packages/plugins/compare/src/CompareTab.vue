@@ -154,6 +154,7 @@ const currentOptions = computed(() => ({
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   wordWrap: 'on' as const,
+  diffWordWrap: 'on' as const,
   renderSideBySide: renderSideBySide.value,
   originalEditable: true, 
   readOnly: false,
@@ -167,6 +168,39 @@ const currentOptions = computed(() => ({
   },
   theme: activeCompareTheme.value,
 }));
+
+const applyWordWrap = () => {
+  if (!diffEditorRef.value) return;
+  try {
+    diffEditorRef.value.updateOptions({
+      diffWordWrap: 'on',
+      wordWrap: 'on',
+    });
+    diffEditorRef.value.getOriginalEditor()?.updateOptions({
+      wordWrap: 'on',
+      wordWrapOverride1: 'on',
+    });
+    diffEditorRef.value.getModifiedEditor()?.updateOptions({
+      wordWrap: 'on',
+      wordWrapOverride1: 'on',
+    });
+  } catch (_) {}
+};
+
+watch(renderSideBySide, () => {
+  nextTick(() => {
+    applyWordWrap();
+  });
+});
+
+watch(activeTab, (tab) => {
+  if (tab === 'Compare') {
+    nextTick(() => {
+      applyWordWrap();
+      diffEditorRef.value?.layout?.();
+    });
+  }
+});
 
 // --- Drag & Drop State & Handlers ---rs ---
 const editorWrapperRef = ref<HTMLElement | null>(null);

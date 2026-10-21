@@ -134,6 +134,7 @@ const activeEditorTheme = ref(globalTheme.value === 'dark' ? 'vs-dark' : 'vs-lig
 const editors = { left: null as any, right: null as any };
 
 let isNavigatingCursorHistory = false;
+let isPreviewingUsage = false;
 
 // --- Palette state ---
 const showFilePalette = ref(false);

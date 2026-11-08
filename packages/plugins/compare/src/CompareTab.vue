@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import * as monaco from 'monaco-editor';
 import { VueMonacoDiffEditor, loader } from '@guolao/vue-monaco-editor';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -50,7 +50,7 @@ const {
 
 const { readFile } = useFileSystem();
 
-const monacoInstance = ref<any>(null);
+const monacoInstance = shallowRef<any>(null);
 
 const registerBoiScriptAndTheme = (monacoRef: any) => {
   if (!monacoRef) return;
@@ -155,7 +155,11 @@ const currentOptions = computed(() => ({
   scrollBeyondLastLine: false,
   wordWrap: 'on' as const,
   diffWordWrap: 'on' as const,
+  wordWrapOverride1: 'on' as const,
+  wordWrapOverride2: 'on' as const,
   renderSideBySide: renderSideBySide.value,
+  useInlineViewWhenSpaceIsLimited: false,
+  renderSideBySideInlineBreakpoint: 0,
   originalEditable: true, 
   readOnly: false,
   domReadOnly: false,
@@ -175,14 +179,18 @@ const applyWordWrap = () => {
     diffEditorRef.value.updateOptions({
       diffWordWrap: 'on',
       wordWrap: 'on',
+      useInlineViewWhenSpaceIsLimited: false,
+      renderSideBySideInlineBreakpoint: 0,
     });
     diffEditorRef.value.getOriginalEditor()?.updateOptions({
       wordWrap: 'on',
       wordWrapOverride1: 'on',
+      wordWrapOverride2: 'on',
     });
     diffEditorRef.value.getModifiedEditor()?.updateOptions({
       wordWrap: 'on',
       wordWrapOverride1: 'on',
+      wordWrapOverride2: 'on',
     });
   } catch (_) {}
 };

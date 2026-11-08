@@ -18,6 +18,8 @@ export interface Tab {
   diffData?: { original: string; modified: string };
   pane?: 'left' | 'right';
   isTemp?: boolean;
+  rawCsvContent?: string;
+  isCsvFormatted?: boolean;
 }
 
 export function useEditorTabs() {
@@ -159,6 +161,13 @@ export function useEditorTabs() {
       }
 
       const id = addTab(name, initialContent, getFileLanguage(ext), path, focusedPane.value, isTemp);
+      if (isCsv) {
+        const added = tabs.value.find(t => t.id === id);
+        if (added) {
+          added.rawCsvContent = content;
+          added.isCsvFormatted = true;
+        }
+      }
       return id;
     } catch (e) {
       console.error('[EditorTabs] Failed to open file:', e);

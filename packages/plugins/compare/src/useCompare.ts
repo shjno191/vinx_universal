@@ -1,10 +1,10 @@
-import { ref, watch } from 'vue';
+import { ref, shallowRef, watch } from 'vue';
 import { sharedInput, sharedOutput, activeTab } from '@vinx/sdk';
 
 export function useCompare() {
   const originalText = ref(sharedInput.value);
   const modifiedText = ref(sharedOutput.value);
-  const diffEditorRef = ref<any>(null);
+  const diffEditorRef = shallowRef<any>(null);
 
   const normalize = (val: string) => (val ? val.replace(/\r\n/g, '\n') : '');
 
@@ -39,27 +39,46 @@ export function useCompare() {
     }
   });
 
+  const enforceBothEditorsWordWrap = (editorInstance = diffEditorRef.value) => {
+    if (!editorInstance) return;
+    try {
+      editorInstance.updateOptions({
+        diffWordWrap: 'on',
+        wordWrap: 'on',
+        useInlineViewWhenSpaceIsLimited: false,
+        renderSideBySideInlineBreakpoint: 0,
+      });
+      const original = editorInstance.getOriginalEditor?.();
+      const modified = editorInstance.getModifiedEditor?.();
+      original?.updateOptions({
+        wordWrap: 'on',
+        wordWrapOverride1: 'on',
+        wordWrapOverride2: 'on',
+      });
+      modified?.updateOptions({
+        wordWrap: 'on',
+        wordWrapOverride1: 'on',
+        wordWrapOverride2: 'on',
+      });
+    } catch (e) {
+      console.warn('[useCompare] Failed to apply wordWrap options:', e);
+    }
+  };
+
   const handleEditorMount = (editor: any) => {
     diffEditorRef.value = editor;
     const original = editor.getOriginalEditor();
     const modified = editor.getModifiedEditor();
 
-    try {
-      editor.updateOptions({
-        diffWordWrap: 'on',
-        wordWrap: 'on',
-      });
-      original?.updateOptions({
-        wordWrap: 'on',
-        wordWrapOverride1: 'on',
-      });
-      modified?.updateOptions({
-        wordWrap: 'on',
-        wordWrapOverride1: 'on',
-      });
-    } catch (e) {
-      console.warn('[useCompare] Failed to apply wordWrap options:', e);
-    }
+    enforceBothEditorsWordWrap(editor);
+
+    original?.onDidChangeModel?.(() => {
+      enforceBothEditorsWordWrap(editor);
+    });
+
+    modified?.onDidChangeModel?.(() => {
+      enforceBothEditorsWordWrap(editor);
+    });
 
     original.onDidChangeModelContent(() => {
       const val = normalize(original.getValue());

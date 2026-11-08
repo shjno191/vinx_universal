@@ -277,14 +277,14 @@ export function compactCsv(text: string, customDelimiter?: string): { text: stri
  */
 export function isCsvAligned(text: string, delimiter: string): boolean {
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0).slice(0, 10);
-  if (lines.length < 2) return false;
+  if (lines.length < 1) return false;
   // If lines consistently use " , " or padding spaces before/after delimiter
   const spacedDelim = ` ${delimiter} `;
   let count = 0;
   for (const line of lines) {
     if (line.includes(spacedDelim)) count++;
   }
-  return count >= Math.ceil(lines.length * 0.7);
+  return count > 0 && count >= Math.ceil(lines.length * 0.7);
 }
 
 /**

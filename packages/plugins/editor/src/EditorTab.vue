@@ -649,23 +649,48 @@ const handleFormatCsv = (pane: 'left' | 'right') => {
   if (!text.trim()) return;
 
   const delimiter = detectDelimiter(text);
-  const alreadyAligned = isCsvAligned(text, delimiter);
-
-  // Toggle: if already aligned, compact it; otherwise align columns
-  const result = alreadyAligned ? compactCsv(text, delimiter) : alignCsv(text, delimiter);
+  const isCurrentlyFormatted = Boolean(
+    curTab?.isCsvFormatted || activeCsvMode.value[pane] || isCsvAligned(text, delimiter)
+  );
 
   const fullRange = model.getFullModelRange();
-  editor.executeEdits('format-csv', [{ range: fullRange, text: result.text, forceMoveMarkers: true }]);
 
-  if (curTab) {
-    curTab.language = 'csv';
+  if (isCurrentlyFormatted) {
+    // Revert to initial raw format
+    let rawText: string;
+    if (curTab?.rawCsvContent !== undefined) {
+      const currentCompacted = compactCsv(text, delimiter).text;
+      const savedCompacted = compactCsv(curTab.rawCsvContent, delimiter).text;
+      // Restore exact original raw string if cell values haven't been modified, otherwise compact current edits
+      rawText = currentCompacted === savedCompacted ? curTab.rawCsvContent : currentCompacted;
+    } else {
+      rawText = compactCsv(text, delimiter).text;
+    }
+
+    if (curTab) {
+      curTab.isCsvFormatted = false;
+      curTab.rawCsvContent = undefined;
+      curTab.content = rawText;
+    }
+    activeCsvMode.value[pane] = false;
+    editor.executeEdits('format-csv', [{ range: fullRange, text: rawText, forceMoveMarkers: true }]);
+    nextTick(() => {
+      updateCsvDecorations(pane);
+    });
+  } else {
+    // Format / align CSV columns and enable rainbow highlighting
+    const aligned = alignCsv(text, delimiter).text;
+    if (curTab) {
+      curTab.rawCsvContent = text;
+      curTab.isCsvFormatted = true;
+      curTab.content = aligned;
+    }
+    activeCsvMode.value[pane] = true;
+    editor.executeEdits('format-csv', [{ range: fullRange, text: aligned, forceMoveMarkers: true }]);
+    nextTick(() => {
+      updateCsvDecorations(pane);
+    });
   }
-
-  // Enable rainbow coloring and apply decorations
-  activeCsvMode.value[pane] = true;
-  nextTick(() => {
-    updateCsvDecorations(pane);
-  });
 };
 
 watch(activeTabLeft, (newTab) => {
@@ -679,13 +704,21 @@ watch(activeTabLeft, (newTab) => {
       return;
     }
 
+    if (newTab.isCsvFormatted !== undefined) {
+      activeCsvMode.value.left = newTab.isCsvFormatted;
+      nextTick(() => updateCsvDecorations('left'));
+      return;
+    }
+
     const isCsv = newTab.language === 'csv' || newTab.name.endsWith('.csv') || newTab.name.endsWith('.tsv') || newTab.path?.endsWith('.csv');
     activeCsvMode.value.left = isCsv;
     if (isCsv && newTab.content) {
       const delim = detectDelimiter(newTab.content);
       if (!isCsvAligned(newTab.content, delim)) {
+        newTab.rawCsvContent = newTab.content;
         newTab.content = alignCsv(newTab.content, delim).text;
       }
+      newTab.isCsvFormatted = true;
     }
     nextTick(() => updateCsvDecorations('left'));
   }
@@ -702,13 +735,21 @@ watch(activeTabRight, (newTab) => {
       return;
     }
 
+    if (newTab.isCsvFormatted !== undefined) {
+      activeCsvMode.value.right = newTab.isCsvFormatted;
+      nextTick(() => updateCsvDecorations('right'));
+      return;
+    }
+
     const isCsv = newTab.language === 'csv' || newTab.name.endsWith('.csv') || newTab.name.endsWith('.tsv') || newTab.path?.endsWith('.csv');
     activeCsvMode.value.right = isCsv;
     if (isCsv && newTab.content) {
       const delim = detectDelimiter(newTab.content);
       if (!isCsvAligned(newTab.content, delim)) {
+        newTab.rawCsvContent = newTab.content;
         newTab.content = alignCsv(newTab.content, delim).text;
       }
+      newTab.isCsvFormatted = true;
     }
     nextTick(() => updateCsvDecorations('right'));
   }
@@ -790,8 +831,12 @@ const handleEditorMount = (editor: any, pane: 'left' | 'right') => {
   editor.onDidChangeModel(() => {
     const curTab = pane === 'left' ? activeTabLeft.value : activeTabRight.value;
     if (curTab) {
-      const isCsv = curTab.language === 'csv' || curTab.name.endsWith('.csv') || curTab.name.endsWith('.tsv') || curTab.path?.endsWith('.csv');
-      activeCsvMode.value[pane] = isCsv;
+      if (curTab.isCsvFormatted !== undefined) {
+        activeCsvMode.value[pane] = curTab.isCsvFormatted;
+      } else {
+        const isCsv = curTab.language === 'csv' || curTab.name.endsWith('.csv') || curTab.name.endsWith('.tsv') || curTab.path?.endsWith('.csv');
+        activeCsvMode.value[pane] = isCsv;
+      }
     }
     nextTick(() => {
       updateCsvDecorations(pane);
@@ -1726,7 +1771,14 @@ const handleContainerDrop = async (e: DragEvent) => {
             content = alignCsv(content).text;
           } catch (_) {}
         }
-        addTab(file.name, content, getFileLanguage(ext), undefined, focusedPane.value);
+        const id = addTab(file.name, content, getFileLanguage(ext), undefined, focusedPane.value);
+        if (isCsv) {
+          const added = tabs.value.find(t => t.id === id);
+          if (added) {
+            added.rawCsvContent = text;
+            added.isCsvFormatted = true;
+          }
+        }
       }
     }
   }

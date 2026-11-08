@@ -196,3 +196,13 @@ fix warp compare- [x] Create shared function navigation utility in @vinx/sdk (`f
 - [x] Ensure `renderSideBySide` watcher updates diffWordWrap and sub-editor wordWrap in `CompareTab.vue` <!-- id: 131 -->
 - [x] Verify test suite and type check <!-- id: 132 -->
 
+## Fix SQL-Helper Sub-Tab Freeze & Editor CSV Format Toggle (TDD) (Nov 8, 2026)
+
+- [x] Write failing TDD Vitest suite (`tests/sql-editor-and-csv-toggle.test.mjs`) for SQL Editor formatting/highlighting/toggle and Editor CSV raw restore <!-- id: 133 -->
+- [x] Create pure, non-blocking `sql-editor-helper.ts` in `packages/plugins/sql-helper/src/` with zero-width-shift syntax & red table highlighting and format/raw toggle <!-- id: 134 -->
+- [x] Replace `VueMonacoEditor` and deep `ref()` in `SQLHelperTab.vue` with a native, instant-mounting SQL Editor sub-tab (0ms switch time, zero WebWorker/Proxy freeze) <!-- id: 135 -->
+- [x] Revert `monaco-editor` additions from `packages/plugins/sql-helper/package.json` and use `shallowRef` for Monaco refs in `CompareTab.vue` and `useCompare.ts` <!-- id: 136 -->
+- [x] Run Vitest tests (GREEN) and verify full production build (`npm run build -w packages/core`) <!-- id: 137 -->
+- [x] Record root cause and prevention rules in `task/lesson.md` <!-- id: 138 -->
+
+

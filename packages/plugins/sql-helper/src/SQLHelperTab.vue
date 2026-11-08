@@ -1,7 +1,16 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
-import { activeTab, Icons } from '@vinx/sdk';
+import { ref, computed, watch, onMounted, nextTick } from 'vue';
+import { activeTab, theme as globalTheme, Icons } from '@vinx/sdk';
 import { useSQLHelper } from './useSQLHelper';
+import {
+  formatSqlInEditor,
+  highlightSqlForEditor,
+  computeLineCount,
+} from './sql-editor-helper';
+
+const props = defineProps<{ theme?: string; isActive?: boolean; active?: boolean }>();
+
+const activeSubTab = ref<'log' | 'sql'>('log');
 
 const {
   logPath,
@@ -16,7 +25,6 @@ const {
   highlightSql,
   loadFromFile,
   chooseFile,
-  processSql,
   formatSql,
   updateDisplayHtml,
   extractById
@@ -45,6 +53,129 @@ const handlePaste = (e: ClipboardEvent) => {
   updateDisplayHtml();
 };
 
+// --- Sub-tab 2: Native Non-Blocking SQL Editor & Formatter ---
+const sqlEditorContent = ref('');
+const rawSqlBeforeFormat = ref<string | null>(null);
+const isSqlFormatted = ref(false);
+const copyFeedback = ref(false);
+
+const sqlTextareaRef = ref<HTMLTextAreaElement | null>(null);
+const sqlBackdropRef = ref<HTMLElement | null>(null);
+const sqlGutterRef = ref<HTMLElement | null>(null);
+
+const sqlEditorLineCount = computed(() => computeLineCount(sqlEditorContent.value));
+
+const highlightedSqlEditorHtml = computed(() =>
+  highlightSqlForEditor(sqlEditorContent.value)
+);
+
+const syncSqlEditorScroll = () => {
+  const ta = sqlTextareaRef.value;
+  if (!ta) return;
+  if (sqlBackdropRef.value) {
+    sqlBackdropRef.value.scrollTop = ta.scrollTop;
+    sqlBackdropRef.value.scrollLeft = ta.scrollLeft;
+  }
+  if (sqlGutterRef.value) {
+    sqlGutterRef.value.scrollTop = ta.scrollTop;
+  }
+};
+
+const handleFormatSqlEditor = () => {
+  const ta = sqlTextareaRef.value;
+  const selStart = ta ? ta.selectionStart : undefined;
+  const selEnd = ta ? ta.selectionEnd : undefined;
+
+  const result = formatSqlInEditor({
+    text: sqlEditorContent.value,
+    rawBeforeFormat: rawSqlBeforeFormat.value,
+    isFormatted: isSqlFormatted.value,
+    selectionStart: selStart,
+    selectionEnd: selEnd,
+  });
+
+  sqlEditorContent.value = result.text;
+  rawSqlBeforeFormat.value = result.rawBeforeFormat;
+  isSqlFormatted.value = result.isFormatted;
+
+  nextTick(() => {
+    syncSqlEditorScroll();
+    ta?.focus();
+  });
+};
+
+const handleSqlEditorKeyDown = (e: KeyboardEvent) => {
+  // Format SQL shortcut: Ctrl+Alt+F or Shift+Alt+F
+  if (
+    e.altKey &&
+    (e.ctrlKey || e.metaKey || e.shiftKey) &&
+    (e.key === 'f' || e.key === 'F' || e.code === 'KeyF')
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    handleFormatSqlEditor();
+    return;
+  }
+
+  // Insert tab character when pressing Tab inside the SQL editor
+  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    e.preventDefault();
+    const ta = sqlTextareaRef.value;
+    if (!ta) return;
+    const start = ta.selectionStart ?? 0;
+    const end = ta.selectionEnd ?? 0;
+    const current = sqlEditorContent.value;
+    sqlEditorContent.value = current.slice(0, start) + '\t' + current.slice(end);
+    nextTick(() => {
+      ta.selectionStart = ta.selectionEnd = start + 1;
+    });
+  }
+};
+
+const pasteToSqlEditor = async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) return;
+    sqlEditorContent.value = text;
+    isSqlFormatted.value = false;
+    rawSqlBeforeFormat.value = null;
+    nextTick(() => {
+      syncSqlEditorScroll();
+      sqlTextareaRef.value?.focus();
+    });
+  } catch (err) {
+    console.error('Failed to paste from clipboard:', err);
+  }
+};
+
+const copySqlEditorContent = async () => {
+  if (!sqlEditorContent.value) return;
+  await navigator.clipboard.writeText(sqlEditorContent.value);
+  copyFeedback.value = true;
+  setTimeout(() => {
+    copyFeedback.value = false;
+  }, 1500);
+};
+
+const clearSqlEditor = () => {
+  sqlEditorContent.value = '';
+  isSqlFormatted.value = false;
+  rawSqlBeforeFormat.value = null;
+  nextTick(() => {
+    syncSqlEditorScroll();
+    sqlTextareaRef.value?.focus();
+  });
+};
+
+watch(activeSubTab, (sub) => {
+  if (sub === 'sql') {
+    nextTick(() => {
+      syncSqlEditorScroll();
+      sqlTextareaRef.value?.focus();
+    });
+  }
+});
+
 watch([logContent, activeTab], () => {
   if (activeTab.value !== 'SQL-Helper') return;
   updateDisplayHtml();
@@ -58,24 +189,68 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="sql-helper-container">
+  <div class="sql-helper-container" :class="[`theme-${props.theme || globalTheme}`, { 'theme-95': (props.theme || globalTheme) === '95' }]">
+    <!-- Top Bar with Sub-Tab Switcher -->
     <div class="control-bar glass">
-      <div class="file-picker-group">
-        <button @click="chooseFile" class="theme-button choose-btn">
-          <span v-html="Icons.Folder" class="btn-icon"></span>
-          Open Log
-        </button>
-        <span v-if="logPath" class="file-path-display" :title="logPath">{{ logPath.split(/[\\/]/).pop() }}</span>
+      <div class="left-controls">
+        <div class="subtab-switcher">
+          <button 
+            class="subtab-btn" 
+            :class="{ active: activeSubTab === 'log' }" 
+            @click="activeSubTab = 'log'"
+          >
+            <span v-html="Icons.FileText" class="subtab-icon"></span>
+            Log
+          </button>
+          <button 
+            class="subtab-btn" 
+            :class="{ active: activeSubTab === 'sql' }" 
+            @click="activeSubTab = 'sql'"
+          >
+            <span v-html="Icons.Edit" class="subtab-icon"></span>
+            SQL Editor
+          </button>
+        </div>
+
+        <div v-if="activeSubTab === 'log'" class="file-picker-group">
+          <button @click="chooseFile" class="theme-button choose-btn">
+            <span v-html="Icons.Folder" class="btn-icon"></span>
+            Open Log
+          </button>
+          <span v-if="logPath" class="file-path-display" :title="logPath">{{ logPath.split(/[\\/]/).pop() }}</span>
+        </div>
       </div>
-      <div class="action-group">
+
+      <!-- Right Actions for Log Sub-tab -->
+      <div v-if="activeSubTab === 'log'" class="action-group">
         <button v-if="extractions.length > 0" @click="clearAllExtractions" class="theme-button clear-all-btn">
           <span v-html="Icons.Trash" class="btn-icon"></span>
           Clear All ({{ extractions.length }})
         </button>
       </div>
+
+      <!-- Right Actions for SQL Editor Sub-tab -->
+      <div v-else class="action-group">
+        <button @click="handleFormatSqlEditor" class="theme-button choose-btn" title="Format SQL / Toggle Raw (Ctrl+Alt+F)">
+          <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="15" y1="12" x2="3" y2="12"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>
+          Format SQL
+        </button>
+        <button @click="pasteToSqlEditor" class="theme-button" title="Paste from Clipboard">
+          <span v-html="Icons.Copy" class="btn-icon"></span>
+          Paste
+        </button>
+        <button @click="copySqlEditorContent" class="theme-button" :disabled="!sqlEditorContent.trim()" title="Copy SQL">
+          <span>{{ copyFeedback ? 'Copied!' : 'Copy' }}</span>
+        </button>
+        <button v-if="sqlEditorContent.trim()" @click="clearSqlEditor" class="theme-button clear-all-btn" title="Clear SQL">
+          <span v-html="Icons.Trash" class="btn-icon"></span>
+          Clear
+        </button>
+      </div>
     </div>
 
-    <div class="sql-helper-split">
+    <!-- Sub-Tab 1: Log Viewer & SQL Extractions -->
+    <div v-show="activeSubTab === 'log'" class="sql-helper-split">
       <div class="log-viewer-pane border-right">
         <div class="pane-header glass-header">
           <div class="header-left">
@@ -155,9 +330,50 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Sub-Tab 2: Fast, Zero-Freeze Native SQL Editor & Formatter -->
+    <div v-show="activeSubTab === 'sql'" class="sql-editor-pane">
+      <div class="pane-header glass-header">
+        <div class="header-left">
+          <span class="pane-title">SQL EDITOR & FORMATTER</span>
+          <span class="editor-hint">Paste raw SQL or Java StringBuilder SQL, then click Format SQL (Ctrl+Alt+F)</span>
+        </div>
+        <div class="header-right-meta">
+          <span class="line-count-badge">{{ sqlEditorLineCount }} {{ sqlEditorLineCount === 1 ? 'line' : 'lines' }}</span>
+        </div>
+      </div>
+
+      <div class="native-sql-editor-body">
+        <!-- Line Number Gutter -->
+        <div ref="sqlGutterRef" class="sql-editor-gutter" aria-hidden="true">
+          <div v-for="n in sqlEditorLineCount" :key="n" class="gutter-line-num">{{ n }}</div>
+        </div>
+
+        <!-- Synchronized Highlighted Backdrop + Editable Textarea -->
+        <div class="sql-editor-stage">
+          <pre
+            ref="sqlBackdropRef"
+            class="sql-editor-backdrop"
+            aria-hidden="true"
+          ><code v-html="highlightedSqlEditorHtml + '\n'"></code></pre>
+
+          <textarea
+            ref="sqlTextareaRef"
+            v-model="sqlEditorContent"
+            class="sql-editor-textarea"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+            autocorrect="off"
+            placeholder="Paste or type your SQL query here (or Java StringBuilder.append SQL)...&#10;Press Format SQL (Ctrl+Alt+F) to clean and format."
+            @scroll="syncSqlEditorScroll"
+            @keydown="handleSqlEditorKeyDown"
+          ></textarea>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
-
 
 <style scoped>
 .sql-helper-container { display: flex; flex-direction: column; height: 100%; background: var(--bg-color); gap: 10px; box-sizing: border-box; overflow: hidden; padding: 10px 15px; }
@@ -176,16 +392,206 @@ onMounted(() => {
   border-radius: 12px 12px 0 0;
 }
 
-.control-bar { padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.control-bar { padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 12px; }
+.left-controls { display: flex; align-items: center; gap: 14px; }
+
+.subtab-switcher {
+  display: flex;
+  padding: 3px;
+  border-radius: 10px;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(128, 128, 128, 0.15);
+}
+
+.subtab-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  border-radius: 7px;
+  cursor: pointer;
+  opacity: 0.6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  transition: all 0.18s;
+}
+
+.subtab-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.subtab-btn.active {
+  opacity: 1;
+  color: #ffffff;
+  background: var(--accent-color, #6366f1);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+.subtab-icon {
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  height: 14px;
+}
+
+.subtab-icon :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
 .file-picker-group { display: flex; align-items: center; gap: 12px; }
 .file-path-display { font-size: 0.75rem; opacity: 0.6; font-weight: 700; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.action-group { display: flex; gap: 10px; }
+.action-group { display: flex; align-items: center; gap: 8px; }
 
-.btn-icon { margin-right: 6px; }
+.btn-icon { margin-right: 6px; display: inline-flex; align-items: center; }
 
 .sql-helper-split { display: flex; flex: 1; overflow: hidden; gap: 12px; }
 .log-viewer-pane { flex: 1.2; display: flex; flex-direction: column; background: var(--container-bg); border-radius: 12px; border: 1px solid rgba(128, 128, 128, 0.1); overflow: hidden; }
 .extraction-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* Sub-tab 2: Native SQL Editor Pane */
+.sql-editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--container-bg);
+  border-radius: 12px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.editor-hint {
+  font-size: 0.72rem;
+  opacity: 0.5;
+  font-weight: 500;
+}
+
+.line-count-badge {
+  font-size: 0.68rem;
+  opacity: 0.55;
+  font-family: 'Consolas', monospace;
+  font-weight: 700;
+}
+
+.native-sql-editor-body {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.sql-editor-gutter {
+  width: 48px;
+  padding: 14px 8px 14px 4px;
+  box-sizing: border-box;
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.14);
+  border-right: 1px solid rgba(128, 128, 128, 0.12);
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-color);
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.gutter-line-num {
+  height: 22.275px;
+}
+
+.sql-editor-stage {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sql-editor-backdrop,
+.sql-editor-textarea {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13.5px;
+  line-height: 1.65;
+  tab-size: 4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  overflow: auto;
+  letter-spacing: normal;
+}
+
+.sql-editor-backdrop {
+  pointer-events: none;
+  color: var(--text-color);
+  background: transparent;
+  z-index: 1;
+}
+
+.sql-editor-backdrop code {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  tab-size: inherit;
+  white-space: inherit;
+}
+
+.sql-editor-textarea {
+  z-index: 2;
+  color: transparent;
+  caret-color: var(--text-color);
+  background: transparent;
+  resize: none;
+}
+
+.sql-editor-textarea::placeholder {
+  color: var(--text-color);
+  opacity: 0.35;
+}
+
+.sql-editor-textarea::selection {
+  background: rgba(99, 102, 241, 0.32);
+  color: transparent;
+}
+
+/* 1:1 Character-Width Preserving Syntax Highlighting inside SQL Editor */
+:deep(.sql-ed-kwd) {
+  color: #569cd6;
+}
+
+:deep(.sql-ed-tbl) {
+  color: #ff3344;
+  background-color: rgba(255, 51, 68, 0.2);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 51, 68, 0.4);
+}
+
+:deep(.sql-ed-str) {
+  color: #ce9178;
+}
+
+:deep(.sql-ed-cmt) {
+  color: #6a9955;
+}
+
 .pane-header { padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; min-height: 40px; flex-shrink: 0; }
 .pane-title { font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; color: var(--accent-color); opacity: 0.8; }
 .header-left { display: flex; align-items: center; gap: 12px; }
@@ -241,14 +647,6 @@ onMounted(() => {
   background: transparent; 
   color: var(--text-color); 
   outline: none;
-}
-
-
-.editable-log:empty::before {
-  content: attr(data-placeholder);
-  color: var(--text-color);
-  opacity: 0.35;
-  pointer-events: none;
 }
 
 .log-warning-overlay {
@@ -327,7 +725,6 @@ onMounted(() => {
   text-decoration: underline;
 }
 
-/* Real fluorescent highlight when ID is clicked/selected */
 :deep(.clickable-id.existing-id) { 
   color: #0f172a !important;
   background: #facc15 !important;
@@ -358,42 +755,59 @@ onMounted(() => {
 
 :deep(.sql-str) { color: #ce9178; }
 
-.theme-button { padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(128, 128, 128, 0.2); background: rgba(128, 128, 128, 0.1); color: var(--text-color); cursor: pointer; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; transition: all 0.2s; }
-.theme-button:hover { background: rgba(128, 128, 128, 0.2); transform: translateY(-1px); }
+.theme-button { padding: 7px 14px; border-radius: 9px; border: 1px solid rgba(128, 128, 128, 0.2); background: rgba(128, 128, 128, 0.1); color: var(--text-color); cursor: pointer; font-size: 0.75rem; font-weight: 800; display: inline-flex; align-items: center; transition: all 0.2s; }
+.theme-button:hover:not(:disabled) { background: rgba(128, 128, 128, 0.2); transform: translateY(-1px); }
+.theme-button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .choose-btn { background: var(--accent-color); color: white; border: none; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
-.choose-btn:hover { background: #6366f1; box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4); }
+.choose-btn:hover:not(:disabled) { background: #6366f1; box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4); }
 
 .clear-all-btn { color: #f43f5e; border-color: rgba(244, 63, 94, 0.3); }
-.clear-all-btn:hover { background: rgba(244, 63, 94, 0.1); }
+.clear-all-btn:hover:not(:disabled) { background: rgba(244, 63, 94, 0.1); }
 
 /* Theme specific overrides */
 .theme-light .glass { background: rgba(255, 255, 255, 0.7); border-color: rgba(0,0,0,0.1); }
-.theme-light .log-viewer-pane { background: #fff; }
+.theme-light .log-viewer-pane, .theme-light .sql-editor-pane { background: #fff; }
+.theme-light .native-sql-editor-body { background: #f8fafc; }
+.theme-light .sql-editor-gutter { background: #f1f5f9; border-right-color: #e2e8f0; }
 .theme-light .sql-output { background-color: #f1f5f9; color: #1e293b; border-color: #e2e8f0; }
-.theme-light :deep(.sql-tbl) {
+.theme-light :deep(.sql-tbl),
+.theme-light :deep(.sql-ed-tbl) {
   color: #dc2626 !important;
   background: rgba(220, 38, 38, 0.12) !important;
   border-color: rgba(220, 38, 38, 0.4) !important;
   text-shadow: none !important;
 }
+.theme-light :deep(.sql-ed-kwd) {
+  color: #0284c7;
+}
+.theme-light :deep(.sql-ed-str) {
+  color: #b91c1c;
+}
 
 /* Windows 95 Theme Overrides */
-.theme-95 .glass, .theme-95 .glass-header, .theme-95 .extraction-unit { 
+.theme-95 .glass, .theme-95 .glass-header, .theme-95 .extraction-unit, .theme-95 .subtab-switcher { 
   background: #c0c0c0 !important; 
   border: 2px solid !important; 
   border-color: #fff #808080 #808080 #fff !important; 
   border-radius: 0 !important; 
   backdrop-filter: none !important; 
 }
-.theme-95 .theme-button, .theme-95 .mini-icon-btn, .theme-95 .format-btn, .theme-95 .copy-btn { 
+.theme-95 .theme-button, .theme-95 .mini-icon-btn, .theme-95 .format-btn, .theme-95 .copy-btn, .theme-95 .subtab-btn { 
   border: 2px solid !important; 
   border-color: #fff #808080 #808080 #fff !important; 
   border-radius: 0 !important; 
   background: #c0c0c0 !important; 
   color: #000 !important; 
+  box-shadow: none !important;
+}
+.theme-95 .subtab-btn.active {
+  background: #000080 !important;
+  color: #ffffff !important;
+  border-color: #808080 #fff #fff #808080 !important;
 }
 .theme-95 .log-viewer-pane,
+.theme-95 .sql-editor-pane,
 .theme-95 .sql-output {
   background: #ffffff !important;
   color: #000000 !important;
@@ -401,14 +815,29 @@ onMounted(() => {
   border-color: #808080 #fff #fff #808080 !important;
   border-radius: 0 !important;
 }
-.theme-95 :deep(.sql-kwd) {
-  color: #0000aa !important;
-  font-weight: bold !important;
+.theme-95 .native-sql-editor-body {
+  background: #ffffff !important;
 }
-.theme-95 :deep(.sql-str) {
+.theme-95 .sql-editor-gutter {
+  background: #dfdfdf !important;
+  color: #000000 !important;
+  opacity: 1 !important;
+  border-right: 1px solid #808080 !important;
+}
+.theme-95 :deep(.sql-kwd),
+.theme-95 :deep(.sql-ed-kwd) {
+  color: #0000aa !important;
+}
+.theme-95 :deep(.sql-str),
+.theme-95 :deep(.sql-ed-str) {
   color: #7f0000 !important;
 }
-/* Win95 Red Table Highlighting: Razor-sharp, high-contrast, pure classic red badge */
+.theme-95 :deep(.sql-ed-tbl) {
+  color: #cc0000 !important;
+  background: #ffe5e5 !important;
+  box-shadow: 0 0 0 1px #cc0000 !important;
+  border-radius: 0 !important;
+}
 .theme-95 :deep(.sql-tbl),
 :root.theme-95 :deep(.sql-tbl),
 .win95 :deep(.sql-tbl) {
@@ -447,5 +876,3 @@ onMounted(() => {
   border-radius: 0 !important;
 }
 </style>
-
-
